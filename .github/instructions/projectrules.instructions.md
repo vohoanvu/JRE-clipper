@@ -1,3 +1,8 @@
+---
+applyTo: '**'
+---
+Coding standards, domain knowledge, and preferences that AI should follow.
+
 ## General Rules
 - Always read and understand all documentation files before starting implementation
 - Follow the backend plan step by step
