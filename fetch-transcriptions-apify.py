@@ -9,7 +9,7 @@ import asyncio
 from urllib.parse import urlparse, parse_qs
 
 # Configuration
-API_TOKEN = "apify_api_Mu5P8LMwUgrg7hPnMMPktTKZNBPEdG3i1HiX"
+API_TOKEN = "apify_api_a0zhgb3vyCniOOuAjO7XwXmpWTUaMG02olg6"
 INPUT_CSV = 'jre-playlist.csv'
 OUTPUT_DIR = './results'
 
@@ -68,15 +68,27 @@ async def main():
         if 'Url' not in reader.fieldnames:
             print("Error: 'Url' column not found in the CSV.")
             return
+        if 'isTranscripted' not in reader.fieldnames:
+            print("Error: 'isTranscripted' column not found in the CSV.")
+            return
         
         urls_to_process = []
         for row in reader:
+            if row.get('title') == "Private video":
+                print(f"Skipping private video: {row.get('Url')}")
+                continue  # Skip this row if it's a private video
+            if row.get('isTranscripted', '').lower() != "false":
+                print(f"Skipping already transcribed video: {row.get('Url')}")
+                continue  # Skip if isTranscripted is not "false" (case-insensitive)
             url = row.get('Url')
             if url and extract_video_id(url) not in processed_ids:
                 urls_to_process.append(url)  # Collect URLs to process
+                print(f"Adding to process: {url} (not transcribed and not private)")
+        
+        print(f"Number of URLs to process: {len(urls_to_process)}")  # Print the count of URLs to be processed
         
         # Switch to asynchronous processing with concurrency limit
-        semaphore = asyncio.Semaphore(2)  # Limit to 2 concurrent tasks to avoid Apify memory limits
+        semaphore = asyncio.Semaphore(1)  # Limit to 1 concurrent tasks to avoid Apify memory limits
         
         async def process_url(url):
             async with semaphore:  # Limit concurrency
