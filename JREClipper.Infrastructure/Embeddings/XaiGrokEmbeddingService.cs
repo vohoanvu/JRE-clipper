@@ -1,10 +1,6 @@
 // JREClipper.Infrastructure/Embeddings/XaiGrokEmbeddingService.cs
 using JREClipper.Core.Interfaces;
-using System;
-using System.Collections.Generic;
-using System.Net.Http;
 using System.Net.Http.Json;
-using System.Threading.Tasks;
 
 namespace JREClipper.Infrastructure.Embeddings
 {

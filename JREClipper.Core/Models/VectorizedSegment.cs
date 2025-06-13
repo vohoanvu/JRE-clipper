@@ -1,6 +1,4 @@
 // JREClipper.Core/Models/VectorizedSegment.cs
-using System;
-using System.Collections.Generic;
 
 namespace JREClipper.Core.Models
 {

@@ -1,7 +1,5 @@
 // JREClipper.Core/Interfaces/IVectorDatabaseService.cs
 using JREClipper.Core.Models;
-using System.Collections.Generic;
-using System.Threading.Tasks;
 
 namespace JREClipper.Core.Interfaces
 {

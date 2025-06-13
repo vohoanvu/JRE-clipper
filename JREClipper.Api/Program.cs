@@ -4,9 +4,6 @@ using JREClipper.Infrastructure.GoogleCloudStorage;
 using JREClipper.Infrastructure.Embeddings;
 using JREClipper.Infrastructure.VectorDatabases.VertexAI;
 using JREClipper.Core.Models;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using System.Net.Http.Json;
 
 var builder = WebApplication.CreateBuilder(args);
 
