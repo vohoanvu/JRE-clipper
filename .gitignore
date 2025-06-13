@@ -46,8 +46,8 @@ artifacts/
 TestResults/
 
 # Environment Files
-appsettings.Development.json
-appsettings.Production.json
+JREClipper.Api/appsettings.Development.json
+JREClipper.Api/appsettings.Production.json
 *.env
 
 # IDE

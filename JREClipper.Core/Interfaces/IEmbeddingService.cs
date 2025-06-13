@@ -1,6 +1,4 @@
 // JREClipper.Core/Interfaces/IEmbeddingService.cs
-using System.Collections.Generic;
-using System.Threading.Tasks;
 
 namespace JREClipper.Core.Interfaces
 {
