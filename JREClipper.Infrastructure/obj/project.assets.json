@@ -1,0 +1,94 @@
+{
+  "version": 3,
+  "targets": {
+    "net8.0": {
+      "JREClipper.Core/1.0.0": {
+        "type": "project",
+        "framework": ".NETCoreApp,Version=v8.0",
+        "compile": {
+          "bin/placeholder/JREClipper.Core.dll": {}
+        },
+        "runtime": {
+          "bin/placeholder/JREClipper.Core.dll": {}
+        }
+      }
+    }
+  },
+  "libraries": {
+    "JREClipper.Core/1.0.0": {
+      "type": "project",
+      "path": "../JREClipper.Core/JREClipper.Core.csproj",
+      "msbuildProject": "../JREClipper.Core/JREClipper.Core.csproj"
+    }
+  },
+  "projectFileDependencyGroups": {
+    "net8.0": [
+      "JREClipper.Core >= 1.0.0"
+    ]
+  },
+  "packageFolders": {
+    "/Users/vohoanvu/.nuget/packages/": {}
+  },
+  "project": {
+    "version": "1.0.0",
+    "restore": {
+      "projectUniqueName": "/Users/vohoanvu/dev-repository/JRE-clipper/JREClipper.Infrastructure/JREClipper.Infrastructure.csproj",
+      "projectName": "JREClipper.Infrastructure",
+      "projectPath": "/Users/vohoanvu/dev-repository/JRE-clipper/JREClipper.Infrastructure/JREClipper.Infrastructure.csproj",
+      "packagesPath": "/Users/vohoanvu/.nuget/packages/",
+      "outputPath": "/Users/vohoanvu/dev-repository/JRE-clipper/JREClipper.Infrastructure/obj/",
+      "projectStyle": "PackageReference",
+      "configFilePaths": [
+        "/Users/vohoanvu/.nuget/NuGet/NuGet.Config"
+      ],
+      "originalTargetFrameworks": [
+        "net8.0"
+      ],
+      "sources": {
+        "https://api.nuget.org/v3/index.json": {}
+      },
+      "frameworks": {
+        "net8.0": {
+          "targetAlias": "net8.0",
+          "projectReferences": {
+            "/Users/vohoanvu/dev-repository/JRE-clipper/JREClipper.Core/JREClipper.Core.csproj": {
+              "projectPath": "/Users/vohoanvu/dev-repository/JRE-clipper/JREClipper.Core/JREClipper.Core.csproj"
+            }
+          }
+        }
+      },
+      "warningProperties": {
+        "warnAsError": [
+          "NU1605"
+        ]
+      },
+      "restoreAuditProperties": {
+        "enableAudit": "true",
+        "auditLevel": "low",
+        "auditMode": "direct"
+      }
+    },
+    "frameworks": {
+      "net8.0": {
+        "targetAlias": "net8.0",
+        "imports": [
+          "net461",
+          "net462",
+          "net47",
+          "net471",
+          "net472",
+          "net48",
+          "net481"
+        ],
+        "assetTargetFallback": true,
+        "warn": true,
+        "frameworkReferences": {
+          "Microsoft.NETCore.App": {
+            "privateAssets": "all"
+          }
+        },
+        "runtimeIdentifierGraphPath": "/usr/local/share/dotnet/sdk/8.0.404/PortableRuntimeIdentifierGraph.json"
+      }
+    }
+  }
+}

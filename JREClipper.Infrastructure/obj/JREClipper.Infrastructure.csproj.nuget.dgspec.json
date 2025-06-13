@@ -1,0 +1,128 @@
+{
+  "format": 1,
+  "restore": {
+    "/Users/vohoanvu/dev-repository/JRE-clipper/JREClipper.Infrastructure/JREClipper.Infrastructure.csproj": {}
+  },
+  "projects": {
+    "/Users/vohoanvu/dev-repository/JRE-clipper/JREClipper.Core/JREClipper.Core.csproj": {
+      "version": "1.0.0",
+      "restore": {
+        "projectUniqueName": "/Users/vohoanvu/dev-repository/JRE-clipper/JREClipper.Core/JREClipper.Core.csproj",
+        "projectName": "JREClipper.Core",
+        "projectPath": "/Users/vohoanvu/dev-repository/JRE-clipper/JREClipper.Core/JREClipper.Core.csproj",
+        "packagesPath": "/Users/vohoanvu/.nuget/packages/",
+        "outputPath": "/Users/vohoanvu/dev-repository/JRE-clipper/JREClipper.Core/obj/",
+        "projectStyle": "PackageReference",
+        "configFilePaths": [
+          "/Users/vohoanvu/.nuget/NuGet/NuGet.Config"
+        ],
+        "originalTargetFrameworks": [
+          "net8.0"
+        ],
+        "sources": {
+          "https://api.nuget.org/v3/index.json": {}
+        },
+        "frameworks": {
+          "net8.0": {
+            "targetAlias": "net8.0",
+            "projectReferences": {}
+          }
+        },
+        "warningProperties": {
+          "warnAsError": [
+            "NU1605"
+          ]
+        },
+        "restoreAuditProperties": {
+          "enableAudit": "true",
+          "auditLevel": "low",
+          "auditMode": "direct"
+        }
+      },
+      "frameworks": {
+        "net8.0": {
+          "targetAlias": "net8.0",
+          "imports": [
+            "net461",
+            "net462",
+            "net47",
+            "net471",
+            "net472",
+            "net48",
+            "net481"
+          ],
+          "assetTargetFallback": true,
+          "warn": true,
+          "frameworkReferences": {
+            "Microsoft.NETCore.App": {
+              "privateAssets": "all"
+            }
+          },
+          "runtimeIdentifierGraphPath": "/usr/local/share/dotnet/sdk/8.0.404/PortableRuntimeIdentifierGraph.json"
+        }
+      }
+    },
+    "/Users/vohoanvu/dev-repository/JRE-clipper/JREClipper.Infrastructure/JREClipper.Infrastructure.csproj": {
+      "version": "1.0.0",
+      "restore": {
+        "projectUniqueName": "/Users/vohoanvu/dev-repository/JRE-clipper/JREClipper.Infrastructure/JREClipper.Infrastructure.csproj",
+        "projectName": "JREClipper.Infrastructure",
+        "projectPath": "/Users/vohoanvu/dev-repository/JRE-clipper/JREClipper.Infrastructure/JREClipper.Infrastructure.csproj",
+        "packagesPath": "/Users/vohoanvu/.nuget/packages/",
+        "outputPath": "/Users/vohoanvu/dev-repository/JRE-clipper/JREClipper.Infrastructure/obj/",
+        "projectStyle": "PackageReference",
+        "configFilePaths": [
+          "/Users/vohoanvu/.nuget/NuGet/NuGet.Config"
+        ],
+        "originalTargetFrameworks": [
+          "net8.0"
+        ],
+        "sources": {
+          "https://api.nuget.org/v3/index.json": {}
+        },
+        "frameworks": {
+          "net8.0": {
+            "targetAlias": "net8.0",
+            "projectReferences": {
+              "/Users/vohoanvu/dev-repository/JRE-clipper/JREClipper.Core/JREClipper.Core.csproj": {
+                "projectPath": "/Users/vohoanvu/dev-repository/JRE-clipper/JREClipper.Core/JREClipper.Core.csproj"
+              }
+            }
+          }
+        },
+        "warningProperties": {
+          "warnAsError": [
+            "NU1605"
+          ]
+        },
+        "restoreAuditProperties": {
+          "enableAudit": "true",
+          "auditLevel": "low",
+          "auditMode": "direct"
+        }
+      },
+      "frameworks": {
+        "net8.0": {
+          "targetAlias": "net8.0",
+          "imports": [
+            "net461",
+            "net462",
+            "net47",
+            "net471",
+            "net472",
+            "net48",
+            "net481"
+          ],
+          "assetTargetFallback": true,
+          "warn": true,
+          "frameworkReferences": {
+            "Microsoft.NETCore.App": {
+              "privateAssets": "all"
+            }
+          },
+          "runtimeIdentifierGraphPath": "/usr/local/share/dotnet/sdk/8.0.404/PortableRuntimeIdentifierGraph.json"
+        }
+      }
+    }
+  }
+}

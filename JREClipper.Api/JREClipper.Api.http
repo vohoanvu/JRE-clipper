@@ -1,0 +1,6 @@
+@JREClipper.Api_HostAddress = http://localhost:5208
+
+GET {{JREClipper.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
