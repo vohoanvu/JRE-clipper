@@ -4,3 +4,54 @@ client_secret_genlangclient-demo.apps.googleusercontent.com.json
 jre-playlist.csv
 jre-youtube-links.csv
 jre-clipper-agent-army
+
+# Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+# Visual Studio files
+.vs/
+*.user
+*.userosscache
+*.suo
+*.userprefs
+*.dbmdl
+*.dbproj.schemaview
+*.jfm
+*.pfx
+*.publishsettings
+
+# .NET Core
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# NuGet Packages
+*.nupkg
+**/packages/*
+!**/packages/build/
+*.nuget.props
+*.nuget.targets
+
+# Test Results
+TestResults/
+
+# Environment Files
+appsettings.Development.json
+appsettings.Production.json
+*.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
