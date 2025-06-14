@@ -56,7 +56,7 @@ namespace JREClipper.Api.Controllers
 
             try
             {
-                var rawTranscript = await _gcsService.GetTranscriptDataAsync(bucketName, objectName);
+                var rawTranscript = await _gcsService.GetSingleTranscript(bucketName, objectName);
                 if (rawTranscript == null || rawTranscript.TranscriptWithTimestamps == null || !rawTranscript.TranscriptWithTimestamps.Any())
                 {
                     return NotFound($"Transcript data not found or empty in GCS object: {objectName}");
@@ -66,10 +66,10 @@ namespace JREClipper.Api.Controllers
                 if (string.IsNullOrEmpty(rawTranscript.VideoId))
                 {
                     // Attempt to derive VideoId from objectName if it follows a pattern like "transcript_VIDEOID.json"
-                    var fileName = System.IO.Path.GetFileNameWithoutExtension(objectName);
-                    if (fileName.StartsWith("transcript_"))
+                    var fileName = Path.GetFileNameWithoutExtension(objectName);
+                    if (fileName.StartsWith("transcript-"))
                     {
-                        rawTranscript.VideoId = fileName.Substring("transcript_".Length);
+                        rawTranscript.VideoId = fileName.Substring("transcript-".Length);
                     }
                     else
                     {
@@ -143,8 +143,8 @@ namespace JREClipper.Api.Controllers
             // For now, it just lists them as a demonstration.
             try
             {
-                var transcriptFiles = await _gcsService.ListVideoFilesAsync(bucketName, prefix ?? string.Empty);
-                if (!transcriptFiles.Any())
+                var transcriptFiles = await _gcsService.ListAllTranscriptFiles(bucketName, prefix ?? string.Empty);
+                if (transcriptFiles.Count == 0)
                 {
                     return NotFound($"No transcript files found in gs://{bucketName}/{prefix}");
                 }
