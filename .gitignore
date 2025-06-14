@@ -5,6 +5,13 @@ jre-playlist.csv
 jre-youtube-links.csv
 jre-clipper-agent-army
 
+JREClipper.Api/bin/*
+JREClipper.Api/obj/*
+JREClipper.Core/bin/*
+JREClipper.Core/obj/*
+JREClipper.Infrastructure/bin/*
+JREClipper.Infrastructure/obj/*
+
 # Build results
 [Dd]ebug/
 [Rr]elease/
