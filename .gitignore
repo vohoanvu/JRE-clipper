@@ -55,3 +55,4 @@ JREClipper.Api/appsettings.Production.json
 .vscode/
 *.swp
 *.swo
+.DS_Store

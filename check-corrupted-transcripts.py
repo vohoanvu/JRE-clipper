@@ -26,8 +26,8 @@ def find_corrupted_files(directory):
                         'transcriptWithTimestamps' in first_item and first_item['transcriptWithTimestamps'] == []):
                         corrupted_files.append(file_path)
                         print(f"Adding corrupted file: {file_path} (confirmed empty transcript and timestamps)")
-                    else:
-                        print(f"File {file_path} does not meet corruption criteria.")
+                    #else:
+                        #print(f"File {file_path} does not meet corruption criteria.")
                 # If data is not a list or is empty, skip it
         except (json.JSONDecodeError, FileNotFoundError) as e:
             print(f"Error reading {file_path}: {e} - Skipping file.")
@@ -54,14 +54,16 @@ def count_non_transcribed_non_private_videos(csv_file):
     try:
         with open(csv_file, 'r', encoding='utf-8') as f:
             reader = csv.DictReader(f)  # Use DictReader for column access
-            if 'isTranscripted' not in reader.fieldnames or 'title' not in reader.fieldnames:
-                print("Error: Required columns ('isTranscripted' or 'title') are missing in the CSV.")
+            if 'isTranscripted' not in reader.fieldnames or 'title' not in reader.fieldnames or 'videoId' not in reader.fieldnames:
+                print("Error: Required columns ('isTranscripted', 'title', or 'videoId') are missing in the CSV.")
                 return 0  # Return 0 if columns are missing
             
             for row in reader:
                 is_transcribed_value = row.get('isTranscripted', '').lower()  # Convert to lowercase for case-insensitive check
                 if is_transcribed_value == "false" and row.get('title', '') != "Private video":
                     count += 1  # Increment for non-transcribed and non-private rows
+                    video_url = f"https://www.youtube.com/watch?v={row.get('videoId')}"  # Construct and print the URL
+                    print(f"Non-transcribed, non-private video URL: {video_url}")
     except FileNotFoundError:
         print(f"Error: {csv_file} not found.")
     except Exception as e:
