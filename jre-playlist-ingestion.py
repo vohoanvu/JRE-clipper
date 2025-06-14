@@ -3,9 +3,10 @@ import googleapiclient.discovery
 import os
 import json
 import glob
+from dotenv import load_dotenv
 
-# Configuration
-API_KEY = "AIzaSyDINU6PKYWJewuYqNLDI3NEYumStT4bIDk" 
+load_dotenv()
+API_KEY = os.getenv('YOUTUBE_API_KEY')
 PLAYLIST_ID = "PLk1Sqn_f33KuWf3tW9BBe_4TP7x8l0m3T"  # The JRE Playlist ID
 CHANNEL_ID = "UCzQUP1qoWDoEbmsQxvdjxgQ"  # the JRE Channel ID
 OUTPUT_CSV = "jre-playlist.csv"  # Output file in the same directory
