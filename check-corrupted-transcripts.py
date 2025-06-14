@@ -72,7 +72,7 @@ def count_non_transcribed_non_private_videos(csv_file):
     return count
 
 if __name__ == "__main__":
-    results_directory = './results'
+    results_directory = './transcriptions'  # Directory where JSON files are stored
     corrupted = find_corrupted_files(results_directory)
     
     if corrupted:

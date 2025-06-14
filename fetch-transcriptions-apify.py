@@ -11,7 +11,7 @@ from urllib.parse import urlparse, parse_qs
 # Configuration
 API_TOKEN = "apify_api_a0zhgb3vyCniOOuAjO7XwXmpWTUaMG02olg6"
 INPUT_CSV = 'jre-playlist.csv'
-OUTPUT_DIR = './results'
+OUTPUT_DIR = './transcriptions'
 
 def get_processed_video_ids(output_dir):
     """Scan the output directory and return a set of processed video IDs from filenames."""

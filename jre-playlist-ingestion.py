@@ -14,10 +14,10 @@ OUTPUT_CSV = "jre-playlist.csv"  # Output file in the same directory
 youtube = googleapiclient.discovery.build("youtube", "v3", developerKey=API_KEY)
 
 def get_processed_video_ids():
-    """Scan the ./results directory and return a list of videos from transcript JSON files and a set of videoIds."""
+    """Scan the ./transcriptions directory and return a list of videos from transcript JSON files and a set of videoIds."""
     existing_videos = []  # List to store video dictionaries
     existing_ids = set()  # Set to store video IDs
-    transcript_files = glob.glob(os.path.join('./results', 'transcript-*.json'))  # Get all transcript JSON files
+    transcript_files = glob.glob(os.path.join('./transcriptions', 'transcript-*.json'))  # Get all transcript JSON files
     
     for file_path in transcript_files:
         try:
@@ -67,7 +67,7 @@ def fetch_playlist_items():
     return videos
 
 def is_transcripted(video_id):
-    transcript_file = os.path.join('./results', f"transcript-{video_id}.json")
+    transcript_file = os.path.join('./transcriptions', f"transcript-{video_id}.json")
     return os.path.exists(transcript_file)
 
 def write_to_csv(videos):
@@ -87,7 +87,7 @@ def write_to_csv(videos):
                 video_copy['isTranscripted'] = str(is_transcripted(video_copy['videoId']))
                 video_copy['isVectorized'] = 'False'
                 
-                transcript_file_path = os.path.join('./results', f"transcript-{video_copy['videoId']}.json")
+                transcript_file_path = os.path.join('./transcriptions', f"transcript-{video_copy['videoId']}.json")
                 if os.path.exists(transcript_file_path):  # Check if file exists
                     try:
                         with open(transcript_file_path, 'r', encoding='utf-8') as jsonfile:
