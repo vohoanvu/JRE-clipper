@@ -30,7 +30,7 @@ namespace JREClipper.Api.Controllers
             _gcsService = gcsService;
             _transcriptProcessor = transcriptProcessor;
             _appSettings = appSettings.Value;
-            _embeddingService = embeddingServiceFactory(_appSettings.DefaultEmbeddingService ?? "Mock"); // Get service from factory
+            _embeddingService = embeddingServiceFactory(_appSettings.EmbeddingProvider ?? "Mock"); // Get service from factory
             _vectorDbService = vectorDbService;
             _gcsOptions = gcsOptions.Value;
             _embeddingOptions = embeddingOptions.Value;
@@ -42,7 +42,7 @@ namespace JREClipper.Api.Controllers
         /// <param name="bucketName">The GCS bucket name.</param>
         /// <param name="objectName">The full path to the transcript JSON file in the bucket.</param>
         /// <returns>Status of the ingestion process.</returns>
-        [HttpPost("process-single-transcript")]
+        [HttpPost("vectorize-single-transcript")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -103,7 +103,6 @@ namespace JREClipper.Api.Controllers
                         VideoId = segment.VideoId,
                         Text = segment.Text,
                         StartTime = TimeSpan.Parse(segment.StartTime.ToString(@"hh\:mm\:ss\.fff")).TotalSeconds,
-                        // EndTime could be added if needed
                         Embedding = embeddings[i], // Use the List<float> directly
                         ChannelName = segment.ChannelName
                         // Optional properties have been removed as they don't exist in ProcessedTranscriptSegment
@@ -129,7 +128,7 @@ namespace JREClipper.Api.Controllers
         /// <param name="bucketName">The GCS bucket name.</param>
         /// <param name="prefix">The folder/prefix in the bucket containing transcript files.</param>
         /// <returns>Status of the batch initiation.</returns>
-        [HttpPost("process-batch-transcripts")]
+        [HttpPost("vectorize-batch-transcripts")]
         [ProducesResponseType(StatusCodes.Status202Accepted)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         public async Task<IActionResult> ProcessBatchTranscripts(string bucketName, string prefix)

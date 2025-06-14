@@ -5,12 +5,16 @@ jre-playlist.csv
 jre-youtube-links.csv
 jre-clipper-agent-army
 
-JREClipper.Api/bin/*
-JREClipper.Api/obj/*
-JREClipper.Core/bin/*
-JREClipper.Core/obj/*
-JREClipper.Infrastructure/bin/*
-JREClipper.Infrastructure/obj/*
+# Project specific build folders
+JREClipper.Api/bin/
+JREClipper.Api/obj/
+JREClipper.Api/obj/Debug/
+JREClipper.Core/bin/
+JREClipper.Core/obj/
+JREClipper.Core/obj/Debug/
+JREClipper.Infrastructure/bin/
+JREClipper.Infrastructure/obj/
+JREClipper.Infrastructure/obj/Debug/
 
 # Build results
 [Dd]ebug/

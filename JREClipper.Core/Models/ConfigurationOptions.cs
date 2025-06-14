@@ -3,74 +3,128 @@ namespace JREClipper.Core.Models
 {
     public class AppSettings
     {
-        public string? DefaultEmbeddingService { get; set; }
-        public string? DefaultVectorDatabase { get; set; }
+        public string? EmbeddingProvider { get; set; } // Renamed from DefaultEmbeddingService
         public string? ApplicationName { get; set; }
+
+        // Moved ChunkSettings and ClipSettings here if they are general app settings
+        public ChunkSettings? ChunkSettings { get; set; }
+        public ClipSettings? ClipSettings { get; set; }
     }
 
+    public class ChunkSettings
+    {
+        public int MaxChunkDurationSeconds { get; set; }
+        public int MinChunkDurationSeconds { get; set; }
+        public int OverlapDurationSeconds { get; set; }
+    }
+
+    public class ClipSettings
+    {
+        public int MaxClipDuration { get; set; }
+        public int MinClipDuration { get; set; }
+        public int DefaultClipsPerSummary { get; set; }
+    }
+
+    //export GOOGLE_APPLICATION_CREDENTIALS="/Users/vohoanvu/secrets/gen-lang-client-demo-438f6a60e6e4.json"
     public class GoogleCloudStorageOptions
     {
-        public string? BucketName { get; set; }
-        public string? CredentialsJsonPath { get; set; } // Path to service account JSON
-        public string? ProjectId { get; set; }
+        public string? TranscriptsBucketName { get; set; } // Specific name from JSON
+        public string? ProcessedClipsBucketName { get; set; } // Specific name from JSON
+        public string? MetadataFolder { get; set; }
+        public string? TranscriptsFolder { get; set; }
+        public string? OutputFolder { get; set; }
+        public string? ProjectId { get; set; } // ProjectId can also be here if GCS is project-specific
+        // CredentialsJsonPath removed, relying on GOOGLE_APPLICATION_CREDENTIALS
     }
 
     public class VectorDatabaseOptions
     {
-        public string? SelectedDatabase { get; set; } // e.g., "VertexAI", "Qdrant"
-        public VertexAIOptions? VertexAI { get; set; }
-        // public QdrantOptions Qdrant { get; set; } // Example for future Qdrant integration
+        public string? Provider { get; set; } // Renamed from SelectedDatabase
+        public VertexAIVectorSearchDbOptions? VertexAI { get; set; }
+        public QdrantOptions? Qdrant { get; set; }
     }
 
-    public class VertexAIOptions // Consolidated VertexAI options
+    public class VertexAIVectorSearchDbOptions // Specific for VectorDatabase:VertexAI section
     {
         public string? ProjectId { get; set; }
-        public string? LocationId { get; set; } // e.g., "us-central1"
-        public string? IndexEndpointId { get; set; } // For Vector Search
-        public string? DeployedIndexId { get; set; } // For Vector Search
-        public string? Publisher { get; set; } = "google"; // For Embeddings
-        public string? EmbeddingModel { get; set; } = "textembedding-gecko@003"; // For Embeddings
-        public string? CredentialsJsonPath { get; set; } // Path to service account JSON
-        public int Dimensions { get; set; } = 768; // Default, adjust as per embedding model
+        public string? Location { get; set; } // Matched JSON
+        public string? IndexEndpointId { get; set; }
+        public string? DeployedIndexId { get; set; }
+        public string? IndexId { get; set; }
+        // CredentialsJsonPath removed
     }
 
-    public class EmbeddingServiceOptions
+    public class QdrantOptions
     {
-        public string? SelectedService { get; set; } // e.g., "GoogleVertexAI", "XaiGrok", "Mock"
-        public VertexAIOptions? GoogleVertexAI { get; set; } // Use the consolidated VertexAIOptions
-        public XaiGrokOptions? XaiGrok { get; set; }
-        public MockEmbeddingOptions? Mock { get; set; }
+        public string? Url { get; set; }
+        public string? ApiKey { get; set; }
+        public string? CollectionName { get; set; }
+        public int VectorDimension { get; set; }
     }
 
-    public class XaiGrokOptions
+    public class EmbeddingServiceOptions // Bound to "Embedding" section
+    {
+        // SelectedService removed, as AppSettings.EmbeddingProvider serves this role
+        public int Dimension { get; set; } // From Embedding.Dimension
+        public int BatchSize { get; set; } // From Embedding.BatchSize
+
+        // Nested provider-specific options are not in the "Embedding" JSON section.
+        // These will be configured separately and accessed via IOptions<GoogleVertexAIEmbeddingOptions>, etc.
+        // public GoogleVertexAIEmbeddingOptions? GoogleVertexAI { get; set; }
+        // public XaiGrokOptions? XaiGrok { get; set; }
+        // public MockEmbeddingOptions? Mock { get; set; }
+    }
+
+    //export GOOGLE_APPLICATION_CREDENTIALS="/Users/vohoanvu/secrets/gen-lang-client-demo-438f6a60e6e4.json"
+    public class GoogleVertexAIEmbeddingOptions // Specific for "GoogleVertexAI" top-level section
+    {
+        public string? ProjectId { get; set; }
+        public string? Location { get; set; } // Matched JSON
+        public string? Endpoint { get; set; } // General service endpoint
+        public string? ModelName { get; set; } // Matched JSON (textembedding-gecko@001)
+        public string? EmbeddingEndpointId { get; set; } // Specific deployed model endpoint for predictions
+        // CredentialsJsonPath removed
+    }
+
+    public class XaiGrokOptions // Specific for "XaiGrok" top-level section
     {
         public string? ApiKey { get; set; }
-        public string? ModelEndpoint { get; set; }
-        // Any other specific settings for Grok
+        public string? Endpoint { get; set; } // Renamed from ModelEndpoint to match JSON
     }
     
-    public class MockEmbeddingOptions
+    public class MockEmbeddingOptions // Can be configured if needed, e.g., under "AppSettings" or its own section
     {
-        public int EmbeddingDimension { get; set; } = 768; // Default dimension for mock embeddings
+        public int EmbeddingDimension { get; set; } = 768;
     }
 
     public class VideoProcessingOptions
     {
-        public int SegmentDurationSeconds { get; set; } = 300; // e.g., 5 minutes
-        public int SegmentOverlapSeconds { get; set; } = 30;  // e.g., 30 seconds
+        public string? FFmpegPath { get; set; }
+        public string? TemporaryFolder { get; set; }
+        public int MaxConcurrentJobs { get; set; }
+        public string? DefaultVideoFormat { get; set; }
+        public string? DefaultAudioFormat { get; set; }
     }
 
-    public class AgentSettings // For future agent-based architecture
+    public class AgentSettings
     {
-        public string? MasterCoordinatorEndpoint { get; set; }
-        // Other agent-specific settings
+        public string? UserQueryUnderstandingAgent { get; set; }
+        public string? SemanticRelevanceAgent { get; set; }
+        public string? VideoSynthesisAgent { get; set; }
+        public string? TimestampReportAgent { get; set; }
+        public string? ClipCurationAgent { get; set; }
+        public string? ResultDeliveryAgent { get; set; }
     }
 
-    public class PubSubOptions
+    public class GcpOptions // For the top-level "Gcp" section
     {
         public string? ProjectId { get; set; }
-        public string? TopicId { get; set; }
-        public string? SubscriptionId { get; set; }
-        public string? CredentialsJsonPath { get; set; }
+    }
+
+    public class PubSubOptions // For the top-level "PubSub" section
+    {
+        public string? IngestionTopicId { get; set; }
+        // ProjectId could be inherited from GcpOptions or set here if different
+        // CredentialsJsonPath removed
     }
 }

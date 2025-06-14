@@ -20,7 +20,7 @@ namespace JREClipper.Api.Controllers
             IOptions<AppSettings> appSettings)
         {
             _appSettings = appSettings.Value;
-            _embeddingService = embeddingServiceFactory(_appSettings.DefaultEmbeddingService ?? "Mock");
+            _embeddingService = embeddingServiceFactory(_appSettings.EmbeddingProvider ?? "Mock");
             _vectorDbService = vectorDbService;
         }
 

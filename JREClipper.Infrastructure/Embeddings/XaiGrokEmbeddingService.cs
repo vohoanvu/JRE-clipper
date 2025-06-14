@@ -1,5 +1,7 @@
 // JREClipper.Infrastructure/Embeddings/XaiGrokEmbeddingService.cs
 using JREClipper.Core.Interfaces;
+using JREClipper.Core.Models; // Corrected namespace for XaiGrokOptions
+using Microsoft.Extensions.Options; // Required for IOptions
 using System.Net.Http.Json;
 
 namespace JREClipper.Infrastructure.Embeddings
@@ -9,19 +11,17 @@ namespace JREClipper.Infrastructure.Embeddings
     public class XaiGrokEmbeddingService : IEmbeddingService
     {
         private readonly HttpClient _httpClient;
-        private readonly string _apiKey; // If Grok API requires an API key
-        private readonly string _apiEndpoint; // The specific endpoint for embeddings
+        private readonly XaiGrokOptions _options;
 
-        public XaiGrokEmbeddingService(HttpClient httpClient, string apiKey, string apiEndpoint)
+        public XaiGrokEmbeddingService(HttpClient httpClient, IOptions<XaiGrokOptions> options)
         {
             _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
-            _apiKey = apiKey; // API key might not be needed or handled differently
-            _apiEndpoint = apiEndpoint ?? throw new ArgumentNullException(nameof(apiEndpoint));
+            _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
 
             // Configure HttpClient if needed (e.g., Authorization headers)
-            if (!string.IsNullOrEmpty(_apiKey))
+            if (!string.IsNullOrEmpty(_options.ApiKey))
             {
-                _httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _apiKey);
+                _httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _options.ApiKey);
             }
         }
 
@@ -32,7 +32,7 @@ namespace JREClipper.Infrastructure.Embeddings
 
             try
             {
-                var response = await _httpClient.PostAsJsonAsync(_apiEndpoint, requestPayload);
+                var response = await _httpClient.PostAsJsonAsync(_options.Endpoint, requestPayload); // Corrected to use _options.Endpoint
                 response.EnsureSuccessStatusCode();
 
                 // Hypothetical response structure - adjust based on actual Grok API
@@ -58,19 +58,16 @@ namespace JREClipper.Infrastructure.Embeddings
             }
             return allEmbeddings;
         }
-    }
 
-    // Hypothetical response DTOs - adjust based on actual Grok API
-    internal class GrokEmbeddingResponse
-    {
-        public List<GrokEmbeddingData>? Data { get; set; }
-        // other fields like "object", "model", "usage" might be present
-    }
+        // Hypothetical response class - adjust based on actual Grok API
+        private class GrokEmbeddingResponse
+        {
+            public List<GrokEmbeddingData>? Data { get; set; }
+        }
 
-    internal class GrokEmbeddingData
-    {
-        public List<float>? Embedding { get; set; }
-        public int? Index { get; set; }
-        // other fields
+        private class GrokEmbeddingData
+        {
+            public List<float>? Embedding { get; set; }
+        }
     }
 }
