@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("JREClipper.Api")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+2d8f8e332281378b84c1d8d31abb650d1fbea2cc")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+fa93973d7400c1c93198a7aab2fdd6fc54790973")]
 [assembly: System.Reflection.AssemblyProductAttribute("JREClipper.Api")]
 [assembly: System.Reflection.AssemblyTitleAttribute("JREClipper.Api")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
