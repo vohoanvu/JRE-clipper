@@ -1,9 +1,10 @@
 {
   "version": 2,
-  "dgSpecHash": "7/LYWZyyYAo=",
+  "dgSpecHash": "JIVmwABhZvY=",
   "success": true,
   "projectFilePath": "/Users/vohoanvu/dev-repository/JRE-clipper/JREClipper.Infrastructure/JREClipper.Infrastructure.csproj",
   "expectedPackageFiles": [
+    "/Users/vohoanvu/.nuget/packages/csvhelper/30.0.1/csvhelper.30.0.1.nupkg.sha512",
     "/Users/vohoanvu/.nuget/packages/google.api.commonprotos/2.17.0/google.api.commonprotos.2.17.0.nupkg.sha512",
     "/Users/vohoanvu/.nuget/packages/google.api.gax/4.11.0/google.api.gax.4.11.0.nupkg.sha512",
     "/Users/vohoanvu/.nuget/packages/google.api.gax.grpc/4.11.0/google.api.gax.grpc.4.11.0.nupkg.sha512",

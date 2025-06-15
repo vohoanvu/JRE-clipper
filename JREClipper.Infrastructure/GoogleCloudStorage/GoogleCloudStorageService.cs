@@ -4,6 +4,10 @@ using JREClipper.Core.Interfaces;
 using JREClipper.Core.Models;
 using Newtonsoft.Json;
 using System.Text;
+using CsvHelper;
+using CsvHelper.Configuration;
+using System.Dynamic;
+using System.Globalization;
 
 namespace JREClipper.Infrastructure.GoogleCloudStorage
 {
@@ -44,83 +48,60 @@ namespace JREClipper.Infrastructure.GoogleCloudStorage
             string bucketName,
             string videoId,
             Dictionary<string, object> updatedFields,
-            string objectName = "jre-playlist.csv")
+            string objectName)
         {
-            if (updatedFields == null || updatedFields.Count == 0)
-            {
-                // Nothing to update
+            if (updatedFields == null || !updatedFields.Any())
                 return;
-            }
 
-            var memoryStream = new MemoryStream();
+            // Download existing CSV
+            var downloadStream = new MemoryStream();
             try
             {
-                await _storageClient.DownloadObjectAsync(bucketName, objectName, memoryStream);
+                await _storageClient.DownloadObjectAsync(bucketName, objectName, downloadStream);
             }
             catch (Google.GoogleApiException ex) when (ex.Error?.Code == 404)
             {
-                // If the goal is to modify, the file must exist.
                 throw new FileNotFoundException($"Playlist file '{objectName}' not found in bucket '{bucketName}'.", ex);
             }
+            downloadStream.Position = 0;
 
-            memoryStream.Position = 0;
-
-            var lines = new List<string>();
-            bool entryFound = false;
-            string[]? csvHeaders = null;
-
-            using (var reader = new StreamReader(memoryStream, Encoding.UTF8))
+            // Parse CSV using CsvHelper
+            List<dynamic> records;
+            using (var reader = new StreamReader(downloadStream, Encoding.UTF8))
+            using (var csvReader = new CsvReader(reader, new CsvConfiguration(CultureInfo.InvariantCulture) { HasHeaderRecord = true }))
             {
-                string? headerLine = await reader.ReadLineAsync() ?? throw new InvalidOperationException($"Playlist file '{objectName}' is empty or does not contain a header.");
-                lines.Add(headerLine);
-                csvHeaders = headerLine.Split(','); // Assumes simple CSV, no commas in header names
+                records = csvReader.GetRecords<dynamic>().ToList();
+            }
 
-                string? currentLine;
-                while ((currentLine = await reader.ReadLineAsync()) != null)
+            bool entryFound = false;
+            // Update the matching record
+            foreach (IDictionary<string, object> record in records.Cast<IDictionary<string, object>>())
+            {
+                if (record.TryGetValue("videoId", out var id) && id?.ToString() == videoId)
                 {
-                    // WARNING: This Split(',') is not robust for CSV fields containing commas.
-                    // Consider using a proper CSV parsing library.
-                    var values = currentLine.Split(',');
-
-                    if (values.Length > 0 && values[0] == videoId) // Assuming videoId is always the first column
+                    entryFound = true;
+                    foreach (var kvp in updatedFields)
                     {
-                        entryFound = true;
-                        for (int i = 0; i < csvHeaders.Length; i++)
-                        {
-                            string columnName = csvHeaders[i].Trim();
-                            if (updatedFields.TryGetValue(columnName, out object? newValueObj))
-                            {
-                                // Convert the object value to string.
-                                // bool.ToString() produces "True" or "False", which matches your example.
-                                values[i] = newValueObj?.ToString() ?? string.Empty;
-                            }
-                        }
-                        lines.Add(string.Join(",", values));
+                        if (record.ContainsKey(kvp.Key))
+                            record[kvp.Key] = kvp.Value;
                     }
-                    else
-                    {
-                        lines.Add(currentLine);
-                    }
+                    break;
                 }
             }
-
             if (!entryFound)
-            {
                 throw new KeyNotFoundException($"Video ID '{videoId}' not found in playlist '{objectName}'.");
-            }
 
-            // Upload the updated CSV
-            var updatedContent = string.Join(Environment.NewLine, lines);
-            using var uploadStream = new MemoryStream(Encoding.UTF8.GetBytes(updatedContent));
-            try
+            // Write updated CSV back to stream
+            var uploadStream = new MemoryStream();
+            using (var writer = new StreamWriter(uploadStream, Encoding.UTF8, leaveOpen: true))
+            using (var csvWriter = new CsvWriter(writer, new CsvConfiguration(CultureInfo.InvariantCulture) { HasHeaderRecord = true }))
             {
-                await _storageClient.UploadObjectAsync(bucketName, objectName, "text/csv", uploadStream);
+                csvWriter.WriteRecords(records);
+                await writer.FlushAsync();
             }
-            catch (Exception ex)
-            {
-                // Log error or wrap in a custom exception
-                throw new Exception($"Failed to upload updated playlist metadata to '{objectName}': {ex.Message}", ex);
-            }
+            uploadStream.Position = 0;
+            // Upload overwrite
+            await _storageClient.UploadObjectAsync(bucketName, objectName, "text/csv", uploadStream);
         }
 
         public async Task UploadVectorizedSegmentsAsync(string bucketName, string objectName, IEnumerable<VectorizedSegment> segments)

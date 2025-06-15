@@ -18,7 +18,7 @@ namespace JREClipper.Core.Interfaces
         /// <param name="videoId">The ID of the video entry to update.</param>
         /// <param name="updatedFields">A dictionary where keys are column names and values are the new field values.</param>
         /// <param name="objectName">The name of the CSV file in GCS.</param>
-        Task UpdateJrePlaylistMetadataAsync(string bucketName, string videoId, Dictionary<string, object> updatedFields, string objectName = "jre-playlist.csv");
+        Task UpdateJrePlaylistMetadataAsync(string bucketName, string videoId, Dictionary<string, object> updatedFields, string objectName);
 
         Task UploadVectorizedSegmentsAsync(string bucketName, string objectName, IEnumerable<VectorizedSegment> segments);
         // Potentially add methods for VideoMetadata if it's also stored/retrieved from GCS

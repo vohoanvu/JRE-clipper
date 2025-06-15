@@ -684,6 +684,7 @@
         "type": "project",
         "framework": ".NETCoreApp,Version=v8.0",
         "dependencies": {
+          "CsvHelper": "30.0.1",
           "Google.Cloud.AIPlatform.V1": "3.33.0",
           "Google.Cloud.Storage.V1": "4.13.0",
           "JREClipper.Core": "1.0.0",

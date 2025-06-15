@@ -191,6 +191,10 @@
         "net8.0": {
           "targetAlias": "net8.0",
           "dependencies": {
+            "CsvHelper": {
+              "target": "Package",
+              "version": "[30.0.1, )"
+            },
             "Google.Cloud.AIPlatform.V1": {
               "target": "Package",
               "version": "[3.33.0, )"

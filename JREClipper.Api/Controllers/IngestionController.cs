@@ -85,7 +85,7 @@ namespace JREClipper.Api.Controllers
 
                 var vectorizedSegments = new List<VectorizedSegment>();
                 var textsToEmbed = processedSegments.Select(s => s.Text).ToList();
-                
+
                 // Batch embedding generation
                 var embeddings = await _embeddingService.GenerateEmbeddingsBatchAsync(textsToEmbed);
 
@@ -156,6 +156,46 @@ namespace JREClipper.Api.Controllers
             catch (Exception ex)
             {
                 Console.WriteLine($"Error initiating batch processing: {ex.Message}");
+                return StatusCode(StatusCodes.Status500InternalServerError, $"An error occurred: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Trigger an Update of JRE Playlist CSV metadata stored in GCS to change the isVectorized field of rows that were just vectorized.
+        /// </summary>
+        /// <param name="bucketName">The GCS bucket name.</param>
+        /// <param name="videoId">The ID of the video entry to update.</param>
+        /// <param name="updatedFields">A dictionary where keys are column names and values are the new field values.</param>
+        /// <param name="objectName">The name of the CSV file in GCS.</param>
+        [HttpPost("update-jre-playlist-metadata")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> UpdateJrePlaylistMetadata(string bucketName, string videoId, [FromBody] Dictionary<string, object> updatedFields, string objectName)
+        {
+            if (string.IsNullOrEmpty(bucketName) || string.IsNullOrEmpty(videoId) || string.IsNullOrEmpty(objectName))
+            {
+                return BadRequest("Bucket name, video ID, and object name are required.");
+            }
+
+            if (updatedFields == null || !updatedFields.Any())
+            {
+                return BadRequest("No fields to update provided.");
+            }
+
+            try
+            {
+                await _gcsService.UpdateJrePlaylistMetadataAsync(bucketName, videoId, updatedFields, objectName);
+                return Ok(new { Message = $"Successfully updated metadata for video ID {videoId} in {objectName}." });
+            }
+            catch (KeyNotFoundException knfEx)
+            {
+                return NotFound(knfEx.Message);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error updating JRE playlist metadata: {ex.Message}");
                 return StatusCode(StatusCodes.Status500InternalServerError, $"An error occurred: {ex.Message}");
             }
         }

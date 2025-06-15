@@ -69,3 +69,6 @@ JREClipper.Api/appsettings.Production.json
 *.swo
 .DS_Store
 jre-playlist_cleaned.csv
+jre-playlist_cleaned.json
+jre-playlist_cleaned.ndjson
+jre-playlist_for_discovery_engine.ndjson
