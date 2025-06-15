@@ -43,13 +43,14 @@ builder.Services.AddScoped<ITranscriptProcessor, BasicTranscriptProcessor>();
 builder.Services.AddSingleton(provider =>
 {
     var options = provider.GetRequiredService<IOptions<GoogleVertexAIEmbeddingOptions>>().Value;
+    // Validate necessary options for publisher model
     if (string.IsNullOrEmpty(options.ProjectId) || 
         string.IsNullOrEmpty(options.Location) || 
-        string.IsNullOrEmpty(options.EmbeddingEndpointId))
+        string.IsNullOrEmpty(options.ModelName))
     {
-        throw new InvalidOperationException("GoogleVertexAI Embedding options (ProjectId, Location, or EmbeddingEndpointId) are not configured properly.");
+        throw new InvalidOperationException("GoogleVertexAI Embedding options (ProjectId, Location, or ModelName) are not configured properly for a publisher model.");
     }
-    return GoogleVertexAiEmbeddingService.Create(options.ProjectId, options.Location, options.EmbeddingEndpointId);
+    return GoogleVertexAiEmbeddingService.Create(options.ProjectId, options.Location, options.ModelName, true); // Added isPublisherModel flag
 });
 
 // XaiGrokEmbeddingService and MockEmbeddingService are registered as scoped.

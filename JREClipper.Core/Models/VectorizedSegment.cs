@@ -1,25 +1,17 @@
 // JREClipper.Core/Models/VectorizedSegment.cs
+using System.Collections.Generic; // Added for List
 
 namespace JREClipper.Core.Models
 {
     public class VectorizedSegment
     {
-        public string SegmentId { get; set; } // Unique ID for the segment
+        public required string SegmentId { get; set; } // Unique ID for the segment
         public string VideoId { get; set; } = string.Empty;
-        public string ChannelName { get; set; } = string.Empty; // Added
-        public string Text { get; set; } = string.Empty;
-        public double StartTime { get; set; }
-        public double EndTime { get; set; }
+        public string Text { get; set; } = string.Empty; // Added
+        public string StartTime { get; set; } = string.Empty; // Changed from double to string
+        public string EndTime { get; set; } = string.Empty;   // Changed from double to string
         public List<float> Embedding { get; set; } = new List<float>(); // Dense vector embedding
-        public DateTime Timestamp { get; set; } // Indexing timestamp
-        public string? GuestName { get; set; }
-        public string? Tags { get; set; }
-        public int? EpisodeNumber { get; set; }
-
-        public VectorizedSegment()
-        {
-            SegmentId = Guid.NewGuid().ToString();
-            Timestamp = DateTime.UtcNow;
-        }
+        public string ChannelName { get; set; } = string.Empty; // Added
+        public string VideoTitle { get; set; } = string.Empty; // Added
     }
 }

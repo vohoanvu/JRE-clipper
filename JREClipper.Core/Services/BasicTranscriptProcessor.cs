@@ -8,11 +8,9 @@ namespace JREClipper.Core.Services
 {
     public class BasicTranscriptProcessor : ITranscriptProcessor
     {
-        private const int DefaultSegmentDurationSeconds = 30;
-
         public IEnumerable<ProcessedTranscriptSegment> ChunkTranscriptWithTimestamps(
             RawTranscriptData transcriptData,
-            int segmentDurationSeconds = DefaultSegmentDurationSeconds)
+            int segmentDurationSeconds = 0) 
         {
             if (transcriptData?.TranscriptWithTimestamps == null || !transcriptData.TranscriptWithTimestamps.Any())
             {
@@ -20,64 +18,48 @@ namespace JREClipper.Core.Services
             }
 
             var processedSegments = new List<ProcessedTranscriptSegment>();
-            var currentSegmentEntries = new List<TimestampedText>();
-            var currentSegmentText = new StringBuilder();
-            TimeSpan currentSegmentStartTime = TimeSpan.Zero;
-            TimeSpan segmentDuration = TimeSpan.FromSeconds(segmentDurationSeconds);
+            var orderedEntries = transcriptData.TranscriptWithTimestamps
+                                    // Keep original timestamp string, parse for ordering only
+                                    .Select(e => new { 
+                                        Entry = e, 
+                                        TimestampValue = e.Timestamp, 
+                                        OriginalTimestampString = e.Timestamp // Store original string
+                                    })
+                                    .OrderBy(e => e.TimestampValue)
+                                    .ToList();
 
-            foreach (var entry in transcriptData.TranscriptWithTimestamps.OrderBy(e => ParseTimestamp(e.Timestamp)))
+            for (int i = 0; i < orderedEntries.Count; i++)
             {
-                var entryStartTime = ParseTimestamp(entry.Timestamp);
+                var currentItem = orderedEntries[i];
+                var entry = currentItem.Entry;
+                // var entryTime = currentItem.TimestampValue; // TimeSpan value, used for logic if needed
+                string currentTimestampString = currentItem.OriginalTimestampString; // Use original string for StartTime
 
-                if (!currentSegmentEntries.Any()) // First entry for a new segment
+                if (string.IsNullOrWhiteSpace(entry.Text))
                 {
-                    currentSegmentStartTime = entryStartTime;
+                    Console.WriteLine($"Skipping entry with timestamp {entry.Timestamp} due to empty text.");
+                    continue;
                 }
 
-                // If adding this entry exceeds the desired segment duration (and it's not the first entry of the segment)
-                // or if there's a significant gap (e.g., more than segmentDuration/2, indicating a new scene/topic)
-                // then finalize the current segment.
-                bool isNewSegment = currentSegmentEntries.Any() &&
-                                    (entryStartTime - currentSegmentStartTime >= segmentDuration ||
-                                     entryStartTime - ParseTimestamp(currentSegmentEntries.Last().Timestamp) > segmentDuration / 2);
-
-
-                if (isNewSegment)
+                string endTimeString = currentTimestampString; // Default EndTime to StartTime string
+                if (i + 1 < orderedEntries.Count)
                 {
-                    if (currentSegmentText.Length > 0)
-                    {
-                        processedSegments.Add(new ProcessedTranscriptSegment
-                        {
-                            VideoId = transcriptData.VideoId,
-                            Text = currentSegmentText.ToString().Trim(),
-                            StartTime = currentSegmentStartTime,
-                            EndTime = ParseTimestamp(currentSegmentEntries.Last().Timestamp), // End time is the start of the last entry in this chunk
-                            ChannelName = transcriptData.ChannelName,
-                            VideoTitle = transcriptData.VideoTitle,
-                            OriginalEntries = new List<TimestampedText>(currentSegmentEntries)
-                        });
-                    }
-                    currentSegmentEntries.Clear();
-                    currentSegmentText.Clear();
-                    currentSegmentStartTime = entryStartTime; // Start new segment with current entry
+                    endTimeString = orderedEntries[i + 1].OriginalTimestampString; // Use original string of next entry for EndTime
                 }
+                // else if (i == orderedEntries.Count - 1) { // Handle last segment if specific EndTime logic is needed
+                //    TimeSpan tempEndTime = currentItem.TimestampValue.Add(TimeSpan.FromSeconds(1)); // Example: add 1 sec
+                //    endTimeString = tempEndTime.ToString(@"hh\:mm\:ss"); // Format as needed
+                // }
 
-                currentSegmentEntries.Add(entry);
-                currentSegmentText.Append(entry.Text).Append(" ");
-            }
-
-            // Add the last remaining segment
-            if (currentSegmentText.Length > 0 && currentSegmentEntries.Any())
-            {
                 processedSegments.Add(new ProcessedTranscriptSegment
                 {
                     VideoId = transcriptData.VideoId,
-                    Text = currentSegmentText.ToString().Trim(),
-                    StartTime = currentSegmentStartTime,
-                    EndTime = ParseTimestamp(currentSegmentEntries.Last().Timestamp),
+                    Text = entry.Text.Trim().Length > 20 ? string.Concat(entry.Text.Trim().AsSpan(0,10), "...", entry.Text.Trim().AsSpan(entry.Text.Trim().Length-10,10)) : entry.Text.Trim(), // Example: Truncate text
+                    StartTime = currentTimestampString, 
+                    EndTime = endTimeString, 
                     ChannelName = transcriptData.ChannelName,
                     VideoTitle = transcriptData.VideoTitle,
-                    OriginalEntries = new List<TimestampedText>(currentSegmentEntries)
+                    OriginalEntries = [entry] 
                 });
             }
 
@@ -85,79 +67,100 @@ namespace JREClipper.Core.Services
         }
 
         // Helper to parse flexible timestamp formats like "HH:MM:SS.fff", "MM:SS.fff", "SS.fff"
-        // or "HH:MM:SS", "MM:SS", "SS"
+        // or "HH:MM:SS", "MM:SS", "SS", "H:MM:SS", "M:SS"
         private static TimeSpan ParseTimestamp(string timestamp)
         {
-            // Normalize to handle missing milliseconds or hours
-            string[] parts = timestamp.Split(':');
-            string normalizedTimestamp;
+            if (string.IsNullOrEmpty(timestamp))
+            {
+                Console.WriteLine($"Warning: Null or empty timestamp provided. Defaulting to TimeSpan.Zero.");
+                return TimeSpan.Zero;
+            }
 
-            if (parts.Length == 1) // "SS.fff" or "SS"
+            string trimmedTimestamp = timestamp.Trim();
+
+            // Expanded and reordered formats for robustness, prioritizing 24-hour formats.
+            // H/HH for 24-hour (0-23), h/hh for 12/24-hour (0-23 if no AM/PM).
+            string[] formats = new[]
             {
-                normalizedTimestamp = $"00:00:{timestamp}";
+                // Most specific with milliseconds first
+                "HH:mm:ss.fff", // 24-hour, 00-23
+                "H:mm:ss.fff",  // 24-hour, 0-23
+                "hh:mm:ss.fff", // 12-hour (00-23 if no tt), or 24-hour
+                "h:mm:ss.fff",  // 12-hour (0-23 if no tt), or 24-hour
+
+                // Without milliseconds
+                "HH:mm:ss",     // 24-hour, 00-23
+                "H:mm:ss",      // 24-hour, 0-23  <- Should robustly match "3:07:17"
+                "hh:mm:ss",     // 12-hour (00-23 if no tt), or 24-hour
+                "h:mm:ss",      // 12-hour (0-23 if no tt), or 24-hour
+
+                // Minutes and seconds with milliseconds
+                "mm:ss.fff",
+                "m:ss.fff",
+
+                // Minutes and seconds without milliseconds
+                "mm:ss",
+                "m:ss",
+
+                // Seconds with milliseconds
+                "ss.fff",
+                "s.fff",
+
+                // Seconds without milliseconds
+                "ss",
+                "s"
+            };
+
+            if (TimeSpan.TryParseExact(trimmedTimestamp, formats, CultureInfo.InvariantCulture, TimeSpanStyles.None, out TimeSpan result))
+            {
+                return result;
             }
-            else if (parts.Length == 2) // "MM:SS.fff" or "MM:SS"
+
+            // Fallback for simple numbers which might represent total seconds
+            if (double.TryParse(trimmedTimestamp, NumberStyles.Any, CultureInfo.InvariantCulture, out double seconds))
             {
-                normalizedTimestamp = $"00:{timestamp}";
-            }
-            else // "HH:MM:SS.fff" or "HH:MM:SS"
-            {
-                normalizedTimestamp = timestamp;
+                return TimeSpan.FromSeconds(seconds);
             }
             
-            // Ensure milliseconds part exists for TimeSpan.ParseExact
-            if (!normalizedTimestamp.Contains('.'))
-            {
-                normalizedTimestamp += ".000";
-            }
-
-            // Try parsing with milliseconds
-            if (TimeSpan.TryParseExact(normalizedTimestamp, @"hh\:mm\:ss\.fff", CultureInfo.InvariantCulture, out var timeSpan) ||
-                TimeSpan.TryParseExact(normalizedTimestamp, @"h\:mm\:ss\.fff", CultureInfo.InvariantCulture, out timeSpan))
-            {
-                return timeSpan;
-            }
-            // Try parsing without milliseconds (if previous added .000 and it failed, this is a fallback)
-            if (TimeSpan.TryParseExact(normalizedTimestamp.Substring(0, normalizedTimestamp.LastIndexOf('.')), @"hh\:mm\:ss", CultureInfo.InvariantCulture, out timeSpan) ||
-                TimeSpan.TryParseExact(normalizedTimestamp.Substring(0, normalizedTimestamp.LastIndexOf('.')), @"h\:mm\:ss", CultureInfo.InvariantCulture, out timeSpan))
-            {
-                 return timeSpan;
-            }
-
-            Console.WriteLine($"Warning: Could not parse timestamp '{timestamp}'. Defaulting to TimeSpan.Zero.");
-            return TimeSpan.Zero; // Fallback for unparseable timestamps
+            Console.WriteLine($"Warning: Could not parse timestamp. Original: '{timestamp}', Trimmed: '{trimmedTimestamp}'. Defaulting to TimeSpan.Zero.");
+            return TimeSpan.Zero;
         }
 
-        // Original ChunkTranscript method - can be deprecated or adapted if still needed for non-timestamped full transcripts
+        // This signature matches the one in ITranscriptProcessor for non-timestamped text.
         public IEnumerable<string> ChunkTranscript(RawTranscriptData transcriptData, int chunkSize, int overlap)
         {
-            if (string.IsNullOrEmpty(transcriptData?.Transcript))
+            if (string.IsNullOrEmpty(transcriptData?.Transcript)) // Changed FullTranscriptText to Transcript
             {
                 return Enumerable.Empty<string>();
             }
 
-            var fullText = transcriptData.Transcript;
             var chunks = new List<string>();
-            var currentIndex = 0;
+            var currentChunk = new StringBuilder();
+            // Changed FullTranscriptText to Transcript
+            var words = transcriptData.Transcript.Split(new[] { ' ', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
 
-            while (currentIndex < fullText.Length)
+            for (int i = 0; i < words.Length; i++)
             {
-                var remainingLength = fullText.Length - currentIndex;
-                var currentChunkSize = System.Math.Min(chunkSize, remainingLength);
-                var chunk = fullText.Substring(currentIndex, currentChunkSize);
-                chunks.Add(chunk);
+                currentChunk.Append(words[i]).Append(" ");
 
-                if (currentIndex + currentChunkSize >= fullText.Length)
+                // If we've hit the chunk size, or we're at the last word, finalize this chunk
+                if (currentChunk.Length >= chunkSize || i == words.Length - 1)
                 {
-                    break; // Reached the end
-                }
+                    chunks.Add(currentChunk.ToString().Trim());
+                    currentChunk.Clear();
 
-                currentIndex += (chunkSize - overlap);
-                if (currentIndex < 0) // Ensure currentIndex doesn't go negative with large overlap
-                {
-                    currentIndex = 0;
+                    // If there's an overlap, re-add the last 'overlap' words to the new chunk
+                    if (overlap > 0 && i < words.Length - 1)
+                    {
+                        int overlapStart = Math.Max(0, i - overlap + 1);
+                        for (int j = overlapStart; j <= i; j++)
+                        {
+                            currentChunk.Append(words[j]).Append(" ");
+                        }
+                    }
                 }
             }
+
             return chunks;
         }
     }

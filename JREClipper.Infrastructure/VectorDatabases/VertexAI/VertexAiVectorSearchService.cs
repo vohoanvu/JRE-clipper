@@ -1,29 +1,35 @@
 // JREClipper.Infrastructure/VectorDatabases/VertexAI/VertexAiVectorSearchService.cs
-using Google.Cloud.AIPlatform.V1; // Corrected: Using the namespace
+using Google.Cloud.AIPlatform.V1;
 using JREClipper.Core.Interfaces;
 using JREClipper.Core.Models;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using Grpc.Core;
+using Grpc.Core; // For RpcException
+using System.Globalization; // For CultureInfo`
 
 namespace JREClipper.Infrastructure.VectorDatabases.VertexAI
 {
     public class VertexAiVectorSearchService : IVectorDatabaseService
     {
-        private readonly MatchServiceClient _matchServiceClient;
-        private readonly string _indexPath; // Format: projects/{PROJECT_ID}/locations/{LOCATION_ID}/indexes/{INDEX_ID}
-        private readonly string _deployedIndexId; // The ID of the deployed index on an IndexEndpoint
+        private readonly IndexServiceClient _indexServiceClient; // Changed from MatchServiceClient for upserts
+        private readonly MatchServiceClient _matchServiceClient; // Keep for search
+        private readonly string _indexNameString;
+        private readonly string _indexEndpointNameString;
+        private readonly string _deployedIndexId;
 
-        public VertexAiVectorSearchService(MatchServiceClient matchServiceClient, string indexPath, string deployedIndexId)
+        public VertexAiVectorSearchService(
+            IndexServiceClient indexServiceClient,
+            MatchServiceClient matchServiceClient,
+            string indexNameString,
+            string indexEndpointNameString,
+            string deployedIndexId)
         {
+            _indexServiceClient = indexServiceClient ?? throw new ArgumentNullException(nameof(indexServiceClient));
             _matchServiceClient = matchServiceClient ?? throw new ArgumentNullException(nameof(matchServiceClient));
-            _indexPath = indexPath ?? throw new ArgumentNullException(nameof(indexPath));
-            // _deployedIndexId is used for MatchServiceClient.FindNeighbors.
-            // It should be the DeployedIndex.Id, which is part of the IndexEndpoint.
-            // The IndexEndpoint itself is what MatchServiceClient targets.
-            // Let's assume _deployedIndexId is the DeployedIndex.Id string.
+            _indexNameString = indexNameString ?? throw new ArgumentNullException(nameof(indexNameString));
+            _indexEndpointNameString = indexEndpointNameString ?? throw new ArgumentNullException(nameof(indexEndpointNameString));
             _deployedIndexId = deployedIndexId ?? throw new ArgumentNullException(nameof(deployedIndexId));
         }
 
@@ -33,145 +39,192 @@ namespace JREClipper.Infrastructure.VectorDatabases.VertexAI
         // The IndexEndpoint resource name will be constructed or passed for FindNeighbors.
         public static VertexAiVectorSearchService Create(string projectId, string locationId, string indexId, string indexEndpointId, string deployedIndexId)
         {
-            var client = new MatchServiceClientBuilder().Build();
-            var indexPath = IndexName.FormatProjectLocationIndex(projectId, locationId, indexId);
-            // The MatchServiceClient needs the IndexEndpoint resource name for queries.
-            // We'll store the DeployedIndex.Id separately as it's also needed.
-            // For simplicity, we'll assume the user provides the full IndexEndpoint resource name
-            // or we construct it if only the ID is given.
-            // Let's assume indexEndpointId is the full resource name for now.
-            // If it's just the ID, it would be: IndexEndpointName.FormatProjectLocationIndexEndpoint(projectId, locationId, indexEndpointId);
-            return new VertexAiVectorSearchService(client, indexPath, deployedIndexId);
+            var indexServiceBuilder = new IndexServiceClientBuilder { Endpoint = $"{locationId}-aiplatform.googleapis.com" };
+            var indexServiceClient = indexServiceBuilder.Build();
+
+            var matchServiceBuilder = new MatchServiceClientBuilder { Endpoint = $"{locationId}-aiplatform.googleapis.com" };
+            var matchServiceClient = matchServiceBuilder.Build();
+
+            var indexName = IndexName.FormatProjectLocationIndex(projectId, locationId, indexId);
+            var indexEndpointName = IndexEndpointName.FormatProjectLocationIndexEndpoint(projectId, locationId, indexEndpointId);
+            
+            return new VertexAiVectorSearchService(indexServiceClient, matchServiceClient, indexName, indexEndpointName, deployedIndexId);
         }
 
         public async Task AddVectorAsync(VectorizedSegment segment)
         {
-            // Vertex AI Vector Search typically ingests data in batches (upserting to an index).
-            // A single add might be inefficient or not directly supported for online updates without re-indexing.
-            // This often involves preparing data files (JSON) and using IndexService.UpsertDatapoints.
-            // For simplicity, we'll assume batch additions. If single adds are critical, the approach needs to be revised based on API capabilities for live indexes.
-            await AddVectorsBatchAsync(new List<VectorizedSegment> { segment });
+            await AddVectorsBatchAsync([segment]);
         }
 
         public async Task AddVectorsBatchAsync(IEnumerable<VectorizedSegment> segments)
         {
-            // This is a simplified representation. Actual implementation requires:
-            // 1. Formatting segments into the JSON structure Vertex AI expects for datapoints.
-            // 2. Using IndexServiceClient.UpsertDatapointsAsync (not MatchServiceClient).
-            //    MatchServiceClient is for querying, not for index data manipulation.
-            // This would involve creating an IndexDatapoint for each segment.
-            // For now, this method will be a placeholder or would need significant changes
-            // if direct upsert to a live queryable index is the goal without batch re-indexing.
-
-            // Example of what would be needed (conceptual - requires IndexServiceClient):
-            /*
-            var indexServiceClient = new IndexServiceClientBuilder().Build(); // Needs to be injected or created
-            var datapoints = segments.Select(s => new IndexDatapoint
+            if (segments == null || !segments.Any())
             {
-                DatapointId = s.SegmentId,
-                FeatureVector = { s.Embedding }, // Assuming s.Embedding is List<float>
-                // Add restrictions/metadata if supported and needed
-            }).ToList();
+                Console.WriteLine("No segments provided to AddVectorsBatchAsync.");
+                return;
+            }
 
-            var request = new UpsertDatapointsRequest
+            var datapoints = new List<IndexDatapoint>();
+            foreach (var segment in segments)
             {
-                Index = _indexPath, // This should be the Index resource name, not DeployedIndexId
-            };
-            request.Datapoints.AddRange(datapoints);
+                if (segment.Embedding == null || !segment.Embedding.Any())
+                {
+                    Console.WriteLine($"Segment {segment.SegmentId ?? "Unknown"} has no embedding. Skipping.");
+                    continue;
+                }
+
+                var datapoint = new IndexDatapoint
+                {
+                    DatapointId = segment.SegmentId ?? $"{segment.VideoId}_{Guid.NewGuid()}", // Ensure unique ID
+                    FeatureVector = { segment.Embedding }
+                };
+
+                // Add restrictions for metadata filtering
+                // Ensure the namespace strings match exactly what's configured in your Vertex AI Index metadata schema
+                if (!string.IsNullOrEmpty(segment.VideoId))
+                {
+                    datapoint.Restricts.Add(new IndexDatapoint.Types.Restriction { Namespace = "videoId", AllowList = { segment.VideoId } });
+                }
+                if (!string.IsNullOrEmpty(segment.ChannelName))
+                {
+                    datapoint.Restricts.Add(new IndexDatapoint.Types.Restriction { Namespace = "channelName", AllowList = { segment.ChannelName } });
+                }
+                // Storing numeric values like StartTime and EndTime as strings in allow lists.
+                // For numeric range filtering, Vertex AI expects numeric_restricts.
+                // For simplicity with current structure, using string restrictions.
+                // If numeric range search is needed, this needs adjustment.
+                if (!string.IsNullOrEmpty(segment.StartTime))
+                {
+                    datapoint.Restricts.Add(new IndexDatapoint.Types.Restriction { Namespace = "startTime", AllowList = { segment.StartTime } }); // Changed namespace to startTime and directly use the string
+                }
+                if (!string.IsNullOrEmpty(segment.EndTime))
+                {
+                    // datapoint.Restricts.Add(new IndexDatapoint.Types.Restriction { Namespace = "endTimeSeconds", AllowList = { segment.EndTime.ToString("F0", CultureInfo.InvariantCulture) } });
+                    datapoint.Restricts.Add(new IndexDatapoint.Types.Restriction { Namespace = "endTime", AllowList = { segment.EndTime } }); // Changed namespace to endTime and directly use the string
+                }
+                
+                // You can add more string based metadata here if needed, e.g. VideoTitle
+                // if (!string.IsNullOrEmpty(segment.VideoTitle))
+                // {
+                //    datapoint.Restricts.Add(new IndexDatapoint.Types.Restriction { Namespace = "videoTitle", AllowList = { segment.VideoTitle } });
+                // }
+
+                // Example for numeric restrictions if you configure the index to support them:
+                // datapoint.NumericRestricts.Add(new IndexDatapoint.Types.NumericRestriction { Namespace = "startTimeMs", ValueInt = (int)segment.StartTime });
+                // datapoint.NumericRestricts.Add(new IndexDatapoint.Types.NumericRestriction { Namespace = "endTimeMs", ValueInt = (int)segment.EndTime });
+                
+                datapoints.Add(datapoint);
+            }
+
+            if (!datapoints.Any())
+            {
+                Console.WriteLine("No valid datapoints to upsert after processing segments.");
+                return;
+            }
 
             try
             {
-                await indexServiceClient.UpsertDatapointsAsync(request);
+                Console.WriteLine($"Upserting {datapoints.Count} datapoints to Vertex AI Index: {_indexNameString}");
+                UpsertDatapointsRequest request = new UpsertDatapointsRequest
+                {
+                    Index = _indexNameString,
+                    Datapoints = { datapoints }
+                };
+                await _indexServiceClient.UpsertDatapointsAsync(request);
+                Console.WriteLine("Successfully upserted datapoints to Vertex AI.");
             }
-            catch (RpcException ex)
+            catch (RpcException e)
             {
-                // Handle API errors
-                Console.WriteLine($"Error upserting datapoints: {ex.Status}");
+                Console.WriteLine($"Error upserting datapoints to Vertex AI: {e.Status} - {e.Message}");
+                // Consider re-throwing or specific error handling
                 throw;
             }
-            */
-            Console.WriteLine($"VertexAiVectorSearchService.AddVectorsBatchAsync called with {segments.Count()} segments. Actual data upsert requires IndexServiceClient and is not fully implemented here.");
-            await Task.CompletedTask; // Placeholder
+            catch (Exception ex)
+            {
+                Console.WriteLine($"An unexpected error occurred during Vertex AI upsert: {ex.Message}");
+                throw;
+            }
         }
 
         public async Task<IEnumerable<VectorSearchResult>> SearchSimilarVectorsAsync(List<float> queryVector, int topK, string? channelFilter = null)
         {
-            var queryDatapoint = new IndexDatapoint
-            {
-                FeatureVector = { queryVector }
-            };
+            var queryDatapoint = new IndexDatapoint { FeatureVector = { queryVector } };
 
-            // Add filtering if channelFilter is provided and your index supports it.
-            // This requires setting up the index with appropriate restriction tags.
             if (!string.IsNullOrEmpty(channelFilter))
             {
-                queryDatapoint.Restricts.Add(new IndexDatapoint.Types.Restriction
+                queryDatapoint.Restricts.Add(new IndexDatapoint.Types.Restriction 
                 {
-                    Namespace = "channel_name", // Must match the namespace used during indexing
+                    Namespace = "channelName", 
                     AllowList = { channelFilter }
                 });
             }
+            
+            var query = new FindNeighborsRequest.Types.Query 
+            { 
+                Datapoint = queryDatapoint, 
+                NeighborCount = topK 
+            };
 
             var request = new FindNeighborsRequest
             {
-                // IndexEndpoint should be the full resource name of the IndexEndpoint
-                // e.g., projects/{PROJECT_ID}/locations/{LOCATION_ID}/indexEndpoints/{INDEX_ENDPOINT_ID}
-                // We are assuming _matchServiceClient was created with this endpoint or it's passed/set elsewhere.
-                // For this call, we need the DeployedIndexId.
-                IndexEndpoint = _indexPath, // This was incorrect. It should be the IndexEndpoint resource name.
-                                            // Let's assume _indexPath was meant to be the IndexEndpoint for the constructor,
-                                            // or it needs to be passed/configured differently.
-                                            // For now, this will likely cause an error if _indexPath is an Index name.
-                                            // This needs to be the IndexEndpoint resource name.
+                IndexEndpoint = _indexEndpointNameString,
                 DeployedIndexId = _deployedIndexId,
             };
-            request.Queries.Add(new FindNeighborsRequest.Types.Query // Create the Query object here
-            {
-                Datapoint = queryDatapoint,
-                NeighborCount = topK
-            });
-
+            request.Queries.Add(query);
 
             try
             {
-                var response = await _matchServiceClient.FindNeighborsAsync(request);
+                FindNeighborsResponse response = await _matchServiceClient.FindNeighborsAsync(request);
                 var results = new List<VectorSearchResult>();
 
-                foreach (var neighbor in response.NearestNeighbors.FirstOrDefault()?.Neighbors ?? Enumerable.Empty<FindNeighborsResponse.Types.Neighbor>())
+                foreach (var neighbor in response.NearestNeighbors[0].Neighbors)
                 {
-                    // Assuming the neighbor.Datapoint.DatapointId is the VectorizedSegment.SegmentId
-                    // You would typically fetch the full VectorizedSegment metadata from another store (e.g., GCS, a relational DB)
-                    // using this ID, as the vector DB might only store the ID and vector.
-                    // For this example, we'll create a placeholder segment.
+                    // Assuming DatapointId was stored in a way that VideoId and SegmentId can be retrieved
+                    // or that other metadata is available directly if the index is configured to return it.
+                    // For now, we only have neighbor.Datapoint.DatapointId and neighbor.Distance.
+                    // The VectorSearchResult expects a full VectorizedSegment.
+                    // We need to decide how to populate this. For now, creating a minimal one.
+                    var matchedSegment = new VectorizedSegment
+                    {
+                        SegmentId = neighbor.Datapoint.DatapointId,
+                        VideoId = neighbor.Datapoint.DatapointId.Split('_').FirstOrDefault() ?? neighbor.Datapoint.DatapointId, // Simplistic split
+                        // Other fields like Text, StartTime, EndTime, ChannelName would ideally be retrieved
+                        // either from the index if configured to return them, or by a separate lookup using the SegmentId/VideoId.
+                        // For this example, they will remain default/empty.
+                    };
                     results.Add(new VectorSearchResult
                     {
-                        Segment = new VectorizedSegment { SegmentId = neighbor.Datapoint.DatapointId, Text = "[Metadata not fetched from vector DB]" },
-                        Score = neighbor.Distance
+                        Segment = matchedSegment,
+                        Score = (float)(1 - neighbor.Distance) // Convert distance to similarity score (0 to 1)
                     });
                 }
                 return results;
             }
-            catch (RpcException ex)
+            catch (RpcException e)
             {
-                // Handle API errors (e.g., invalid arguments, not found, permission denied)
-                Console.WriteLine($"Error searching neighbors: {ex.Status}");
+                Console.WriteLine($"Error searching vectors in Vertex AI: {e.Status} - {e.Message}");
                 throw;
             }
         }
 
         public async Task<bool> CheckHealthAsync()
         {
-            // A simple health check could be a FindNeighbors request with a dummy vector and topK=1.
-            // This verifies connectivity and that the deployed index is responsive.
+            // A simple health check could be trying to get index details or a dummy search.
+            // For MatchServiceClient, a dummy FindNeighbors with 0 results or specific ID might work.
+            // For IndexServiceClient, GetIndex could be used.
             try
             {
-                var dummyVector = Enumerable.Repeat(0.1f, 768).ToList(); // Assuming 768 dimensions
-                await SearchSimilarVectorsAsync(dummyVector, 1);
+                await _indexServiceClient.GetIndexAsync(new GetIndexRequest { Name = _indexNameString });
+                // Optionally, also check the match service endpoint if critical for health
+                // var dummyQuery = new FindNeighborsRequest { IndexEndpoint = _indexEndpointNameString, DeployedIndexId = _deployedIndexId };
+                // dummyQuery.Queries.Add(new FindNeighborsRequest.Types.QueryRequest { Datapoint = new IndexDatapoint { FeatureVector = { new float[1] } }, NeighborCount = 1 });
+                // await _matchServiceClient.FindNeighborsAsync(dummyQuery);
+
                 return true;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Health check failed for Vertex AI Vector Search: {ex.Message}");
+                Console.WriteLine($"Health check failed for VertexAiVectorSearchService: {ex.Message}");
                 return false;
             }
         }

@@ -12,7 +12,7 @@ namespace JREClipper.Core.Models
 
     public class VectorSearchResult
     {
-        public VectorizedSegment Segment { get; set; } = new VectorizedSegment();
+        public required VectorizedSegment Segment { get; set; } // Added required keyword
         public double Score { get; set; } // Similarity score
     }
 }

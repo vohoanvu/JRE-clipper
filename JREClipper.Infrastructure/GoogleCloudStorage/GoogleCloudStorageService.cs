@@ -41,7 +41,15 @@ namespace JREClipper.Infrastructure.GoogleCloudStorage
             memoryStream.Position = 0; // Reset stream position to the beginning
             using var reader = new StreamReader(memoryStream, Encoding.UTF8);
             var jsonContent = await reader.ReadToEndAsync();
-            return JsonConvert.DeserializeObject<RawTranscriptData>(jsonContent) ?? new RawTranscriptData();
+            var parseJsonArray = JsonConvert.DeserializeObject<List<RawTranscriptData>>(jsonContent) ?? [];
+
+            return parseJsonArray.FirstOrDefault() ?? new RawTranscriptData
+            {
+                VideoId = string.Empty,
+                Transcript = string.Empty,
+                ChannelName = string.Empty,
+                VideoTitle = string.Empty
+            };
         }
 
         public async Task UpdateJrePlaylistMetadataAsync(

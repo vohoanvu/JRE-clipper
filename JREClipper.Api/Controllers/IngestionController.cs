@@ -18,6 +18,18 @@ namespace JREClipper.Api.Controllers
         private readonly AppSettings _appSettings;
         private readonly EmbeddingServiceOptions _embeddingOptions;
 
+        public class RequestDto
+        {
+            public required string BucketName { get; set; }
+            public string? ObjectName { get; set; }
+
+            public string? Prefix { get; set; }
+
+            public string? VideoId { get; set; }
+
+            public Dictionary<string, object>? UpdatedFields { get; set; }
+        }
+
         public IngestionController(
             IGoogleCloudStorageService gcsService,
             ITranscriptProcessor transcriptProcessor,
@@ -47,26 +59,26 @@ namespace JREClipper.Api.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> ProcessSingleTranscript(string bucketName, string objectName)
+        public async Task<IActionResult> ProcessSingleTranscript([FromBody] RequestDto requestDto)
         {
-            if (string.IsNullOrEmpty(bucketName) || string.IsNullOrEmpty(objectName))
+            if (string.IsNullOrEmpty(requestDto.BucketName) || string.IsNullOrEmpty(requestDto.ObjectName))
             {
                 return BadRequest("Bucket name and object name are required.");
             }
 
             try
             {
-                var rawTranscript = await _gcsService.GetSingleTranscript(bucketName, objectName);
+                var rawTranscript = await _gcsService.GetSingleTranscript(requestDto.BucketName, requestDto.ObjectName);
                 if (rawTranscript == null || rawTranscript.TranscriptWithTimestamps == null || !rawTranscript.TranscriptWithTimestamps.Any())
                 {
-                    return NotFound($"Transcript data not found or empty in GCS object: {objectName}");
+                    return NotFound($"Transcript data not found or empty in GCS object: {requestDto.ObjectName}");
                 }
 
                 // Ensure VideoId is populated if not directly in the JSON root
                 if (string.IsNullOrEmpty(rawTranscript.VideoId))
                 {
                     // Attempt to derive VideoId from objectName if it follows a pattern like "transcript_VIDEOID.json"
-                    var fileName = Path.GetFileNameWithoutExtension(objectName);
+                    var fileName = Path.GetFileNameWithoutExtension(requestDto.ObjectName);
                     if (fileName.StartsWith("transcript-"))
                     {
                         rawTranscript.VideoId = fileName.Substring("transcript-".Length);
@@ -101,22 +113,38 @@ namespace JREClipper.Api.Controllers
                     {
                         SegmentId = Guid.NewGuid().ToString(),
                         VideoId = segment.VideoId,
-                        Text = segment.Text,
-                        StartTime = TimeSpan.Parse(segment.StartTime.ToString(@"hh\:mm\:ss\.fff")).TotalSeconds,
-                        Embedding = embeddings[i], // Use the List<float> directly
-                        ChannelName = segment.ChannelName
-                        // Optional properties have been removed as they don't exist in ProcessedTranscriptSegment
+                        Text = segment.Text, // This text is now potentially truncated
+                        StartTime = segment.StartTime, // Already a string from ProcessedTranscriptSegment
+                        EndTime = segment.EndTime,   // Already a string from ProcessedTranscriptSegment
+                        Embedding = embeddings[i], 
+                        ChannelName = segment.ChannelName,
+                        VideoTitle = segment.VideoTitle 
                     });
                 }
 
-                await _vectorDbService.AddVectorsBatchAsync(vectorizedSegments);
+                // await _vectorDbService.AddVectorsBatchAsync(vectorizedSegments); // Commented out as per request
 
-                return Ok(new { Message = $"Successfully processed and vectorized {vectorizedSegments.Count} segments from {objectName}.", SegmentsCount = vectorizedSegments.Count });
+                // Save vectorized segments to GCS for Vertex AI Index batch updates
+                var vectorizedSegmentsObjectName = $"vectorized-segments/{rawTranscript.VideoId}.json";
+                await _gcsService.UploadVectorizedSegmentsAsync(requestDto.BucketName, vectorizedSegmentsObjectName, vectorizedSegments);
+
+                // Update playlist metadata
+                if (!string.IsNullOrEmpty(rawTranscript.VideoId) && !string.IsNullOrEmpty(_gcsOptions.JrePlaylistCsvObjectName))
+                {
+                    var updatedFields = new Dictionary<string, object> { { "isVectorized", true } };
+                    await _gcsService.UpdateJrePlaylistMetadataAsync(
+                        requestDto.BucketName, // Or a specific bucket for metadata if different
+                        rawTranscript.VideoId,
+                        updatedFields,
+                        _gcsOptions.JrePlaylistCsvObjectName);
+                }
+
+                return Ok(new { Message = $"Successfully processed, vectorized, and saved {vectorizedSegments.Count} segments from {requestDto.ObjectName}. Playlist metadata updated.", SegmentsCount = vectorizedSegments.Count });
             }
             catch (Exception ex)
             {
                 // Log the exception (using ILogger if available)
-                Console.WriteLine($"Error processing transcript {objectName}: {ex.Message}");
+                Console.WriteLine($"Error processing transcript {requestDto.ObjectName}: {ex.Message}");
                 return StatusCode(StatusCodes.Status500InternalServerError, $"An error occurred: {ex.Message}");
             }
         }
@@ -131,9 +159,9 @@ namespace JREClipper.Api.Controllers
         [HttpPost("vectorize-batch-transcripts")]
         [ProducesResponseType(StatusCodes.Status202Accepted)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        public async Task<IActionResult> ProcessBatchTranscripts(string bucketName, string prefix)
+        public async Task<IActionResult> ProcessBatchTranscripts([FromBody] RequestDto requestDto)
         {
-            if (string.IsNullOrEmpty(bucketName))
+            if (string.IsNullOrEmpty(requestDto.BucketName))
             {
                 return BadRequest("Bucket name is required.");
             }
@@ -143,10 +171,10 @@ namespace JREClipper.Api.Controllers
             // For now, it just lists them as a demonstration.
             try
             {
-                var transcriptFiles = await _gcsService.ListAllTranscriptFiles(bucketName, prefix ?? string.Empty);
+                var transcriptFiles = await _gcsService.ListAllTranscriptFiles(requestDto.BucketName, requestDto.Prefix ?? string.Empty); // Corrected typo: Prefex -> Prefix
                 if (transcriptFiles.Count == 0)
                 {
-                    return NotFound($"No transcript files found in gs://{bucketName}/{prefix}");
+                    return NotFound($"No transcript files found in gs://{requestDto.BucketName}/{requestDto.Prefix}"); // Corrected typo: Prefex -> Prefix
                 }
 
                 // TODO: Implement actual queuing mechanism here.
@@ -172,22 +200,22 @@ namespace JREClipper.Api.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> UpdateJrePlaylistMetadata(string bucketName, string videoId, [FromBody] Dictionary<string, object> updatedFields, string objectName)
+        public async Task<IActionResult> UpdateJrePlaylistMetadata([FromBody] RequestDto requestDto)
         {
-            if (string.IsNullOrEmpty(bucketName) || string.IsNullOrEmpty(videoId) || string.IsNullOrEmpty(objectName))
+            if (string.IsNullOrEmpty(requestDto.BucketName) || string.IsNullOrEmpty(requestDto.VideoId) || string.IsNullOrEmpty(requestDto.ObjectName))
             {
                 return BadRequest("Bucket name, video ID, and object name are required.");
             }
 
-            if (updatedFields == null || !updatedFields.Any())
+            if (requestDto.UpdatedFields == null || !requestDto.UpdatedFields.Any())
             {
                 return BadRequest("No fields to update provided.");
             }
 
             try
             {
-                await _gcsService.UpdateJrePlaylistMetadataAsync(bucketName, videoId, updatedFields, objectName);
-                return Ok(new { Message = $"Successfully updated metadata for video ID {videoId} in {objectName}." });
+                await _gcsService.UpdateJrePlaylistMetadataAsync(requestDto.BucketName, requestDto.VideoId, requestDto.UpdatedFields, requestDto.ObjectName);
+                return Ok(new { Message = $"Successfully updated metadata for video ID {requestDto.VideoId} in {requestDto.ObjectName}." });
             }
             catch (KeyNotFoundException knfEx)
             {

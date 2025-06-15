@@ -30,10 +30,9 @@ namespace JREClipper.Core.Models
     {
         public string? TranscriptsBucketName { get; set; } // Specific name from JSON
         public string? ProcessedClipsBucketName { get; set; } // Specific name from JSON
-        public string? MetadataFolder { get; set; }
-        public string? TranscriptsFolder { get; set; }
         public string? OutputFolder { get; set; }
         public string? ProjectId { get; set; } // ProjectId can also be here if GCS is project-specific
+        public string? JrePlaylistCsvObjectName { get; set; } // Added for playlist CSV object name
         // CredentialsJsonPath removed, relying on GOOGLE_APPLICATION_CREDENTIALS
     }
 
@@ -82,8 +81,6 @@ namespace JREClipper.Core.Models
         public string? Location { get; set; } // Matched JSON
         public string? Endpoint { get; set; } // General service endpoint
         public string? ModelName { get; set; } // Matched JSON (textembedding-gecko@001)
-        public string? EmbeddingEndpointId { get; set; } // Specific deployed model endpoint for predictions
-        // CredentialsJsonPath removed
     }
 
     public class XaiGrokOptions // Specific for "XaiGrok" top-level section
