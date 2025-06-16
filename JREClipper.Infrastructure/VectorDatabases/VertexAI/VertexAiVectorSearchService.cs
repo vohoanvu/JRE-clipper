@@ -93,14 +93,16 @@ namespace JREClipper.Infrastructure.VectorDatabases.VertexAI
                 // For numeric range filtering, Vertex AI expects numeric_restricts.
                 // For simplicity with current structure, using string restrictions.
                 // If numeric range search is needed, this needs adjustment.
-                if (!string.IsNullOrEmpty(segment.StartTime))
+                if (segment.StartTime != TimeSpan.Zero)
                 {
-                    datapoint.Restricts.Add(new IndexDatapoint.Types.Restriction { Namespace = "startTime", AllowList = { segment.StartTime } }); // Changed namespace to startTime and directly use the string
+                    string startTimeString = segment.StartTime.ToString("g", CultureInfo.InvariantCulture);
+                    datapoint.Restricts.Add(new IndexDatapoint.Types.Restriction { Namespace = "startTime", AllowList = { startTimeString } });
                 }
-                if (!string.IsNullOrEmpty(segment.EndTime))
+                if (segment.EndTime != TimeSpan.Zero)
                 {
                     // datapoint.Restricts.Add(new IndexDatapoint.Types.Restriction { Namespace = "endTimeSeconds", AllowList = { segment.EndTime.ToString("F0", CultureInfo.InvariantCulture) } });
-                    datapoint.Restricts.Add(new IndexDatapoint.Types.Restriction { Namespace = "endTime", AllowList = { segment.EndTime } }); // Changed namespace to endTime and directly use the string
+                    string endTimeString = segment.EndTime.ToString("g", CultureInfo.InvariantCulture);
+                    datapoint.Restricts.Add(new IndexDatapoint.Types.Restriction { Namespace = "endTime", AllowList = { endTimeString } });
                 }
                 
                 // You can add more string based metadata here if needed, e.g. VideoTitle

@@ -5,8 +5,6 @@ using JREClipper.Core.Models;
 using Newtonsoft.Json;
 using System.Text;
 using CsvHelper;
-using CsvHelper.Configuration;
-using System.Dynamic;
 using System.Globalization;
 
 namespace JREClipper.Infrastructure.GoogleCloudStorage
@@ -58,57 +56,50 @@ namespace JREClipper.Infrastructure.GoogleCloudStorage
             Dictionary<string, object> updatedFields,
             string objectName)
         {
-            if (updatedFields == null || !updatedFields.Any())
+            if (updatedFields == null || updatedFields.Count == 0)
                 return;
 
-            // Download existing CSV
-            var downloadStream = new MemoryStream();
-            try
+            // Download and parse CSV
+            List<JrePlaylistRow> records;
+            using (var downloadStream = new MemoryStream())
             {
-                await _storageClient.DownloadObjectAsync(bucketName, objectName, downloadStream);
-            }
-            catch (Google.GoogleApiException ex) when (ex.Error?.Code == 404)
-            {
-                throw new FileNotFoundException($"Playlist file '{objectName}' not found in bucket '{bucketName}'.", ex);
-            }
-            downloadStream.Position = 0;
-
-            // Parse CSV using CsvHelper
-            List<dynamic> records;
-            using (var reader = new StreamReader(downloadStream, Encoding.UTF8))
-            using (var csvReader = new CsvReader(reader, new CsvConfiguration(CultureInfo.InvariantCulture) { HasHeaderRecord = true }))
-            {
-                records = csvReader.GetRecords<dynamic>().ToList();
-            }
-
-            bool entryFound = false;
-            // Update the matching record
-            foreach (IDictionary<string, object> record in records.Cast<IDictionary<string, object>>())
-            {
-                if (record.TryGetValue("videoId", out var id) && id?.ToString() == videoId)
+                try
                 {
-                    entryFound = true;
-                    foreach (var kvp in updatedFields)
-                    {
-                        if (record.ContainsKey(kvp.Key))
-                            record[kvp.Key] = kvp.Value;
-                    }
-                    break;
+                    await _storageClient.DownloadObjectAsync(bucketName, objectName, downloadStream);
                 }
+                catch (Google.GoogleApiException ex) when (ex.Error?.Code == 404)
+                {
+                    throw new FileNotFoundException($"Playlist file '{objectName}' not found in bucket '{bucketName}'.", ex);
+                }
+                downloadStream.Position = 0;
+
+                using var reader = new StreamReader(downloadStream, Encoding.UTF8);
+                using var csvReader = new CsvReader(reader, CultureInfo.InvariantCulture);
+                if (!csvReader.Read() || !csvReader.ReadHeader())
+                    throw new InvalidDataException($"CSV '{objectName}' has no header row.");
+                records = [.. csvReader.GetRecords<JrePlaylistRow>()];
             }
-            if (!entryFound)
-                throw new KeyNotFoundException($"Video ID '{videoId}' not found in playlist '{objectName}'.");
+
+            if (records.Count == 0)
+                throw new InvalidDataException($"CSV '{objectName}' is empty or contains no records.");
+
+            // Update the target record
+            var record = records.FirstOrDefault(r => r.videoId == videoId)
+                ?? throw new KeyNotFoundException($"Video ID '{videoId}' not found in playlist '{objectName}'.");
+            foreach (var kvp in updatedFields)
+            {
+                var prop = typeof(JrePlaylistRow).GetProperty(kvp.Key);
+                if (prop != null && kvp.Value != null)
+                    prop.SetValue(record, kvp.Value.ToString());
+            }
 
             // Write updated CSV back to stream
-            var uploadStream = new MemoryStream();
-            using (var writer = new StreamWriter(uploadStream, Encoding.UTF8, leaveOpen: true))
-            using (var csvWriter = new CsvWriter(writer, new CsvConfiguration(CultureInfo.InvariantCulture) { HasHeaderRecord = true }))
-            {
-                csvWriter.WriteRecords(records);
-                await writer.FlushAsync();
-            }
+            using var uploadStream = new MemoryStream();
+            using var writer = new StreamWriter(uploadStream, Encoding.UTF8, leaveOpen: true);
+            using var csvWriter = new CsvWriter(writer, CultureInfo.InvariantCulture);
+            csvWriter.WriteRecords(records);
+            await writer.FlushAsync();
             uploadStream.Position = 0;
-            // Upload overwrite
             await _storageClient.UploadObjectAsync(bucketName, objectName, "text/csv", uploadStream);
         }
 
@@ -118,5 +109,17 @@ namespace JREClipper.Infrastructure.GoogleCloudStorage
             using var stream = new MemoryStream(Encoding.UTF8.GetBytes(jsonContent));
             await _storageClient.UploadObjectAsync(bucketName, objectName, "application/json", stream);
         }
+    }
+
+    public class JrePlaylistRow
+    {
+        public string? videoId { get; set; }
+        public string? title { get; set; }
+        public string? description { get; set; }
+        public string? date { get; set; }
+        public string? Url { get; set; }
+        public string? isTranscripted { get; set; }
+        public string? isVectorized { get; set; }
+        public string? isEmptyTranscript { get; set; }
     }
 }

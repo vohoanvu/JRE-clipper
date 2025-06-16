@@ -1,6 +1,5 @@
 // JREClipper.Core/Models/RawTranscriptData.cs
 using System.Text.Json.Serialization;
-using System.Collections.Generic;
 
 namespace JREClipper.Core.Models
 {
@@ -31,7 +30,7 @@ namespace JREClipper.Core.Models
         public string Transcript { get; set; } = string.Empty; // Full episode text if available
 
         [JsonPropertyName("transcriptWithTimestamps")]
-        public List<TimestampedText> TranscriptWithTimestamps { get; set; } = new List<TimestampedText>();
+        public List<TimestampedText> TranscriptWithTimestamps { get; set; } = [];
     }
 
     public class TimestampedText

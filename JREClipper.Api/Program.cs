@@ -67,7 +67,7 @@ builder.Services.AddScoped<Func<string, IEmbeddingService>>(serviceProvider => k
 {
     // Correctly use AppSettings to get the configured embedding provider
     var appSettings = serviceProvider.GetRequiredService<IOptions<AppSettings>>().Value;
-    var activeServiceKey = !string.IsNullOrEmpty(key) ? key : appSettings.EmbeddingProvider; 
+    var activeServiceKey = !string.IsNullOrEmpty(key) ? key : appSettings.EmbeddingProvider;
 
     switch (activeServiceKey?.ToLower())
     {

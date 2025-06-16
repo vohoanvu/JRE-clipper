@@ -8,9 +8,9 @@ namespace JREClipper.Core.Models
         public required string SegmentId { get; set; } // Unique ID for the segment
         public string VideoId { get; set; } = string.Empty;
         public string Text { get; set; } = string.Empty; // Added
-        public string StartTime { get; set; } = string.Empty; // Changed from double to string
-        public string EndTime { get; set; } = string.Empty;   // Changed from double to string
-        public List<float> Embedding { get; set; } = new List<float>(); // Dense vector embedding
+        public TimeSpan StartTime { get; set; }
+        public TimeSpan EndTime { get; set; }
+        public List<float> Embedding { get; set; } = []; // Dense vector embedding
         public string ChannelName { get; set; } = string.Empty; // Added
         public string VideoTitle { get; set; } = string.Empty; // Added
     }

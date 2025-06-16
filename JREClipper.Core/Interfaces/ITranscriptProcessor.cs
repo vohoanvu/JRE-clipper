@@ -6,7 +6,7 @@ namespace JREClipper.Core.Interfaces
     public interface ITranscriptProcessor
     {
         // Processes raw transcript data with timestamps into structured, timed segments.
-        IEnumerable<ProcessedTranscriptSegment> ChunkTranscriptWithTimestamps(RawTranscriptData transcriptData, int segmentDurationSeconds = 30);
+        IEnumerable<ProcessedTranscriptSegment> ChunkTranscriptWithTimestamps(RawTranscriptData transcriptData, int? segmentDurationSeconds, int? slideSeconds);
 
         // Chunks a single block of text without timestamp awareness.
         // This might be deprecated if all transcripts are timestamped.

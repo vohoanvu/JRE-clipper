@@ -20,7 +20,7 @@ namespace JREClipper.Api.Controllers
 
         public class RequestDto
         {
-            public required string BucketName { get; set; }
+            public string? BucketName { get; set; }
             public string? ObjectName { get; set; }
 
             public string? Prefix { get; set; }
@@ -63,13 +63,14 @@ namespace JREClipper.Api.Controllers
         {
             if (string.IsNullOrEmpty(requestDto.BucketName) || string.IsNullOrEmpty(requestDto.ObjectName))
             {
-                return BadRequest("Bucket name and object name are required.");
+                requestDto.BucketName = "jre-content";
+                requestDto.ObjectName = "transcriptions/transcript-_BTNmNpoAro.json"; //Test data
             }
 
             try
             {
                 var rawTranscript = await _gcsService.GetSingleTranscript(requestDto.BucketName, requestDto.ObjectName);
-                if (rawTranscript == null || rawTranscript.TranscriptWithTimestamps == null || !rawTranscript.TranscriptWithTimestamps.Any())
+                if (rawTranscript == null || rawTranscript.TranscriptWithTimestamps == null || rawTranscript.TranscriptWithTimestamps.Count == 0)
                 {
                     return NotFound($"Transcript data not found or empty in GCS object: {requestDto.ObjectName}");
                 }
@@ -89,51 +90,49 @@ namespace JREClipper.Api.Controllers
                     }
                 }
 
-                var processedSegments = _transcriptProcessor.ChunkTranscriptWithTimestamps(rawTranscript);
-                if (!processedSegments.Any())
+                var segmentChunkSize = _appSettings.ChunkSettings?.MaxChunkDurationSeconds;
+                var segmentOverlap = _appSettings.ChunkSettings?.OverlapDurationSeconds;
+
+                var processedSegments = _transcriptProcessor.ChunkTranscriptWithTimestamps(rawTranscript, segmentChunkSize, segmentOverlap).ToList();
+                if (processedSegments.Count == 0)
                 {
                     return Ok("Transcript processed, but no segments were generated (possibly empty or too short).");
                 }
 
-                var vectorizedSegments = new List<VectorizedSegment>();
                 var textsToEmbed = processedSegments.Select(s => s.Text).ToList();
 
                 // Batch embedding generation
                 var embeddings = await _embeddingService.GenerateEmbeddingsBatchAsync(textsToEmbed);
 
-                if (embeddings.Count != processedSegments.Count())
+                if (embeddings == null || embeddings.Count != processedSegments.Count)
                 {
-                    return StatusCode(StatusCodes.Status500InternalServerError, "Mismatch between number of segments and generated embeddings.");
+                    return StatusCode(StatusCodes.Status500InternalServerError, new { Message = "Mismatch between number of segments and generated embeddings." });
                 }
 
-                for (int i = 0; i < processedSegments.Count(); i++)
+                var vectorizedSegments = processedSegments.Select((segment, i) => new VectorizedSegment
                 {
-                    var segment = processedSegments.ElementAt(i);
-                    vectorizedSegments.Add(new VectorizedSegment
-                    {
-                        SegmentId = Guid.NewGuid().ToString(),
-                        VideoId = segment.VideoId,
-                        Text = segment.Text, // This text is now potentially truncated
-                        StartTime = segment.StartTime, // Already a string from ProcessedTranscriptSegment
-                        EndTime = segment.EndTime,   // Already a string from ProcessedTranscriptSegment
-                        Embedding = embeddings[i], 
-                        ChannelName = segment.ChannelName,
-                        VideoTitle = segment.VideoTitle 
-                    });
-                }
+                    SegmentId = Guid.NewGuid().ToString(),
+                    VideoId = segment.VideoId,
+                    Text = segment.Text,
+                    StartTime = segment.StartTime,
+                    EndTime = segment.EndTime,
+                    Embedding = embeddings[i],
+                    ChannelName = segment.ChannelName,
+                    VideoTitle = segment.VideoTitle
+                }).ToList();
 
-                // await _vectorDbService.AddVectorsBatchAsync(vectorizedSegments); // Commented out as per request
-
+                // await _vectorDbService.AddVectorsBatchAsync(vectorizedSegments);
+                
                 // Save vectorized segments to GCS for Vertex AI Index batch updates
-                var vectorizedSegmentsObjectName = $"vectorized-segments/{rawTranscript.VideoId}.json";
-                await _gcsService.UploadVectorizedSegmentsAsync(requestDto.BucketName, vectorizedSegmentsObjectName, vectorizedSegments);
+                var vectorizedSegmentsObjectName = $"embeddings/{rawTranscript.VideoId}.json";
+                await _gcsService.UploadVectorizedSegmentsAsync("jre-processed-clips-bucker", vectorizedSegmentsObjectName, vectorizedSegments);
 
                 // Update playlist metadata
                 if (!string.IsNullOrEmpty(rawTranscript.VideoId) && !string.IsNullOrEmpty(_gcsOptions.JrePlaylistCsvObjectName))
                 {
                     var updatedFields = new Dictionary<string, object> { { "isVectorized", true } };
                     await _gcsService.UpdateJrePlaylistMetadataAsync(
-                        requestDto.BucketName, // Or a specific bucket for metadata if different
+                        requestDto.BucketName,
                         rawTranscript.VideoId,
                         updatedFields,
                         _gcsOptions.JrePlaylistCsvObjectName);
