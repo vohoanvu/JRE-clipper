@@ -105,9 +105,33 @@ namespace JREClipper.Infrastructure.GoogleCloudStorage
 
         public async Task UploadVectorizedSegmentsAsync(string bucketName, string objectName, IEnumerable<VectorizedSegment> segments)
         {
-            var jsonContent = JsonConvert.SerializeObject(segments, Formatting.Indented);
-            using var stream = new MemoryStream(Encoding.UTF8.GetBytes(jsonContent));
-            await _storageClient.UploadObjectAsync(bucketName, objectName, "application/json", stream);
+            using var memoryStream = new MemoryStream();
+            using (var writer = new StreamWriter(memoryStream, Encoding.UTF8, bufferSize: 1024, leaveOpen: true))
+            {
+                foreach (var segment in segments)
+                {
+                    // Create an object that matches the Vertex AI required structure for each line.
+                    var record = new
+                    {
+                        id = segment.SegmentId, // "id" (string, required)
+                        embedding = segment.Embedding, // "embedding" (array of numbers, required)
+                        videoId = segment.VideoId,
+                        text = segment.Text,
+                        startTime = segment.StartTime,
+                        endTime = segment.EndTime,
+                        channelName = segment.ChannelName,
+                        videoTitle = segment.VideoTitle
+                    };
+
+                    var jsonLine = JsonConvert.SerializeObject(record);
+
+                    await writer.WriteLineAsync(jsonLine);
+                }
+                await writer.FlushAsync();
+            }
+
+            memoryStream.Position = 0;
+            await _storageClient.UploadObjectAsync(bucketName, objectName, "application/x-ndjson", memoryStream);
         }
     }
 

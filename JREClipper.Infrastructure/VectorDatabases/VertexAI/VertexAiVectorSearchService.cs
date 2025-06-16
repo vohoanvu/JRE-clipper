@@ -2,12 +2,8 @@
 using Google.Cloud.AIPlatform.V1;
 using JREClipper.Core.Interfaces;
 using JREClipper.Core.Models;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
-using Grpc.Core; // For RpcException
-using System.Globalization; // For CultureInfo`
+using Grpc.Core;
+using System.Globalization;
 
 namespace JREClipper.Infrastructure.VectorDatabases.VertexAI
 {
@@ -93,15 +89,15 @@ namespace JREClipper.Infrastructure.VectorDatabases.VertexAI
                 // For numeric range filtering, Vertex AI expects numeric_restricts.
                 // For simplicity with current structure, using string restrictions.
                 // If numeric range search is needed, this needs adjustment.
-                if (segment.StartTime != TimeSpan.Zero)
+                if (segment.StartTime != 0.0)
                 {
-                    string startTimeString = segment.StartTime.ToString("g", CultureInfo.InvariantCulture);
+                    string startTimeString = segment.StartTime.ToString("F1", CultureInfo.InvariantCulture);
                     datapoint.Restricts.Add(new IndexDatapoint.Types.Restriction { Namespace = "startTime", AllowList = { startTimeString } });
                 }
-                if (segment.EndTime != TimeSpan.Zero)
+                if (segment.EndTime != 0.0)
                 {
                     // datapoint.Restricts.Add(new IndexDatapoint.Types.Restriction { Namespace = "endTimeSeconds", AllowList = { segment.EndTime.ToString("F0", CultureInfo.InvariantCulture) } });
-                    string endTimeString = segment.EndTime.ToString("g", CultureInfo.InvariantCulture);
+                    string endTimeString = segment.EndTime.ToString("F1", CultureInfo.InvariantCulture);
                     datapoint.Restricts.Add(new IndexDatapoint.Types.Restriction { Namespace = "endTime", AllowList = { endTimeString } });
                 }
                 

@@ -114,8 +114,8 @@ namespace JREClipper.Api.Controllers
                     SegmentId = Guid.NewGuid().ToString(),
                     VideoId = segment.VideoId,
                     Text = segment.Text,
-                    StartTime = segment.StartTime,
-                    EndTime = segment.EndTime,
+                    StartTime = segment.StartTime.TotalSeconds,
+                    EndTime = segment.EndTime.TotalSeconds,
                     Embedding = embeddings[i],
                     ChannelName = segment.ChannelName,
                     VideoTitle = segment.VideoTitle
