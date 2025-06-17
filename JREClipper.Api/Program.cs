@@ -5,6 +5,7 @@ using JREClipper.Infrastructure.Embeddings;
 using JREClipper.Infrastructure.VectorDatabases.VertexAI;
 using JREClipper.Core.Models;
 using Microsoft.Extensions.Options;
+using Google.Cloud.AIPlatform.V1;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -23,7 +24,6 @@ builder.Services.Configure<GoogleVertexAIEmbeddingOptions>(builder.Configuration
 builder.Services.Configure<VertexAIVectorSearchDbOptions>(builder.Configuration.GetSection("VectorDatabase:VertexAI")); // Corrected path
 builder.Services.Configure<XaiGrokOptions>(builder.Configuration.GetSection("XaiGrok"));
 builder.Services.Configure<VideoProcessingOptions>(builder.Configuration.GetSection("VideoProcessing"));
-builder.Services.Configure<AgentSettings>(builder.Configuration.GetSection("AgentSettings"));
 builder.Services.Configure<GcpOptions>(builder.Configuration.GetSection("Gcp")); // Added GcpOptions
 builder.Services.Configure<PubSubOptions>(builder.Configuration.GetSection("PubSub")); // Added PubSubOptions
 
@@ -38,28 +38,32 @@ builder.Services.AddSingleton<IGoogleCloudStorageService, GoogleCloudStorageServ
 builder.Services.AddScoped<ITranscriptProcessor, BasicTranscriptProcessor>();
 
 // Register Embedding Services
-
-// Register GoogleVertexAiEmbeddingService as a singleton, created by its static factory method.
 builder.Services.AddSingleton(provider =>
 {
     var options = provider.GetRequiredService<IOptions<GoogleVertexAIEmbeddingOptions>>().Value;
     // Validate necessary options for publisher model
-    if (string.IsNullOrEmpty(options.ProjectId) || 
-        string.IsNullOrEmpty(options.Location) || 
+    if (string.IsNullOrEmpty(options.ProjectId) ||
+        string.IsNullOrEmpty(options.Location) ||
         string.IsNullOrEmpty(options.ModelName))
     {
         throw new InvalidOperationException("GoogleVertexAI Embedding options (ProjectId, Location, or ModelName) are not configured properly for a publisher model.");
     }
     return GoogleVertexAiEmbeddingService.Create(options.ProjectId, options.Location, options.ModelName, true); // Added isPublisherModel flag
 });
+// Register GoogleVertexAiEmbeddingService as a singleton, created by its static factory method.
+builder.Services.AddSingleton<JobServiceClient>(provider =>
+{
+    var googleVertexAIOptions = provider.GetRequiredService<IOptions<GoogleVertexAIEmbeddingOptions>>().Value;
+    var regionalEndpoint = $"{googleVertexAIOptions.Location}-aiplatform.googleapis.com/v1/"; // e.g., "us-central1-aiplatform.googleapis.com:443"
+    
+    var jobServiceClient = new JobServiceClientBuilder
+    {
+        Endpoint = regionalEndpoint
+    }.Build();
+    return jobServiceClient;
+});
 
-// XaiGrokEmbeddingService and MockEmbeddingService are registered as scoped.
-// Ensure their constructors are compatible with DI (e.g., taking IOptions<XaiGrokOptions> or HttpClient if needed).
-
-builder.Services.AddHttpClient<XaiGrokEmbeddingService>();
-
-builder.Services.AddScoped<XaiGrokEmbeddingService>(); // Register the concrete type
-builder.Services.AddScoped<MockEmbeddingService>(); // Register the concrete type
+builder.Services.AddScoped<MockEmbeddingService>();
 
 // Embedding Service Factory Delegate
 // This factory delegate allows resolving a specific IEmbeddingService based on configuration or a key.
@@ -74,8 +78,6 @@ builder.Services.AddScoped<Func<string, IEmbeddingService>>(serviceProvider => k
         case "googlevertexai":
             // Resolve the singleton GoogleVertexAiEmbeddingService.
             return serviceProvider.GetRequiredService<GoogleVertexAiEmbeddingService>();
-        case "xaigrok":
-            return serviceProvider.GetRequiredService<XaiGrokEmbeddingService>();
         case "mock":
         default:
             // Fallback to MockEmbeddingService if the configuration is missing or invalid.

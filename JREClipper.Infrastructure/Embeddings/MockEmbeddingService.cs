@@ -22,14 +22,26 @@ namespace JREClipper.Infrastructure.Embeddings
             return Task.FromResult(embedding);
         }
 
-        public async Task<List<List<float>>> GenerateEmbeddingsBatchAsync(IEnumerable<string> texts)
+        /// <summary>
+        /// Mock implementation for generating embeddings for a batch of texts from a GCS URI.
+        /// This mock implementation does not actually read from GCS or write to GCS.
+        /// It simply returns the outputGcsUri, potentially with a mock file name appended if it's a directory.
+        /// </summary>
+        /// <param name="inputGcsUri">The GCS URI of the input NDJSON file (ignored by mock).</param>
+        /// <param name="outputGcsUri">The GCS URI where the output embeddings would be stored.</param>
+        /// <returns>A mock GCS URI for the output.</returns>
+        public Task<string> GenerateEmbeddingsBatchAsync(string inputGcsUri, string outputGcsUri)
         {
-            var allEmbeddings = new List<List<float>>();
-            foreach (var text in texts)
+            Console.WriteLine($"MockEmbeddingService: GenerateEmbeddingsBatchAsync called with input: {inputGcsUri}, output: {outputGcsUri}");
+            // Simulate that the batch job has produced an output file in the specified outputGcsUri (if it's a directory)
+            // or just returns the outputGcsUri if it's a file path.
+            string mockResultUri = outputGcsUri;
+            if (outputGcsUri.EndsWith("/"))
             {
-                allEmbeddings.Add(await GenerateEmbeddingsAsync(text));
+                mockResultUri = $"{outputGcsUri.TrimEnd('/')}/mock_batch_embeddings_output.ndjson";
             }
-            return allEmbeddings;
+            // In a real scenario, this would be the GCS path to the prediction results.
+            return Task.FromResult(mockResultUri);
         }
     }
 }

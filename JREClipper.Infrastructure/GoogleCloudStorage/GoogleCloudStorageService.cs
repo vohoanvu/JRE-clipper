@@ -50,17 +50,13 @@ namespace JREClipper.Infrastructure.GoogleCloudStorage
             };
         }
 
-        public async Task UpdateJrePlaylistMetadataAsync(
-            string bucketName,
-            string videoId,
-            Dictionary<string, object> updatedFields,
-            string objectName)
+        public async Task UpdateJrePlaylistMetadataAsync(string bucketName, string videoId, Dictionary<string, object> updatedFields, string objectName)
         {
             if (updatedFields == null || updatedFields.Count == 0)
                 return;
 
             // Download and parse CSV
-            List<JrePlaylistRow> records;
+            List<JrePlaylistCsvRow> records;
             using (var downloadStream = new MemoryStream())
             {
                 try
@@ -77,7 +73,7 @@ namespace JREClipper.Infrastructure.GoogleCloudStorage
                 using var csvReader = new CsvReader(reader, CultureInfo.InvariantCulture);
                 if (!csvReader.Read() || !csvReader.ReadHeader())
                     throw new InvalidDataException($"CSV '{objectName}' has no header row.");
-                records = [.. csvReader.GetRecords<JrePlaylistRow>()];
+                records = [.. csvReader.GetRecords<JrePlaylistCsvRow>()];
             }
 
             if (records.Count == 0)
@@ -88,7 +84,7 @@ namespace JREClipper.Infrastructure.GoogleCloudStorage
                 ?? throw new KeyNotFoundException($"Video ID '{videoId}' not found in playlist '{objectName}'.");
             foreach (var kvp in updatedFields)
             {
-                var prop = typeof(JrePlaylistRow).GetProperty(kvp.Key);
+                var prop = typeof(JrePlaylistCsvRow).GetProperty(kvp.Key);
                 if (prop != null && kvp.Value != null)
                     prop.SetValue(record, kvp.Value.ToString());
             }
@@ -133,9 +129,49 @@ namespace JREClipper.Infrastructure.GoogleCloudStorage
             memoryStream.Position = 0;
             await _storageClient.UploadObjectAsync(bucketName, objectName, "application/x-ndjson", memoryStream);
         }
+
+        public async Task<string> UploadSegmentedTranscriptNDJSONAsync(string bucketName, string objectName, List<ProcessedTranscriptSegment> segmentedTranscripts)
+        {
+            if (string.IsNullOrEmpty(bucketName))
+            {
+                throw new ArgumentNullException(nameof(bucketName));
+            }
+            if (string.IsNullOrEmpty(objectName))
+            {
+                throw new ArgumentNullException(nameof(objectName));
+            }
+
+            using var memoryStream = new MemoryStream();
+            using (var writer = new StreamWriter(memoryStream, Encoding.UTF8, bufferSize: 1024, leaveOpen: true))
+            {
+                foreach (var transcriptSegment in segmentedTranscripts)
+                {
+                    var record = new
+                    {
+                        content = new
+                        {
+                            text = transcriptSegment.Text, // "content" (string, required)
+                            videoId = transcriptSegment.VideoId, // "videoId" (string, required)
+                            startTime = transcriptSegment.StartTime.ToString(@"hh\:mm\:ss\.fff"), // "startTime" (string, required)
+                            endTime = transcriptSegment.EndTime.ToString(@"hh\:mm\:ss\.fff"), // "endTime" (string, required)
+                            channelName = transcriptSegment.ChannelName, // "channelName" (string, optional)
+                            videoTitle = transcriptSegment.VideoTitle // "videoTitle" (string, optional)
+                        }
+                    };
+                    var jsonLine = JsonConvert.SerializeObject(record); // No indentation for NDJSON
+                    await writer.WriteLineAsync(jsonLine);
+                }
+                await writer.FlushAsync(); // Ensure all buffered data is written to the stream
+            }
+
+            memoryStream.Position = 0; // Reset stream position for upload
+            await _storageClient.UploadObjectAsync(bucketName, objectName, "application/x-ndjson", memoryStream);
+
+            return $"gs://{bucketName}/{objectName}"; // Return the GCS URI of the uploaded file
+        }
     }
 
-    public class JrePlaylistRow
+    public class JrePlaylistCsvRow
     {
         public string? videoId { get; set; }
         public string? title { get; set; }

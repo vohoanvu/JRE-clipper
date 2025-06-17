@@ -62,8 +62,7 @@ namespace JREClipper.Core.Services
                     StartTime = windowStart,
                     EndTime = windowEnd,
                     ChannelName = transcriptData.ChannelName,
-                    VideoTitle = transcriptData.VideoTitle,
-                    OriginalEntries = entriesInWindow
+                    VideoTitle = transcriptData.VideoTitle
                 });
 
                 // Slide the window forward (overlap if slideSeconds < segmentDurationSeconds)

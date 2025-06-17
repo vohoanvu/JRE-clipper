@@ -21,7 +21,15 @@ namespace JREClipper.Core.Interfaces
         Task UpdateJrePlaylistMetadataAsync(string bucketName, string videoId, Dictionary<string, object> updatedFields, string objectName);
 
         Task UploadVectorizedSegmentsAsync(string bucketName, string objectName, IEnumerable<VectorizedSegment> segments);
-        // Potentially add methods for VideoMetadata if it's also stored/retrieved from GCS
-        // Task<VideoMetadata> GetVideoMetadataAsync(string bucketName, string videoId);
+
+        /// <summary>
+        /// Creates and uploads a new NDJSON file to Google Cloud Storage from a list of segmented transcripts.
+        /// Each line in the NDJSON file will be in the format: {"content":"transcript_segment"}.
+        /// </summary>
+        /// <param name="bucketName">The GCS bucket name.</param>
+        /// <param name="objectName">The desired object name for the new NDJSON file in GCS.</param>
+        /// <param name="segmentedTranscripts">A list of strings, where each string is a transcript segment.</param>
+        /// <returns>The GCS URI of the uploaded NDJSON file (e.g., gs://bucketName/objectName).</returns>
+        Task<string> UploadSegmentedTranscriptNDJSONAsync(string bucketName, string objectName, List<ProcessedTranscriptSegment> segmentedTranscripts);
     }
 }

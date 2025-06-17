@@ -28,12 +28,10 @@ namespace JREClipper.Core.Models
     //export GOOGLE_APPLICATION_CREDENTIALS="/Users/vohoanvu/secrets/gen-lang-client-demo-438f6a60e6e4.json"
     public class GoogleCloudStorageOptions
     {
-        public string? TranscriptsBucketName { get; set; } // Specific name from JSON
-        public string? ProcessedClipsBucketName { get; set; } // Specific name from JSON
-        public string? OutputFolder { get; set; }
-        public string? ProjectId { get; set; } // ProjectId can also be here if GCS is project-specific
-        public string? JrePlaylistCsvObjectName { get; set; } // Added for playlist CSV object name
-        // CredentialsJsonPath removed, relying on GOOGLE_APPLICATION_CREDENTIALS
+        public string? InputDataUri { get; set; }
+        public string? OutputDataUri { get; set; } // For embeddings output
+        public string? SegmentedTranscriptDataUri { get; set; } // For segmented transcript NDJSON output
+        public string? JrePlaylistCsvUri { get; set; }
     }
 
     public class VectorDatabaseOptions
@@ -41,6 +39,8 @@ namespace JREClipper.Core.Models
         public string? Provider { get; set; } // Renamed from SelectedDatabase
         public VertexAIVectorSearchDbOptions? VertexAI { get; set; }
         public QdrantOptions? Qdrant { get; set; }
+        public string? IndexName { get; set; } // Added IndexName
+        public string? IndexEndpointDomain { get; set; } // Added IndexEndpointDomain
     }
 
     public class VertexAIVectorSearchDbOptions // Specific for VectorDatabase:VertexAI section
@@ -101,16 +101,6 @@ namespace JREClipper.Core.Models
         public int MaxConcurrentJobs { get; set; }
         public string? DefaultVideoFormat { get; set; }
         public string? DefaultAudioFormat { get; set; }
-    }
-
-    public class AgentSettings
-    {
-        public string? UserQueryUnderstandingAgent { get; set; }
-        public string? SemanticRelevanceAgent { get; set; }
-        public string? VideoSynthesisAgent { get; set; }
-        public string? TimestampReportAgent { get; set; }
-        public string? ClipCurationAgent { get; set; }
-        public string? ResultDeliveryAgent { get; set; }
     }
 
     public class GcpOptions // For the top-level "Gcp" section

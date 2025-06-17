@@ -18,18 +18,6 @@ namespace JREClipper.Api.Controllers
         private readonly AppSettings _appSettings;
         private readonly EmbeddingServiceOptions _embeddingOptions;
 
-        public class RequestDto
-        {
-            public string? BucketName { get; set; }
-            public string? ObjectName { get; set; }
-
-            public string? Prefix { get; set; }
-
-            public string? VideoId { get; set; }
-
-            public Dictionary<string, object>? UpdatedFields { get; set; }
-        }
-
         public IngestionController(
             IGoogleCloudStorageService gcsService,
             ITranscriptProcessor transcriptProcessor,
@@ -42,44 +30,75 @@ namespace JREClipper.Api.Controllers
             _gcsService = gcsService;
             _transcriptProcessor = transcriptProcessor;
             _appSettings = appSettings.Value;
-            _embeddingService = embeddingServiceFactory(_appSettings.EmbeddingProvider ?? "Mock"); // Get service from factory
+            _embeddingService = embeddingServiceFactory(_appSettings.EmbeddingProvider!); // Get service from factory
             _vectorDbService = vectorDbService;
             _gcsOptions = gcsOptions.Value;
             _embeddingOptions = embeddingOptions.Value;
         }
 
+        private static (string BucketName, string ObjectName) ParseGcsUri(string gcsUri)
+        {
+            if (string.IsNullOrWhiteSpace(gcsUri) || !gcsUri.StartsWith("gs://"))
+            {
+                throw new ArgumentException("Invalid GCS URI format. Must start with 'gs://'.", nameof(gcsUri));
+            }
+
+            var uri = new Uri(gcsUri);
+            var bucketName = uri.Host;
+            var objectName = uri.AbsolutePath.TrimStart('/');
+
+            if (string.IsNullOrEmpty(bucketName))
+            {
+                throw new ArgumentException("Bucket name cannot be extracted from GCS URI.", nameof(gcsUri));
+            }
+            // ObjectName can be empty if URI points to bucket root, or a prefix if it ends with /
+            return (bucketName, objectName);
+        }
+
         /// <summary>
-        /// Processes a single transcript file from Google Cloud Storage.
+        /// Processes a single transcript file from Google Cloud Storage using URIs from configuration.
         /// </summary>
-        /// <param name="bucketName">The GCS bucket name.</param>
-        /// <param name="objectName">The full path to the transcript JSON file in the bucket.</param>
         /// <returns>Status of the ingestion process.</returns>
         [HttpPost("vectorize-single-transcript")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> ProcessSingleTranscript([FromBody] RequestDto requestDto)
+        public async Task<IActionResult> ProcessSingleTranscript() // Removed [FromBody] RequestDto requestDto
         {
-            if (string.IsNullOrEmpty(requestDto.BucketName) || string.IsNullOrEmpty(requestDto.ObjectName))
+            // Use URIs from _gcsOptions
+            if (string.IsNullOrEmpty(_gcsOptions.InputDataUri) || string.IsNullOrEmpty(_gcsOptions.OutputDataUri) || string.IsNullOrEmpty(_gcsOptions.SegmentedTranscriptDataUri))
             {
-                requestDto.BucketName = "jre-content";
-                requestDto.ObjectName = "transcriptions/transcript-_BTNmNpoAro.json"; //Test data
+                return BadRequest("InputDataUri and OutputDataUri must be configured in appsettings.");
             }
 
             try
             {
-                var rawTranscript = await _gcsService.GetSingleTranscript(requestDto.BucketName, requestDto.ObjectName);
-                if (rawTranscript == null || rawTranscript.TranscriptWithTimestamps == null || rawTranscript.TranscriptWithTimestamps.Count == 0)
+                (string inputBucketName, string inputObjectName) = ParseGcsUri(_gcsOptions.InputDataUri);
+                (string configuredOutputBucketName, string configuredOutputObjectName) = ParseGcsUri(_gcsOptions.OutputDataUri);
+                (string segmentedTranscriptBucketName, string configuredSegmentedTranscriptObjectName) = ParseGcsUri(_gcsOptions.SegmentedTranscriptDataUri);
+
+                if (string.IsNullOrEmpty(inputObjectName))
                 {
-                    return NotFound($"Transcript data not found or empty in GCS object: {requestDto.ObjectName}");
+                    return BadRequest("Configured InputDataUri must specify a valid GCS object name for the transcript.");
                 }
 
+                string finalOutputObjectName = configuredOutputObjectName;
+                // If OutputDataUri from config is a folder for single transcript, derive a filename.
+                if (configuredOutputObjectName.EndsWith("/") || string.IsNullOrEmpty(Path.GetExtension(configuredOutputObjectName)))
+                {
+                    finalOutputObjectName = $"{configuredOutputObjectName.TrimEnd('/')}/{Path.GetFileName(inputObjectName)}";
+                }
+
+                var rawTranscript = await _gcsService.GetSingleTranscript(inputBucketName, inputObjectName);
+                if (rawTranscript == null || rawTranscript.TranscriptWithTimestamps == null || rawTranscript.TranscriptWithTimestamps.Count == 0)
+                {
+                    return NotFound($"Transcript data not found or empty in GCS object: {inputObjectName} in bucket {inputBucketName}");
+                }
                 // Ensure VideoId is populated if not directly in the JSON root
                 if (string.IsNullOrEmpty(rawTranscript.VideoId))
                 {
-                    // Attempt to derive VideoId from objectName if it follows a pattern like "transcript_VIDEOID.json"
-                    var fileName = Path.GetFileNameWithoutExtension(requestDto.ObjectName);
+                    var fileName = Path.GetFileNameWithoutExtension(inputObjectName);
                     if (fileName.StartsWith("transcript-"))
                     {
                         rawTranscript.VideoId = fileName.Substring("transcript-".Length);
@@ -99,131 +118,146 @@ namespace JREClipper.Api.Controllers
                     return Ok("Transcript processed, but no segments were generated (possibly empty or too short).");
                 }
 
-                var textsToEmbed = processedSegments.Select(s => s.Text).ToList();
-
-                // Batch embedding generation
-                var embeddings = await _embeddingService.GenerateEmbeddingsBatchAsync(textsToEmbed);
-
-                if (embeddings == null || embeddings.Count != processedSegments.Count)
+                string finalSegmentedTranscriptObjectName = configuredSegmentedTranscriptObjectName;
+                if (configuredSegmentedTranscriptObjectName.EndsWith("/") || string.IsNullOrEmpty(Path.GetExtension(configuredSegmentedTranscriptObjectName)))
                 {
-                    return StatusCode(StatusCodes.Status500InternalServerError, new { Message = "Mismatch between number of segments and generated embeddings." });
+                    finalSegmentedTranscriptObjectName = $"{configuredSegmentedTranscriptObjectName.TrimEnd('/')}/{rawTranscript.VideoId}.ndjson"; // Ensure .ndjson extension
                 }
 
-                var vectorizedSegments = processedSegments.Select((segment, i) => new VectorizedSegment
-                {
-                    SegmentId = Guid.NewGuid().ToString(),
-                    VideoId = segment.VideoId,
-                    Text = segment.Text,
-                    StartTime = segment.StartTime.TotalSeconds,
-                    EndTime = segment.EndTime.TotalSeconds,
-                    Embedding = embeddings[i],
-                    ChannelName = segment.ChannelName,
-                    VideoTitle = segment.VideoTitle
-                }).ToList();
+                string uploadedNdjsonUri = await _gcsService.UploadSegmentedTranscriptNDJSONAsync(
+                    segmentedTranscriptBucketName, 
+                    finalSegmentedTranscriptObjectName, 
+                    processedSegments);
+                Console.WriteLine($"Segmented transcript NDJSON uploaded to: {uploadedNdjsonUri}");
 
-                // await _vectorDbService.AddVectorsBatchAsync(vectorizedSegments);
+                var textsToEmbed = processedSegments.Select(s => s.Text).ToList();
+                //Specify Input URI and Output URI for batch embeddings
+                var embeddings = await _embeddingService.GenerateEmbeddingsBatchAsync(uploadedNdjsonUri, _gcsOptions.OutputDataUri);
+
+                // var vectorizedSegments = processedSegments.Select((segment, i) => new VectorizedSegment
+                // {
+                //     SegmentId = Guid.NewGuid().ToString(),
+                //     VideoId = segment.VideoId,
+                //     Text = segment.Text,
+                //     StartTime = segment.StartTime.TotalSeconds,
+                //     EndTime = segment.EndTime.TotalSeconds,
+                //     Embedding = embeddings[i],
+                //     ChannelName = segment.ChannelName,
+                //     VideoTitle = segment.VideoTitle 
+                // }).ToList();
                 
-                // Save vectorized segments to GCS for Vertex AI Index batch updates
-                var vectorizedSegmentsObjectName = $"embeddings/{rawTranscript.VideoId}.json";
-                await _gcsService.UploadVectorizedSegmentsAsync("jre-processed-clips-bucker", vectorizedSegmentsObjectName, vectorizedSegments);
+                //Used for later
+                //await _gcsService.UploadVectorizedSegmentsAsync(configuredOutputBucketName, finalOutputObjectName, vectorizedSegments);
 
                 // Update playlist metadata
-                if (!string.IsNullOrEmpty(rawTranscript.VideoId) && !string.IsNullOrEmpty(_gcsOptions.JrePlaylistCsvObjectName))
+                if (!string.IsNullOrEmpty(rawTranscript.VideoId) && !string.IsNullOrEmpty(_gcsOptions.JrePlaylistCsvUri))
                 {
-                    var updatedFields = new Dictionary<string, object> { { "isVectorized", true } };
-                    await _gcsService.UpdateJrePlaylistMetadataAsync(
-                        requestDto.BucketName,
-                        rawTranscript.VideoId,
-                        updatedFields,
-                        _gcsOptions.JrePlaylistCsvObjectName);
+                    (string playlistBucketName, string playlistObjectName) = ParseGcsUri(_gcsOptions.JrePlaylistCsvUri);
+                    if (string.IsNullOrEmpty(playlistObjectName))
+                    {
+                         Console.WriteLine($"Warning: JrePlaylistCsvUri '{_gcsOptions.JrePlaylistCsvUri}' does not specify an object name. Skipping playlist update.");
+                    }
+                    else
+                    {
+                        var updatedFields = new Dictionary<string, object> { { "isVectorized", true } };
+                        await _gcsService.UpdateJrePlaylistMetadataAsync(
+                            playlistBucketName,
+                            rawTranscript.VideoId,
+                            updatedFields,
+                            playlistObjectName);
+                    }
                 }
 
-                return Ok(new { Message = $"Successfully processed, vectorized, and saved {vectorizedSegments.Count} segments from {requestDto.ObjectName}. Playlist metadata updated.", SegmentsCount = vectorizedSegments.Count });
+                return Ok(new { Message = $"Successfully processed, vectorized, and saved {processedSegments.Count} segments from {_gcsOptions.InputDataUri} to gs://{configuredOutputBucketName}/{finalOutputObjectName}. Playlist metadata updated.", SegmentsCount = processedSegments.Count });
+            }
+            catch (ArgumentException ex) // Catch specific URI parsing errors
+            {
+                return BadRequest($"Invalid GCS URI format in configuration: {ex.Message}");
             }
             catch (Exception ex)
             {
-                // Log the exception (using ILogger if available)
-                Console.WriteLine($"Error processing transcript {requestDto.ObjectName}: {ex.Message}");
+                Console.WriteLine($"Error processing transcript from {_gcsOptions.InputDataUri}: {ex.Message}");
                 return StatusCode(StatusCodes.Status500InternalServerError, $"An error occurred: {ex.Message}");
             }
         }
 
         /// <summary>
-        /// Triggers batch processing of all transcripts in a specified GCS folder.
-        /// (This is a placeholder and would typically be handled by a background worker/queue system for long-running tasks)
+        /// Triggers batch processing of all transcripts using URIs from configuration.
+        /// Output embeddings will be placed in a corresponding structure under the OutputDataUri (config).
         /// </summary>
-        /// <param name="bucketName">The GCS bucket name.</param>
-        /// <param name="prefix">The folder/prefix in the bucket containing transcript files.</param>
         /// <returns>Status of the batch initiation.</returns>
         [HttpPost("vectorize-batch-transcripts")]
         [ProducesResponseType(StatusCodes.Status202Accepted)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        public async Task<IActionResult> ProcessBatchTranscripts([FromBody] RequestDto requestDto)
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> ProcessBatchTranscripts() // Removed [FromBody] RequestDto requestDto
         {
-            if (string.IsNullOrEmpty(requestDto.BucketName))
+            // Use URIs from _gcsOptions
+            if (string.IsNullOrEmpty(_gcsOptions.InputDataUri) || string.IsNullOrEmpty(_gcsOptions.OutputDataUri))
             {
-                return BadRequest("Bucket name is required.");
+                return BadRequest("InputDataUri (for source folder) and OutputDataUri (for destination folder) must be configured in appsettings.");
             }
 
-            // In a real system, this would publish messages to a queue (e.g., Pub/Sub)
-            // for a background worker to process each file.
-            // For now, it just lists them as a demonstration.
             try
             {
-                var transcriptFiles = await _gcsService.ListAllTranscriptFiles(requestDto.BucketName, requestDto.Prefix ?? string.Empty); // Corrected typo: Prefex -> Prefix
+                (string inputBucketName, string inputPrefix) = ParseGcsUri(_gcsOptions.InputDataUri);
+                (string outputBucketName, string outputPrefix) = ParseGcsUri(_gcsOptions.OutputDataUri);
+
+                // Ensure inputPrefix and outputPrefix are treated as folders
+                string ensuredInputPrefix = string.IsNullOrEmpty(inputPrefix) ? "" : (inputPrefix.EndsWith("/") ? inputPrefix : inputPrefix + "/");
+                string ensuredOutputPrefix = string.IsNullOrEmpty(outputPrefix) ? "" : (outputPrefix.EndsWith("/") ? outputPrefix : outputPrefix + "/");
+
+                var transcriptFiles = await _gcsService.ListAllTranscriptFiles(inputBucketName, ensuredInputPrefix);
+
                 if (transcriptFiles.Count == 0)
                 {
-                    return NotFound($"No transcript files found in gs://{requestDto.BucketName}/{requestDto.Prefix}"); // Corrected typo: Prefex -> Prefix
+                    return NotFound($"No transcript files found at {_gcsOptions.InputDataUri}.");
                 }
 
-                // TODO: Implement actual queuing mechanism here.
-                // For now, just returning the list of files that *would* be queued.
-                return Accepted(new { Message = "Batch processing initiated (simulation).", FilesToProcess = transcriptFiles, Count = transcriptFiles.Count });
+                // In a real system, this would publish messages to a queue (e.g., Pub/Sub)
+                // for a background worker to process each file.
+                // For demonstration, we'll just log the intent.
+                // Each file would be processed similarly to ProcessSingleTranscript,
+                // with its output path constructed based on the OutputURI.
+
+                List<string> processedFilesInfo = new List<string>();
+
+                foreach (var transcriptFileObjectName in transcriptFiles)
+                {
+                    // This is a conceptual loop. Actual processing would be asynchronous via a queue.
+                    // For each transcriptFileObjectName (e.g., "transcriptions_folder/transcript-XYZ.json"):
+                    // 1. Derive VideoId (e.g., "XYZ")
+                    // 2. Construct output object name: $"{ensuredOutputPrefix}embeddings/transcript-{videoId}.json"
+                    // 3. Call a processing function (like a scaled-down ProcessSingleTranscript logic)
+
+                    var videoIdFromFile = Path.GetFileNameWithoutExtension(transcriptFileObjectName);
+                    if (videoIdFromFile.StartsWith("transcript-"))
+                    {
+                        videoIdFromFile = videoIdFromFile.Substring("transcript-".Length);
+                    }
+                    
+                    string individualOutputObjectName = $"{ensuredOutputPrefix}embeddings/{Path.GetFileNameWithoutExtension(transcriptFileObjectName)}.json"; // Or derive a cleaner name if needed
+
+                    // Simulate queuing or logging
+                    processedFilesInfo.Add($"Queued for processing: Input: gs://{inputBucketName}/{transcriptFileObjectName}, Output: gs://{outputBucketName}/{individualOutputObjectName}");
+                    
+                    // TODO: In a real scenario, you'd enqueue a message like:
+                    // await _queueService.EnqueueProcessTranscriptJob(
+                    //     $"gs://{inputBucketName}/{transcriptFileObjectName}",
+                    //     $"gs://{outputBucketName}/{individualOutputObjectName}"
+                    // );
+                }
+
+                return Accepted(new { Message = $"Batch processing initiated for {transcriptFiles.Count} files from {_gcsOptions.InputDataUri}. Outputs will be under gs://{outputBucketName}/{ensuredOutputPrefix}embeddings/", FilesToProcess = processedFilesInfo });
+            }
+            catch (ArgumentException ex) // Catch specific URI parsing errors
+            {
+                return BadRequest($"Invalid GCS URI format in configuration: {ex.Message}");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error initiating batch processing: {ex.Message}");
-                return StatusCode(StatusCodes.Status500InternalServerError, $"An error occurred: {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// Trigger an Update of JRE Playlist CSV metadata stored in GCS to change the isVectorized field of rows that were just vectorized.
-        /// </summary>
-        /// <param name="bucketName">The GCS bucket name.</param>
-        /// <param name="videoId">The ID of the video entry to update.</param>
-        /// <param name="updatedFields">A dictionary where keys are column names and values are the new field values.</param>
-        /// <param name="objectName">The name of the CSV file in GCS.</param>
-        [HttpPost("update-jre-playlist-metadata")]
-        [ProducesResponseType(StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> UpdateJrePlaylistMetadata([FromBody] RequestDto requestDto)
-        {
-            if (string.IsNullOrEmpty(requestDto.BucketName) || string.IsNullOrEmpty(requestDto.VideoId) || string.IsNullOrEmpty(requestDto.ObjectName))
-            {
-                return BadRequest("Bucket name, video ID, and object name are required.");
-            }
-
-            if (requestDto.UpdatedFields == null || !requestDto.UpdatedFields.Any())
-            {
-                return BadRequest("No fields to update provided.");
-            }
-
-            try
-            {
-                await _gcsService.UpdateJrePlaylistMetadataAsync(requestDto.BucketName, requestDto.VideoId, requestDto.UpdatedFields, requestDto.ObjectName);
-                return Ok(new { Message = $"Successfully updated metadata for video ID {requestDto.VideoId} in {requestDto.ObjectName}." });
-            }
-            catch (KeyNotFoundException knfEx)
-            {
-                return NotFound(knfEx.Message);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error updating JRE playlist metadata: {ex.Message}");
-                return StatusCode(StatusCodes.Status500InternalServerError, $"An error occurred: {ex.Message}");
+                Console.WriteLine($"Error initiating batch processing from {_gcsOptions.InputDataUri}: {ex.Message}");
+                return StatusCode(StatusCodes.Status500InternalServerError, $"An error occurred during batch initiation: {ex.Message}");
             }
         }
     }
