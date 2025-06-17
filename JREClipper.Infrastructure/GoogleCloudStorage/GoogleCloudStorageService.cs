@@ -142,21 +142,14 @@ namespace JREClipper.Infrastructure.GoogleCloudStorage
             }
 
             using var memoryStream = new MemoryStream();
-            using (var writer = new StreamWriter(memoryStream, Encoding.UTF8, bufferSize: 1024, leaveOpen: true))
+            using (var writer = new StreamWriter(memoryStream, new UTF8Encoding(false), bufferSize: 1024, leaveOpen: true))
             {
                 foreach (var transcriptSegment in segmentedTranscripts)
                 {
                     var record = new
                     {
-                        content = new
-                        {
-                            text = transcriptSegment.Text, // "content" (string, required)
-                            videoId = transcriptSegment.VideoId, // "videoId" (string, required)
-                            startTime = transcriptSegment.StartTime.ToString(@"hh\:mm\:ss\.fff"), // "startTime" (string, required)
-                            endTime = transcriptSegment.EndTime.ToString(@"hh\:mm\:ss\.fff"), // "endTime" (string, required)
-                            channelName = transcriptSegment.ChannelName, // "channelName" (string, optional)
-                            videoTitle = transcriptSegment.VideoTitle // "videoTitle" (string, optional)
-                        }
+                        content = transcriptSegment.Text,
+                        id = transcriptSegment.SegmentId,
                     };
                     var jsonLine = JsonConvert.SerializeObject(record); // No indentation for NDJSON
                     await writer.WriteLineAsync(jsonLine);

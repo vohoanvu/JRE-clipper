@@ -53,16 +53,11 @@ namespace JREClipper.Core.Services
 
                 processedSegments.Add(new ProcessedTranscriptSegment
                 {
+                    SegmentId = $"{transcriptData.VideoId}_{windowStart.TotalSeconds}_{windowEnd.TotalSeconds}",
                     VideoId = transcriptData.VideoId,
-                    Text = !string.IsNullOrWhiteSpace(segmentText)
-                        ? (segmentText.Length > 20
-                            ? string.Concat(segmentText.AsSpan(0, 10), "...", segmentText.AsSpan(segmentText.Length - 10, 10))
-                            : segmentText)
-                        : string.Empty,
+                    Text = segmentText,
                     StartTime = windowStart,
                     EndTime = windowEnd,
-                    ChannelName = transcriptData.ChannelName,
-                    VideoTitle = transcriptData.VideoTitle
                 });
 
                 // Slide the window forward (overlap if slideSeconds < segmentDurationSeconds)

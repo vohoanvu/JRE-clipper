@@ -50,19 +50,6 @@ builder.Services.AddSingleton(provider =>
     }
     return GoogleVertexAiEmbeddingService.Create(options.ProjectId, options.Location, options.ModelName, true); // Added isPublisherModel flag
 });
-// Register GoogleVertexAiEmbeddingService as a singleton, created by its static factory method.
-builder.Services.AddSingleton<JobServiceClient>(provider =>
-{
-    var googleVertexAIOptions = provider.GetRequiredService<IOptions<GoogleVertexAIEmbeddingOptions>>().Value;
-    var regionalEndpoint = $"{googleVertexAIOptions.Location}-aiplatform.googleapis.com/v1/"; // e.g., "us-central1-aiplatform.googleapis.com:443"
-    
-    var jobServiceClient = new JobServiceClientBuilder
-    {
-        Endpoint = regionalEndpoint
-    }.Build();
-    return jobServiceClient;
-});
-
 builder.Services.AddScoped<MockEmbeddingService>();
 
 // Embedding Service Factory Delegate

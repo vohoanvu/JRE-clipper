@@ -119,7 +119,7 @@ namespace JREClipper.Api.Controllers
                 }
 
                 string finalSegmentedTranscriptObjectName = configuredSegmentedTranscriptObjectName;
-                if (configuredSegmentedTranscriptObjectName.EndsWith("/") || string.IsNullOrEmpty(Path.GetExtension(configuredSegmentedTranscriptObjectName)))
+                if (configuredSegmentedTranscriptObjectName.EndsWith('/') || string.IsNullOrEmpty(Path.GetExtension(configuredSegmentedTranscriptObjectName)))
                 {
                     finalSegmentedTranscriptObjectName = $"{configuredSegmentedTranscriptObjectName.TrimEnd('/')}/{rawTranscript.VideoId}.ndjson"; // Ensure .ndjson extension
                 }
@@ -132,22 +132,7 @@ namespace JREClipper.Api.Controllers
 
                 var textsToEmbed = processedSegments.Select(s => s.Text).ToList();
                 //Specify Input URI and Output URI for batch embeddings
-                var embeddings = await _embeddingService.GenerateEmbeddingsBatchAsync(uploadedNdjsonUri, _gcsOptions.OutputDataUri);
-
-                // var vectorizedSegments = processedSegments.Select((segment, i) => new VectorizedSegment
-                // {
-                //     SegmentId = Guid.NewGuid().ToString(),
-                //     VideoId = segment.VideoId,
-                //     Text = segment.Text,
-                //     StartTime = segment.StartTime.TotalSeconds,
-                //     EndTime = segment.EndTime.TotalSeconds,
-                //     Embedding = embeddings[i],
-                //     ChannelName = segment.ChannelName,
-                //     VideoTitle = segment.VideoTitle 
-                // }).ToList();
-                
-                //Used for later
-                //await _gcsService.UploadVectorizedSegmentsAsync(configuredOutputBucketName, finalOutputObjectName, vectorizedSegments);
+                var outputUri = await _embeddingService.GenerateEmbeddingsBatchAsync(uploadedNdjsonUri, _gcsOptions.OutputDataUri);
 
                 // Update playlist metadata
                 if (!string.IsNullOrEmpty(rawTranscript.VideoId) && !string.IsNullOrEmpty(_gcsOptions.JrePlaylistCsvUri))
@@ -168,7 +153,7 @@ namespace JREClipper.Api.Controllers
                     }
                 }
 
-                return Ok(new { Message = $"Successfully processed, vectorized, and saved {processedSegments.Count} segments from {_gcsOptions.InputDataUri} to gs://{configuredOutputBucketName}/{finalOutputObjectName}. Playlist metadata updated.", SegmentsCount = processedSegments.Count });
+                return Ok(new { Message = $"Successfully processed, vectorized, and saved {processedSegments.Count} segments from {_gcsOptions.InputDataUri} to {outputUri}. Playlist metadata updated.", SegmentsCount = processedSegments.Count });
             }
             catch (ArgumentException ex) // Catch specific URI parsing errors
             {

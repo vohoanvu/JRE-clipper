@@ -5,29 +5,37 @@ using Grpc.Core;
 using JREClipper.Core.Interfaces;
 using Google.Api.Gax.ResourceNames;
 using ProtobufValue = Google.Protobuf.WellKnownTypes.Value;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
+using Google.Apis.Auth.OAuth2;
 
 namespace JREClipper.Infrastructure.Embeddings
 {
     public class GoogleVertexAiEmbeddingService : IEmbeddingService
     {
         private readonly PredictionServiceClient _predictionServiceClient;
-        private readonly JobServiceClient _jobServiceClient; // Added for Batch Prediction
-        private readonly string _endpointName; // This is the Model ID for publisher models or full endpoint for deployed indexes
+        private readonly JobServiceClient _jobServiceClient; // Kept for legacy, not used in batch anymore
+        private readonly HttpClient _httpClient;
+        private readonly string _endpointName;
         private readonly bool _isPublisherModel;
-        private readonly string? _modelId; // Store the model ID itself for publisher models
+        private readonly string? _modelId;
         private readonly string _projectId;
         private readonly string _location;
 
         public GoogleVertexAiEmbeddingService(
             PredictionServiceClient predictionServiceClient,
-            JobServiceClient jobServiceClient, 
+            JobServiceClient jobServiceClient,
+            HttpClient httpClient,
             string projectId,
             string location,
-            string endpointOrModelId, 
+            string endpointOrModelId,
             bool isPublisherModel = false)
         {
             _predictionServiceClient = predictionServiceClient ?? throw new ArgumentNullException(nameof(predictionServiceClient));
             _jobServiceClient = jobServiceClient ?? throw new ArgumentNullException(nameof(jobServiceClient));
+            _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
             _projectId = projectId ?? throw new ArgumentNullException(nameof(projectId));
             _location = location ?? throw new ArgumentNullException(nameof(location));
             _isPublisherModel = isPublisherModel;
@@ -35,15 +43,12 @@ namespace JREClipper.Infrastructure.Embeddings
             if (isPublisherModel)
             {
                 _modelId = endpointOrModelId ?? throw new ArgumentNullException(nameof(endpointOrModelId), "Model ID is required for publisher models.");
-                // _endpointName will be constructed dynamically for batch jobs or not used for Predict if model supports direct calls
-                // For online Predict with publisher models, the endpointName is specific.
-                // Let's assume for online Predict, it's still needed as before.
                 _endpointName = $"projects/{_projectId}/locations/{_location}/publishers/google/models/{_modelId}";
             }
             else
             {
                 _endpointName = endpointOrModelId ?? throw new ArgumentNullException(nameof(endpointOrModelId), "Endpoint name is required for non-publisher models.");
-                _modelId = null; // Not a publisher model, so no separate modelId needed here for batch job model field
+                _modelId = null;
             }
         }
 
@@ -57,10 +62,12 @@ namespace JREClipper.Infrastructure.Embeddings
         {
             var predictionClient = PredictionServiceClient.Create();
             var jobClient = JobServiceClient.Create();
+            var httpClient = new HttpClient(); // Directly create HttpClient here, or use DI to provide it
             
             return new GoogleVertexAiEmbeddingService(
                 predictionClient, 
                 jobClient, 
+                httpClient,
                 projectId, 
                 location, 
                 endpointOrModelId, 
@@ -110,129 +117,110 @@ namespace JREClipper.Infrastructure.Embeddings
         }
 
         /// <summary>
-        /// Generates embeddings for a batch of texts using Vertex AI Batch Prediction.
+        /// Generates embeddings for a batch of texts using Vertex AI Batch Prediction via direct HTTP API.
         /// The input is a GCS URI pointing to an NDJSON file where each line is {"content":"text_segment", "id":"optional_id"}.
         /// The output is a GCS URI pointing to a directory containing NDJSON files with embeddings.
         /// </summary>
         public async Task<string> GenerateEmbeddingsBatchAsync(string inputGcsUri, string outputGcsUri)
         {
             if (string.IsNullOrEmpty(inputGcsUri) || !inputGcsUri.StartsWith("gs://"))
-            {
                 throw new ArgumentException("Invalid GCS URI format. Must start with 'gs://'.", nameof(inputGcsUri));
-            }
 
-            string actualModelResourceName;
-            if (_isPublisherModel)
-            {
-                // _endpointName is already correctly formatted as the model resource name for publisher models
-                // e.g., projects/PROJECT_ID/locations/LOCATION_ID/publishers/google/models/MODEL_ID
-                actualModelResourceName = _endpointName;
-            }
-            else
-            {
-                // For non-publisher models, _endpointName must be a Model resource name for batch prediction.
-                // This part might need more robust logic if _endpointName could be an Endpoint resource name.
-                if (string.IsNullOrEmpty(_endpointName) || !_endpointName.Contains("/models/")) {
-                     throw new InvalidOperationException($"For non-publisher models, the configured 'endpointOrModelId' ('{_endpointName}') must be a Model resource name for batch prediction, not an Endpoint resource name.");
-                }
-                actualModelResourceName = _endpointName;
-            }
-
+            // Prepare job name and model
             var batchJobDisplayName = $"batch-embedding-job-{Guid.NewGuid()}";
+            string modelResource = _isPublisherModel
+                ? $"projects/{_projectId}/locations/{_location}/publishers/google/models/{_modelId}"
+                : _endpointName;
 
-            var batchPredictionJob = new BatchPredictionJob
+            // Prepare request body (correct GCS field names)
+            var requestBody = new
             {
-                DisplayName = batchJobDisplayName,
-                Model = actualModelResourceName,
-                InputConfig = new BatchPredictionJob.Types.InputConfig
+                name = batchJobDisplayName,
+                displayName = batchJobDisplayName,
+                model = modelResource,
+                inputConfig = new
                 {
-                    InstancesFormat = "jsonl",
-                    GcsSource = new GcsSource { Uris = { inputGcsUri } }
+                    instancesFormat = "jsonl",
+                    gcsSource = new { uris = new[] { inputGcsUri } }
                 },
-                OutputConfig = new BatchPredictionJob.Types.OutputConfig
+                outputConfig = new
                 {
-                    PredictionsFormat = "jsonl",
-                    GcsDestination = new GcsDestination { OutputUriPrefix = outputGcsUri }
+                    predictionsFormat = "jsonl",
+                    gcsDestination = new { outputUriPrefix = outputGcsUri }
                 },
-
-                ModelParameters = ProtobufValue.ForStruct(new Struct
-                {
-                    Fields =
-                    {
-                        { "task_type", ProtobufValue.ForString("RETRIEVAL_DOCUMENT") } 
-                        // Add other parameters as needed
-                    }
-                })
+                modelParameters = new { task_type = "RETRIEVAL_DOCUMENT" }
             };
 
-            var parentLocation = LocationName.FromProjectLocation(_projectId, _location).ToString();
-            
-            BatchPredictionJob createdJob;
-            try
+            string url = $"https://{_location}-aiplatform.googleapis.com/v1/projects/{_projectId}/locations/{_location}/batchPredictionJobs";
+            string token = await GetGoogleAccessTokenAsync();
+
+            var httpRequest = new HttpRequestMessage(HttpMethod.Post, url)
             {
-                // Use CreateBatchPredictionJobAsync
-                createdJob = await ExecuteWithRetryAsync(() => _jobServiceClient.CreateBatchPredictionJobAsync(parentLocation, batchPredictionJob));
-            }
-            catch (RpcException ex)
+                Content = new StringContent(JsonSerializer.Serialize(requestBody), Encoding.UTF8, "application/json")
+            };
+            httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            var response = await _httpClient.SendAsync(httpRequest);
+            if (!response.IsSuccessStatusCode)
             {
-                Console.Error.WriteLine($"Error creating batch prediction job: {ex.Status} - {ex.Message}");
-                throw;
+                var error = await response.Content.ReadAsStringAsync();
+                throw new InvalidOperationException($"Failed to create batch prediction job: {response.StatusCode} {error}");
             }
-            
-            Console.WriteLine($"Batch prediction job created: {createdJob.Name}");
+            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            string? jobName = doc.RootElement.GetProperty("name").GetString();
+            if (string.IsNullOrEmpty(jobName))
+                throw new InvalidOperationException("Batch job creation response did not include a job name.");
 
             // Poll for job completion
             int pollingIntervalSeconds = 60;
-            int maxRetries = 30; // Max 30 minutes for typical embedding jobs
+            int maxRetries = 30;
             int attempt = 0;
-
-            BatchPredictionJob currentJobState = createdJob;
             while (attempt < maxRetries)
             {
                 await Task.Delay(TimeSpan.FromSeconds(pollingIntervalSeconds));
-                // Use GetBatchPredictionJobAsync
-                currentJobState = await ExecuteWithRetryAsync<BatchPredictionJob>(() => _jobServiceClient.GetBatchPredictionJobAsync(currentJobState.Name));
-
-                Console.WriteLine($"Batch job {currentJobState.Name} state: {currentJobState.State}");
-
-                switch (currentJobState.State)
+                var statusRequest = new HttpRequestMessage(HttpMethod.Get, $"https://{_location}-aiplatform.googleapis.com/v1/{jobName}");
+                statusRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                var statusResponse = await _httpClient.SendAsync(statusRequest);
+                if (!statusResponse.IsSuccessStatusCode)
                 {
-                    case JobState.Succeeded:
-                        Console.WriteLine($"Batch prediction job {currentJobState.Name} succeeded.");
-                        // The output is in NDJSON format in the GCS directory specified by currentJobState.OutputInfo.GcsOutputDirectory
-                        // The caller will handle reading from this GCS path.
-                        return currentJobState.OutputInfo.GcsOutputDirectory; 
-
-                    case JobState.Failed:
-                    case JobState.Cancelled:
-                    case JobState.Expired:
-                        var errorMessage = $"Batch prediction job {currentJobState.Name} ended with state: {currentJobState.State}.";
-                        if (currentJobState.Error != null)
-                        {
-                            errorMessage += $" Error: {currentJobState.Error.Message} (Code: {currentJobState.Error.Code})";
-                        }
-                        Console.Error.WriteLine(errorMessage);
-                        throw new InvalidOperationException(errorMessage);
-
-                    case JobState.Pending:
-                    case JobState.Running:
-                    case JobState.Cancelling:
-                    case JobState.Unspecified:
-                    case JobState.Queued:
-                    case JobState.Paused:
-                    case JobState.Updating:
-                         // Continue polling, these are intermediate states
-                        break;
-                    default:
-                        throw new InvalidOperationException($"Unexpected job state: {currentJobState.State}");
+                    var error = await statusResponse.Content.ReadAsStringAsync();
+                    throw new InvalidOperationException($"Failed to get batch job status: {statusResponse.StatusCode} {error}");
                 }
+                using var statusDoc = JsonDocument.Parse(await statusResponse.Content.ReadAsStringAsync());
+                var state = statusDoc.RootElement.GetProperty("state").GetString();
+                if (state == "JOB_STATE_SUCCEEDED")
+                {
+                    // Output URI is in outputConfig.gcsDestination.outputUri
+                    var outputConfig = statusDoc.RootElement.GetProperty("outputConfig");
+                    var gcsDest = outputConfig.GetProperty("gcsDestination");
+                    var outputUri = gcsDest.GetProperty("outputUriPrefix").GetString();
+                    if (string.IsNullOrEmpty(outputUri))
+                        throw new InvalidOperationException($"Batch prediction job {jobName} succeeded but outputUri is missing in response.");
+                    return outputUri;
+                }
+                if (state == "JOB_STATE_FAILED" || state == "JOB_STATE_CANCELLED" || state == "JOB_STATE_EXPIRED")
+                {
+                    throw new InvalidOperationException($"Batch prediction job {jobName} ended with state: {state}");
+                }
+                // else: pending, running, etc.
                 attempt++;
             }
-
-            throw new TimeoutException($"Batch prediction job {createdJob.Name} did not complete within the expected time.");
+            throw new TimeoutException($"Batch prediction job {jobName} did not complete within the expected time.");
         }
 
-        private async Task<T> ExecuteWithRetryAsync<T>(Func<Task<T>> action, int maxRetries = 3, int delaySeconds = 5)
+        // Helper to get Google access token for Vertex AI
+        private static async Task<string> GetGoogleAccessTokenAsync()
+        {
+            GoogleCredential credential = await GoogleCredential.GetApplicationDefaultAsync();
+            if (credential.IsCreateScopedRequired)
+            {
+                credential = credential.CreateScoped(["https://www.googleapis.com/auth/cloud-platform"]);
+            }
+            var token = await credential.UnderlyingCredential.GetAccessTokenForRequestAsync();
+            return token;
+        }
+
+        private static async Task<T> ExecuteWithRetryAsync<T>(Func<Task<T>> action, int maxRetries = 3, int delaySeconds = 5)
         {
             int attempt = 0;
             while (true)
