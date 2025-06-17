@@ -171,78 +171,82 @@ namespace JREClipper.Api.Controllers
         /// Output embeddings will be placed in a corresponding structure under the OutputDataUri (config).
         /// </summary>
         /// <returns>Status of the batch initiation.</returns>
-        [HttpPost("vectorize-batch-transcripts")]
+        [HttpPost("process-batch-transcripts")]
         [ProducesResponseType(StatusCodes.Status202Accepted)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> ProcessBatchTranscripts() // Removed [FromBody] RequestDto requestDto
+        public async Task<IActionResult> UploadBatchTranscripts()
         {
-            // Use URIs from _gcsOptions
-            if (string.IsNullOrEmpty(_gcsOptions.InputDataUri) || string.IsNullOrEmpty(_gcsOptions.OutputDataUri))
+            if (string.IsNullOrEmpty(_gcsOptions.InputDataUri) || string.IsNullOrEmpty(_gcsOptions.SegmentedTranscriptDataUri))
             {
-                return BadRequest("InputDataUri (for source folder) and OutputDataUri (for destination folder) must be configured in appsettings.");
+                return BadRequest("InputDataUri and SegmentedTranscriptDataUri must be configured in appsettings.");
             }
 
             try
             {
-                (string inputBucketName, string inputPrefix) = ParseGcsUri(_gcsOptions.InputDataUri);
-                (string outputBucketName, string outputPrefix) = ParseGcsUri(_gcsOptions.OutputDataUri);
+                (string inputBucket, string inputPrefix) = ParseGcsUri(_gcsOptions.InputDataUri);
+                (string segmentedBucket, string segmentedPrefix) = ParseGcsUri(_gcsOptions.SegmentedTranscriptDataUri);
 
-                // Ensure inputPrefix and outputPrefix are treated as folders
                 string ensuredInputPrefix = string.IsNullOrEmpty(inputPrefix) ? "" : (inputPrefix.EndsWith("/") ? inputPrefix : inputPrefix + "/");
-                string ensuredOutputPrefix = string.IsNullOrEmpty(outputPrefix) ? "" : (outputPrefix.EndsWith("/") ? outputPrefix : outputPrefix + "/");
+                string ensuredSegmentedPrefix = string.IsNullOrEmpty(segmentedPrefix) ? "" : (segmentedPrefix.EndsWith("/") ? segmentedPrefix : segmentedPrefix + "/");
 
-                var transcriptFiles = await _gcsService.ListAllTranscriptFiles(inputBucketName, ensuredInputPrefix);
-
+                var transcriptFiles = await _gcsService.ListAllTranscriptFiles(inputBucket, ensuredInputPrefix);
                 if (transcriptFiles.Count == 0)
                 {
                     return NotFound($"No transcript files found at {_gcsOptions.InputDataUri}.");
                 }
 
-                // In a real system, this would publish messages to a queue (e.g., Pub/Sub)
-                // for a background worker to process each file.
-                // For demonstration, we'll just log the intent.
-                // Each file would be processed similarly to ProcessSingleTranscript,
-                // with its output path constructed based on the OutputURI.
+                var allSegments = new List<ProcessedTranscriptSegment>();
+                int chunkSize = _appSettings.ChunkSettings?.MaxChunkDurationSeconds ?? 300;
+                int overlap = _appSettings.ChunkSettings?.OverlapDurationSeconds ?? 30;
 
-                List<string> processedFilesInfo = new List<string>();
-
-                foreach (var transcriptFileObjectName in transcriptFiles)
+                foreach (var objectName in transcriptFiles)
                 {
-                    // This is a conceptual loop. Actual processing would be asynchronous via a queue.
-                    // For each transcriptFileObjectName (e.g., "transcriptions_folder/transcript-XYZ.json"):
-                    // 1. Derive VideoId (e.g., "XYZ")
-                    // 2. Construct output object name: $"{ensuredOutputPrefix}embeddings/transcript-{videoId}.json"
-                    // 3. Call a processing function (like a scaled-down ProcessSingleTranscript logic)
-
-                    var videoIdFromFile = Path.GetFileNameWithoutExtension(transcriptFileObjectName);
-                    if (videoIdFromFile.StartsWith("transcript-"))
+                    var raw = await _gcsService.GetSingleTranscript(inputBucket, objectName);
+                    if (raw == null || string.IsNullOrWhiteSpace(raw.Transcript) || raw.TranscriptWithTimestamps.Count == 0)
                     {
-                        videoIdFromFile = videoIdFromFile.Substring("transcript-".Length);
+                        Console.WriteLine($"Skipping empty or missing transcript: {objectName}");
+                        continue;
                     }
-                    
-                    string individualOutputObjectName = $"{ensuredOutputPrefix}embeddings/{Path.GetFileNameWithoutExtension(transcriptFileObjectName)}.json"; // Or derive a cleaner name if needed
-
-                    // Simulate queuing or logging
-                    processedFilesInfo.Add($"Queued for processing: Input: gs://{inputBucketName}/{transcriptFileObjectName}, Output: gs://{outputBucketName}/{individualOutputObjectName}");
-                    
-                    // TODO: In a real scenario, you'd enqueue a message like:
-                    // await _queueService.EnqueueProcessTranscriptJob(
-                    //     $"gs://{inputBucketName}/{transcriptFileObjectName}",
-                    //     $"gs://{outputBucketName}/{individualOutputObjectName}"
-                    // );
+                    if (string.IsNullOrEmpty(raw.VideoId))
+                    {
+                        var fileName = Path.GetFileNameWithoutExtension(objectName);
+                        raw.VideoId = fileName.StartsWith("transcript-") ? fileName.Substring("transcript-".Length) : fileName;
+                    }
+                    var segments = _transcriptProcessor.ChunkTranscriptWithTimestamps(raw, chunkSize, overlap).ToList();
+                    allSegments.AddRange(segments);
+                    Console.WriteLine($"Processed {segments.Count} segments from {objectName}");
                 }
 
-                return Accepted(new { Message = $"Batch processing initiated for {transcriptFiles.Count} files from {_gcsOptions.InputDataUri}. Outputs will be under gs://{outputBucketName}/{ensuredOutputPrefix}embeddings/", FilesToProcess = processedFilesInfo });
+                if (allSegments.Count == 0)
+                {
+                    return Ok("No segments generated from any transcripts.");
+                }
+
+                // Split allSegments into batches of 30,000
+                const int maxBatchSize = 30000;
+                int totalBatches = (int)Math.Ceiling(allSegments.Count / (double)maxBatchSize);
+                var uploadedBatchUris = new List<string>();
+
+                for (int i = 0; i < totalBatches; i++)
+                {
+                    var batch = allSegments.Skip(i * maxBatchSize).Take(maxBatchSize).ToList();
+                    string batchObjectName = $"{ensuredSegmentedPrefix}jre-segments-batch-{i + 1}.ndjson";
+                    string batchUri = await _gcsService.UploadSegmentedTranscriptNDJSONAsync(segmentedBucket, batchObjectName, batch);
+                    uploadedBatchUris.Add(batchUri);
+                    Console.WriteLine($"Uploaded batch {i + 1}/{totalBatches} to: {batchUri} ({batch.Count} segments)");
+                }
+
+                return Accepted(new { Message = $"Uploaded {uploadedBatchUris.Count} NDJSON batch files (max 30,000 segments each) to {_gcsOptions.SegmentedTranscriptDataUri}.", BatchFiles = uploadedBatchUris });
             }
-            catch (ArgumentException ex) // Catch specific URI parsing errors
+            catch (ArgumentException ex)
             {
                 return BadRequest($"Invalid GCS URI format in configuration: {ex.Message}");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error initiating batch processing from {_gcsOptions.InputDataUri}: {ex.Message}");
-                return StatusCode(StatusCodes.Status500InternalServerError, $"An error occurred during batch initiation: {ex.Message}");
+                Console.WriteLine($"Error during batch transcript processing: {ex.Message}");
+                return StatusCode(StatusCodes.Status500InternalServerError, $"An error occurred during batch processing: {ex.Message}");
             }
         }
     }

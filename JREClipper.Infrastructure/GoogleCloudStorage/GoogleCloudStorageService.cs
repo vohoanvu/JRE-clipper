@@ -24,7 +24,7 @@ namespace JREClipper.Infrastructure.GoogleCloudStorage
             var objects = _storageClient.ListObjectsAsync(bucketName, prefix);
             await foreach (var obj in objects)
             {
-                if (!obj.Name.EndsWith('/')) // Exclude folders
+                if (!obj.Name.EndsWith('/') && obj.Name.StartsWith("transcriptions/transcript-") && obj.Name.EndsWith(".json")) // Exclude folders
                 {
                     videoFiles.Add(obj.Name);
                 }
