@@ -1,8 +1,10 @@
 // JREClipper.Api/Controllers/IngestionController.cs
 using JREClipper.Core.Interfaces;
 using JREClipper.Core.Models;
+using JREClipper.Core.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
+using Newtonsoft.Json;
 
 namespace JREClipper.Api.Controllers
 {
@@ -13,27 +15,27 @@ namespace JREClipper.Api.Controllers
         private readonly IGoogleCloudStorageService _gcsService;
         private readonly ITranscriptProcessor _transcriptProcessor;
         private readonly IEmbeddingService _embeddingService;
-        private readonly IVectorDatabaseService _vectorDbService;
         private readonly GoogleCloudStorageOptions _gcsOptions;
         private readonly AppSettings _appSettings;
-        private readonly EmbeddingServiceOptions _embeddingOptions;
+        private readonly ILogger<IngestionController> _logger;
+        private readonly UtteranceExtractorService _utteranceExtractorService;
 
         public IngestionController(
             IGoogleCloudStorageService gcsService,
             ITranscriptProcessor transcriptProcessor,
             Func<string, IEmbeddingService> embeddingServiceFactory, // Use factory
-            IVectorDatabaseService vectorDbService,
             IOptions<GoogleCloudStorageOptions> gcsOptions,
             IOptions<AppSettings> appSettings,
-            IOptions<EmbeddingServiceOptions> embeddingOptions)
+            ILogger<IngestionController> logger,
+            UtteranceExtractorService utteranceExtractorService)
         {
             _gcsService = gcsService;
             _transcriptProcessor = transcriptProcessor;
             _appSettings = appSettings.Value;
             _embeddingService = embeddingServiceFactory(_appSettings.EmbeddingProvider!); // Get service from factory
-            _vectorDbService = vectorDbService;
             _gcsOptions = gcsOptions.Value;
-            _embeddingOptions = embeddingOptions.Value;
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger), "Logger cannot be null. Ensure it is properly configured in DI.");
+            _utteranceExtractorService = utteranceExtractorService;
         }
 
         private static (string BucketName, string ObjectName) ParseGcsUri(string gcsUri)
@@ -125,8 +127,8 @@ namespace JREClipper.Api.Controllers
                 }
 
                 string uploadedNdjsonUri = await _gcsService.UploadSegmentedTranscriptNDJSONAsync(
-                    segmentedTranscriptBucketName, 
-                    finalSegmentedTranscriptObjectName, 
+                    segmentedTranscriptBucketName,
+                    finalSegmentedTranscriptObjectName,
                     processedSegments);
                 Console.WriteLine($"Segmented transcript NDJSON uploaded to: {uploadedNdjsonUri}");
 
@@ -140,7 +142,7 @@ namespace JREClipper.Api.Controllers
                     (string playlistBucketName, string playlistObjectName) = ParseGcsUri(_gcsOptions.JrePlaylistCsvUri);
                     if (string.IsNullOrEmpty(playlistObjectName))
                     {
-                         Console.WriteLine($"Warning: JrePlaylistCsvUri '{_gcsOptions.JrePlaylistCsvUri}' does not specify an object name. Skipping playlist update.");
+                        Console.WriteLine($"Warning: JrePlaylistCsvUri '{_gcsOptions.JrePlaylistCsvUri}' does not specify an object name. Skipping playlist update.");
                     }
                     else
                     {
@@ -247,6 +249,174 @@ namespace JREClipper.Api.Controllers
             {
                 Console.WriteLine($"Error during batch transcript processing: {ex.Message}");
                 return StatusCode(StatusCodes.Status500InternalServerError, $"An error occurred during batch processing: {ex.Message}");
+            }
+        }
+
+        [HttpGet("get-utterances-from-transcript")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        /// <summary>
+        /// Extracts utterances from all local transcript files, batches them, and uploads them as separate NDJSON files to GCS.
+        /// </summary>
+        /// <param name="localPath">The local directory path containing the transcript files (e.g., 'transcripts').</param>
+        /// <param name="batchSize">The number of transcript files to process in each batch.</param>
+        public async Task<IActionResult> GetUtterancesFromTranscript([FromQuery] string localPath = "../transcriptions", [FromQuery] int batchSize = 250)
+        {
+            if (string.IsNullOrEmpty(localPath))
+            {
+                return BadRequest("Local path must be provided.");
+            }
+            if (batchSize <= 0)
+            {
+                return BadRequest("Batch size must be a positive integer.");
+            }
+
+            try
+            {
+                var fullPath = Path.GetFullPath(localPath);
+                if (!Directory.Exists(fullPath))
+                {
+                    return NotFound($"The specified local directory does not exist: {fullPath}");
+                }
+
+                var transcriptFiles = Directory.GetFiles(fullPath, "transcript-*.json").ToList();
+                if (transcriptFiles.Count == 0)
+                {
+                    return NotFound($"No transcript files matching 'transcript-*.json' found in {fullPath}.");
+                }
+
+                var outputUris = new List<string>();
+                int totalBatches = (int)Math.Ceiling((double)transcriptFiles.Count / batchSize);
+                _logger.LogInformation($"Total transcripts found: {transcriptFiles.Count}. Processing in {totalBatches} batches of up to {batchSize} files each.");
+
+                for (int i = 0; i < totalBatches; i++)
+                {
+                    var fileBatch = transcriptFiles.Skip(i * batchSize).Take(batchSize).ToList();
+                    var utterancesForBatch = new List<UtteranceForEmbedding>();
+                    _logger.LogInformation($"Processing batch {i + 1}/{totalBatches} with {fileBatch.Count} files.");
+
+                    foreach (var filePath in fileBatch)
+                    {
+                        try
+                        {
+                            var jsonContent = await System.IO.File.ReadAllTextAsync(filePath);
+                            var transcriptDataList = JsonConvert.DeserializeObject<List<RawTranscriptData>>(jsonContent);
+                            var rawTranscript = transcriptDataList?.FirstOrDefault();
+
+                            if (rawTranscript != null && rawTranscript.TranscriptWithTimestamps.Count != 0 && !string.IsNullOrWhiteSpace(rawTranscript.Transcript))
+                            {
+                                var utterances = _utteranceExtractorService.ExtractUtterances(rawTranscript);
+                                utterancesForBatch.AddRange(utterances);
+                            }
+                            else
+                            {
+                                _logger.LogWarning($"Skipping empty or invalid transcript: {filePath}");
+                            }
+                        }
+                        catch (JsonException jsonEx)
+                        {
+                            _logger.LogError(jsonEx, $"Error deserializing JSON from file {filePath} in batch {i + 1}.");
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, $"Error processing transcript file {filePath} in batch {i + 1}.");
+                        }
+                    }
+
+                    if (utterancesForBatch.Any())
+                    {
+                        var outputUriPrefix = "gs://jre-processed-clip-bucker/utterances-for-embedding/";
+                        if (!outputUriPrefix.EndsWith("/"))
+                        {
+                            outputUriPrefix += "/";
+                        }
+                        
+                        var outputFileName = $"utterances_for_embedding_batch_{i + 1}.jsonl";
+                        var batchOutputUri = $"{outputUriPrefix}{outputFileName}";
+
+                        _logger.LogInformation($"Uploading {utterancesForBatch.Count} utterances for batch {i + 1} to {batchOutputUri}");
+                        
+                        var uploadedUri = await _gcsService.UploadAllUtterancesToGcsAsync(batchOutputUri, utterancesForBatch);
+                        outputUris.Add(uploadedUri);
+                    }
+                    else
+                    {
+                        _logger.LogWarning($"No utterances were extracted for batch {i + 1}, no file will be created.");
+                    }
+                }
+
+                if (outputUris.Count == 0)
+                {
+                    return NotFound("No utterances were extracted from any of the provided transcripts.");
+                }
+
+                return Ok(new
+                {
+                    Message = $"Successfully extracted utterances and created {outputUris.Count} batch files.",
+                    TotalTranscriptsProcessed = transcriptFiles.Count,
+                    TotalBatches = totalBatches,
+                    OutputFileUris = outputUris
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "An unexpected error occurred while extracting utterances from local files.");
+                return StatusCode(StatusCodes.Status500InternalServerError, $"An error occurred: {ex.Message}");
+            }
+        }
+
+
+        [HttpGet("run-semantic-chunking")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        /// <summary>
+        /// Runs semantic chunking on all trancript utterances with embeddings in Google Cloud Storage.
+        /// </summary>
+        /// <returns>Status of the semantic chunking process.</returns>
+        public async Task<IActionResult> RunSematicChunking([FromBody] string utteranceEmbeddingUri)
+        {
+            if (string.IsNullOrEmpty(_gcsOptions.InputDataUri))
+            {
+                return BadRequest("GCS URI must be provided.");
+            }
+
+            (string inputBucket, string inputPrefix) = ParseGcsUri(_gcsOptions.InputDataUri);
+            var transcriptFiles = await _gcsService.ListAllTranscriptFiles(inputBucket, inputPrefix);
+            if (transcriptFiles.Count == 0)
+            {
+                return NotFound($"No transcript files found at {_gcsOptions.InputDataUri}.");
+            }
+            var allFinalSegments = new List<ProcessedTranscriptSegment>();
+
+            try
+            {
+                var embeddingResults = await _gcsService.DownloadUtteranceEmbeddingJsonFileAsync(utteranceEmbeddingUri);
+                foreach (var transcriptFile in transcriptFiles)
+                {
+                    var raw = await _gcsService.GetSingleTranscript(inputBucket, transcriptFile);
+                    if (raw == null || string.IsNullOrWhiteSpace(raw.Transcript) || raw.TranscriptWithTimestamps.Count == 0)
+                    {
+                        _logger.LogInformation($"Skipping empty or missing transcript: {transcriptFile}");
+                        continue;
+                    }
+                    var videoMetadata = new VideoMetadata
+                    {
+                    };
+                    var segments = _transcriptProcessor.ChunkTranscriptFromPrecomputedEmbeddings(raw, videoMetadata, embeddingResults);
+                    allFinalSegments.AddRange(segments);
+                    //TODO: Continue to process segments
+                }
+                
+                return Ok(new { Message = "Semantic chunking completed successfully", SegmentsCount = allFinalSegments.Count });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error during semantic chunking: {ex.Message}");
+                return StatusCode(StatusCodes.Status500InternalServerError, $"An error occurred during semantic chunking: {ex.Message}");
             }
         }
     }

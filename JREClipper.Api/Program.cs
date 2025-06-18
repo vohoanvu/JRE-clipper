@@ -17,6 +17,7 @@ builder.Services.AddSwaggerGen();
 
 // Configure Options pattern
 builder.Services.Configure<AppSettings>(builder.Configuration.GetSection("AppSettings")); // Added AppSettings
+builder.Services.AddSingleton(provider => provider.GetRequiredService<IOptions<AppSettings>>().Value);
 builder.Services.Configure<GoogleCloudStorageOptions>(builder.Configuration.GetSection("GoogleCloudStorage"));
 builder.Services.Configure<VectorDatabaseOptions>(builder.Configuration.GetSection("VectorDatabase"));
 builder.Services.Configure<EmbeddingServiceOptions>(builder.Configuration.GetSection("Embedding"));
@@ -36,6 +37,7 @@ builder.Services.AddSingleton<IGoogleCloudStorageService, GoogleCloudStorageServ
 
 // Register Transcript Processor
 builder.Services.AddScoped<ITranscriptProcessor, IntelligentTranscriptProcessor>();
+builder.Services.AddScoped<UtteranceExtractorService>();
 
 // Register Embedding Services
 builder.Services.AddSingleton(provider =>

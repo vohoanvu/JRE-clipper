@@ -8,16 +8,13 @@ namespace JREClipper.Core.Services
 {
     public class IntelligentTranscriptProcessor : ITranscriptProcessor
     {
-        private readonly IEmbeddingService _embeddingService;
         private readonly ILogger<IntelligentTranscriptProcessor> _logger;
         private readonly AppSettings _appSettings;
 
         public IntelligentTranscriptProcessor(
-            IEmbeddingService embeddingService,
             ILogger<IntelligentTranscriptProcessor> logger,
             AppSettings appSettings)
         {
-            _embeddingService = embeddingService;
             _logger = logger;
             _appSettings = appSettings ?? new AppSettings()
             {
@@ -36,29 +33,42 @@ namespace JREClipper.Core.Services
             throw new NotImplementedException("This method is not implemented in the IntelligentTranscriptProcessor. Use ChunkTranscriptAsync instead.");
         }
 
-        public async Task<IEnumerable<ProcessedTranscriptSegment>> ChunkTranscriptAsync(
-            RawTranscriptData transcriptData, VideoMetadata videoMetadata)
+        // This is the new primary method. It takes pre-computed embeddings as input.
+        public IEnumerable<ProcessedTranscriptSegment> ChunkTranscriptFromPrecomputedEmbeddings(
+            RawTranscriptData transcriptData,
+            VideoMetadata videoMetadata,
+            IReadOnlyDictionary<string, float[]> precomputedEmbeddings)
         {
-            if (transcriptData?.TranscriptWithTimestamps == null || !transcriptData.TranscriptWithTimestamps.Any())
+            if (transcriptData?.TranscriptWithTimestamps == null || transcriptData.TranscriptWithTimestamps.Count == 0)
             {
                 return [];
             }
 
-            // 1. Group raw entries into sentences/utterances
-            var utterances = GroupIntoUtterances(transcriptData.TranscriptWithTimestamps);
-            if (!utterances.Any()) return [];
+            var timedUtterances = GroupIntoUtterances(transcriptData.TranscriptWithTimestamps);
+            if (!timedUtterances.Any()) return [];
 
-            // 2. Generate embeddings for all utterances in parallel
-            var embeddingTasks = utterances.Select(async u =>
+            // Populate the utterances with their pre-computed embeddings
+            for (int i = 0; i < timedUtterances.Count; i++)
             {
-                var embeddings = await _embeddingService.GenerateEmbeddingsAsync(u.Text);
-                u.Embedding = embeddings.ToArray();
-                return u;
-            }).ToList();
-            await Task.WhenAll(embeddingTasks);
+                var utteranceId = $"{transcriptData.VideoId}_{i}";
+                if (precomputedEmbeddings.TryGetValue(utteranceId, out var embedding))
+                {
+                    timedUtterances[i].Embedding = embedding;
+                }
+                else
+                {
+                    _logger.LogWarning("Could not find pre-computed embedding for utterance ID: {UtteranceId}", utteranceId);
+                }
+            }
 
-            // 3. Perform semantic chunking
-            return CreateSemanticChunks(utterances, transcriptData.VideoId, videoMetadata);
+            // The rest of the logic is the same!
+            return CreateSemanticChunks(timedUtterances, transcriptData.VideoId, videoMetadata);
+        }
+
+        public async Task<IEnumerable<ProcessedTranscriptSegment>> ChunkTranscriptAsync(
+            RawTranscriptData transcriptData, VideoMetadata videoMetadata)
+        {
+            throw new NotSupportedException("This method is deprecated. Use ChunkTranscriptFromPrecomputedEmbeddings after running a batch embedding job.");
         }
 
         private List<TimedUtterance> GroupIntoUtterances(List<TimestampedText> entries)

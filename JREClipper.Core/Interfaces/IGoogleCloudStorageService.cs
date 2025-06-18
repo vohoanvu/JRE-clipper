@@ -1,5 +1,6 @@
 // JREClipper.Core/Interfaces/IGoogleCloudStorageService.cs
 using JREClipper.Core.Models;
+using JREClipper.Core.Services;
 
 namespace JREClipper.Core.Interfaces
 {
@@ -31,5 +32,9 @@ namespace JREClipper.Core.Interfaces
         /// <param name="segmentedTranscripts">A list of strings, where each string is a transcript segment.</param>
         /// <returns>The GCS URI of the uploaded NDJSON file (e.g., gs://bucketName/objectName).</returns>
         Task<string> UploadSegmentedTranscriptNDJSONAsync(string bucketName, string objectName, List<ProcessedTranscriptSegment> segmentedTranscripts);
+
+        Task<string> UploadAllUtterancesToGcsAsync(string outputUtteranceFileUri, List<UtteranceForEmbedding> allUtterancesForEmbedding);
+
+        Task<IReadOnlyDictionary<string, float[]>> DownloadUtteranceEmbeddingJsonFileAsync(string gcsUri);
     }
 }

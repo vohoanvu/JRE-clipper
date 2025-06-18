@@ -6,6 +6,7 @@ using Newtonsoft.Json;
 using System.Text;
 using CsvHelper;
 using System.Globalization;
+using JREClipper.Core.Services;
 
 namespace JREClipper.Infrastructure.GoogleCloudStorage
 {
@@ -161,6 +162,83 @@ namespace JREClipper.Infrastructure.GoogleCloudStorage
             await _storageClient.UploadObjectAsync(bucketName, objectName, "application/x-ndjson", memoryStream);
 
             return $"gs://{bucketName}/{objectName}"; // Return the GCS URI of the uploaded file
+        }
+
+        public async Task<string> UploadAllUtterancesToGcsAsync(string outputUtteranceFileUri, List<UtteranceForEmbedding> allUtterancesForEmbedding)
+        {
+            if (string.IsNullOrEmpty(outputUtteranceFileUri))
+                throw new ArgumentNullException(nameof(outputUtteranceFileUri));
+            if (allUtterancesForEmbedding == null)
+                throw new ArgumentNullException(nameof(allUtterancesForEmbedding));
+
+            // Parse GCS URI
+            if (!outputUtteranceFileUri.StartsWith("gs://"))
+                throw new ArgumentException("Output URI must start with gs://", nameof(outputUtteranceFileUri));
+            var uriParts = outputUtteranceFileUri.Substring(5).Split('/', 2);
+            if (uriParts.Length != 2)
+                throw new ArgumentException("Invalid GCS URI format.", nameof(outputUtteranceFileUri));
+            var bucketName = uriParts[0];
+            var objectName = uriParts[1];
+
+            using var memoryStream = new MemoryStream();
+            using (var writer = new StreamWriter(memoryStream, new UTF8Encoding(false), bufferSize: 1024, leaveOpen: true))
+            {
+                foreach (var utterance in allUtterancesForEmbedding)
+                {
+                    var jsonLine = JsonConvert.SerializeObject(utterance);
+                    await writer.WriteLineAsync(jsonLine);
+                }
+                await writer.FlushAsync();
+            }
+
+            memoryStream.Position = 0;
+            await _storageClient.UploadObjectAsync(bucketName, objectName, "application/x-ndjson", memoryStream);
+
+            return $"gs://{bucketName}/{objectName}";
+        }
+
+        public async Task<IReadOnlyDictionary<string, float[]>> DownloadUtteranceEmbeddingJsonFileAsync(string gcsUri)
+        {
+            if (string.IsNullOrEmpty(gcsUri))
+                throw new ArgumentNullException(nameof(gcsUri));
+            if (!gcsUri.StartsWith("gs://"))
+                throw new ArgumentException("GCS URI must start with gs://", nameof(gcsUri));
+            var uriParts = gcsUri.Substring(5).Split('/', 2);
+            if (uriParts.Length != 2)
+                throw new ArgumentException("Invalid GCS URI format.", nameof(gcsUri));
+            var bucketName = uriParts[0];
+            var objectName = uriParts[1];
+
+            var result = new Dictionary<string, float[]>();
+            
+            using var memoryStream = new MemoryStream();
+            await _storageClient.DownloadObjectAsync(bucketName, objectName, memoryStream);
+            memoryStream.Position = 0;
+            using var reader = new StreamReader(memoryStream, Encoding.UTF8);
+            
+            string? line;
+            while ((line = await reader.ReadLineAsync()) != null)
+            {
+                if (!string.IsNullOrWhiteSpace(line))
+                {
+                    var embeddingResult = JsonConvert.DeserializeObject<dynamic>(line);
+                    // Ensure the deserialized object has the expected properties
+                    if (embeddingResult != null && embeddingResult?.id != null && embeddingResult?.embedding != null)
+                    {
+                        string id = embeddingResult!.id.ToString();
+                        float[] embedding = ((Newtonsoft.Json.Linq.JArray)embeddingResult.embedding)
+                            .Select(item => (float)item)
+                            .ToArray();
+                        result[id] = embedding;
+                    }
+                    else
+                    {
+                        throw new InvalidDataException($"Invalid data format in line: {line}");
+                    }
+                }
+            }
+
+            return result;
         }
     }
 

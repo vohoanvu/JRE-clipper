@@ -115,5 +115,13 @@ namespace JREClipper.Core.Services
         {
             throw new NotImplementedException("Async chunking not implemented in BasicTranscriptProcessor. Use IntelligentTranscriptProcessor for async operations.");
         }
+
+        public IEnumerable<ProcessedTranscriptSegment> ChunkTranscriptFromPrecomputedEmbeddings(
+            RawTranscriptData transcriptData,
+            VideoMetadata videoMetadata,
+            IReadOnlyDictionary<string, float[]> precomputedEmbeddings)
+        {
+            throw new NotImplementedException("Chunking from precomputed embeddings not implemented in BasicTranscriptProcessor. Use IntelligentTranscriptProcessor for this functionality.");
+        }
     }
 }
