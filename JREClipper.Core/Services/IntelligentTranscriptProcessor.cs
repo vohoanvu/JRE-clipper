@@ -177,16 +177,27 @@ namespace JREClipper.Core.Services
 
         private double CalculateCosineSimilarity(float[]? vec1, float[]? vec2)
         {
-            if (vec1 == null || vec2 == null || vec1.Length != vec2.Length) return 0;
+            if (vec1 == null || vec2 == null || vec1.Length != vec2.Length)
+            {
+                _logger.LogWarning("Cannot calculate cosine similarity: one or both vectors are null or have different lengths.");
+                return 0;
+            }
 
-            var tensor1 = new DenseTensor<float>(vec1, [vec1.Length]);
-            var tensor2 = new DenseTensor<float>(vec2, [vec2.Length]);
+            // Directly create ReadOnlySpan<float> from the float[] arrays
+            ReadOnlySpan<float> span1 = vec1.AsSpan();
+            ReadOnlySpan<float> span2 = vec2.AsSpan();
 
-            var dotProduct = TensorPrimitives.Dot(tensor1.Buffer.Span, tensor2.Buffer.Span);
-            var norm1 = TensorPrimitives.Norm(tensor1.Buffer.Span);
-            var norm2 = TensorPrimitives.Norm(tensor2.Buffer.Span);
+            // Use TensorPrimitives directly on the spans
+            var dotProduct = TensorPrimitives.Dot(span1, span2);
+            var norm1 = TensorPrimitives.Norm(span1);
+            var norm2 = TensorPrimitives.Norm(span2);
 
-            if (norm1 == 0 || norm2 == 0) return 0;
+            if (norm1 == 0 || norm2 == 0)
+            {
+                // If one of the vectors is a zero vector, similarity is undefined or zero.
+                // Returning 0 is a common convention in this case.
+                return 0;
+            }
 
             return dotProduct / (norm1 * norm2);
         }

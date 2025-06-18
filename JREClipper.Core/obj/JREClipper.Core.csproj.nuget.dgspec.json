@@ -49,7 +49,7 @@
             },
             "System.Numerics.Tensors": {
               "target": "Package",
-              "version": "[8.0.0, )"
+              "version": "[4.7.0, )"
             }
           },
           "imports": [
