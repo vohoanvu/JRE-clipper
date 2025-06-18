@@ -27,7 +27,7 @@ namespace JREClipper.Core.Models
         public string VideoPostDate { get; set; } = string.Empty;
 
         [JsonPropertyName("transcript")]
-        public string Transcript { get; set; } = string.Empty; // Full episode text if available
+        public string Transcript { get; set; } = string.Empty; // Full transcription text of the entire video
 
         [JsonPropertyName("transcriptWithTimestamps")]
         public List<TimestampedText> TranscriptWithTimestamps { get; set; } = [];

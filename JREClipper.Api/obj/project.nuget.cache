@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "dgSpecHash": "QGf5NqWSWoI=",
+  "dgSpecHash": "J8c4kpsugtY=",
   "success": true,
   "projectFilePath": "/Users/vohoanvu/dev-repository/JRE-clipper/JREClipper.Api/JREClipper.Api.csproj",
   "expectedPackageFiles": [
@@ -27,8 +27,10 @@
     "/Users/vohoanvu/.nuget/packages/microsoft.aspnetcore.openapi/8.0.11/microsoft.aspnetcore.openapi.8.0.11.nupkg.sha512",
     "/Users/vohoanvu/.nuget/packages/microsoft.bcl.asyncinterfaces/6.0.0/microsoft.bcl.asyncinterfaces.6.0.0.nupkg.sha512",
     "/Users/vohoanvu/.nuget/packages/microsoft.extensions.apidescription.server/6.0.5/microsoft.extensions.apidescription.server.6.0.5.nupkg.sha512",
+    "/Users/vohoanvu/.nuget/packages/microsoft.extensions.dependencyinjection/8.0.0/microsoft.extensions.dependencyinjection.8.0.0.nupkg.sha512",
     "/Users/vohoanvu/.nuget/packages/microsoft.extensions.dependencyinjection.abstractions/8.0.0/microsoft.extensions.dependencyinjection.abstractions.8.0.0.nupkg.sha512",
-    "/Users/vohoanvu/.nuget/packages/microsoft.extensions.logging.abstractions/6.0.0/microsoft.extensions.logging.abstractions.6.0.0.nupkg.sha512",
+    "/Users/vohoanvu/.nuget/packages/microsoft.extensions.logging/8.0.0/microsoft.extensions.logging.8.0.0.nupkg.sha512",
+    "/Users/vohoanvu/.nuget/packages/microsoft.extensions.logging.abstractions/8.0.0/microsoft.extensions.logging.abstractions.8.0.0.nupkg.sha512",
     "/Users/vohoanvu/.nuget/packages/microsoft.extensions.options/8.0.2/microsoft.extensions.options.8.0.2.nupkg.sha512",
     "/Users/vohoanvu/.nuget/packages/microsoft.extensions.primitives/8.0.0/microsoft.extensions.primitives.8.0.0.nupkg.sha512",
     "/Users/vohoanvu/.nuget/packages/microsoft.openapi/1.6.14/microsoft.openapi.1.6.14.nupkg.sha512",
@@ -42,6 +44,7 @@
     "/Users/vohoanvu/.nuget/packages/system.io.pipelines/9.0.6/system.io.pipelines.9.0.6.nupkg.sha512",
     "/Users/vohoanvu/.nuget/packages/system.management/7.0.2/system.management.7.0.2.nupkg.sha512",
     "/Users/vohoanvu/.nuget/packages/system.net.http.json/9.0.6/system.net.http.json.9.0.6.nupkg.sha512",
+    "/Users/vohoanvu/.nuget/packages/system.numerics.tensors/8.0.0/system.numerics.tensors.8.0.0.nupkg.sha512",
     "/Users/vohoanvu/.nuget/packages/system.text.encodings.web/9.0.6/system.text.encodings.web.9.0.6.nupkg.sha512",
     "/Users/vohoanvu/.nuget/packages/system.text.json/9.0.6/system.text.json.9.0.6.nupkg.sha512"
   ],

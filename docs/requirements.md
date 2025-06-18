@@ -27,7 +27,7 @@ The "What would Joe Rogan say?" app enables users to input a topic and receive a
 
 - **YouTube Data API Integration**: Utilize the YouTube Data API to retrieve episode metadata and, if available, transcripts. (already done locally using Python scraper)
 - **Transcript Generation**: Generate transcripts using speech-to-text services (e.g., Google Speech-to-Text, AWS Transcribe) when YouTube does not provide them. (already done locally using Python scraper)
-- **Natural Language Processing (NLP)**: Employ NLP tools to analyze transcripts and accurately detect topic mentions or discussions. (integrate Vector database for Similarity Search integration)
+- **Natural Language Processing (NLP)**: Employ NLP tools to analyze transcripts and accurately detect topic mentions or discussions. (integrate Vextex AI Search database for symantic search)
 - **Video Processing**: Use tools like FFmpeg for extracting and editing video clips.
 - **Database Storage**: Leverage a Vector Database from Google Cloud to store pre-indexed transcripts and metadata from all JRE episodes, enabling efficient similarity searches and retrieval.
 - **Legal Compliance**: Comply with YouTube’s terms of service and copyright laws, potentially restricting usage to fair-use snippets or requiring user consent.

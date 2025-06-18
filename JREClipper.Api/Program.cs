@@ -35,7 +35,7 @@ builder.Services.AddSingleton(provider =>
 builder.Services.AddSingleton<IGoogleCloudStorageService, GoogleCloudStorageService>();
 
 // Register Transcript Processor
-builder.Services.AddScoped<ITranscriptProcessor, BasicTranscriptProcessor>();
+builder.Services.AddScoped<ITranscriptProcessor, IntelligentTranscriptProcessor>();
 
 // Register Embedding Services
 builder.Services.AddSingleton(provider =>

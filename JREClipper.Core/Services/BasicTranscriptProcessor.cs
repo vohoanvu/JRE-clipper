@@ -1,12 +1,9 @@
 // JREClipper.Core/Services/BasicTranscriptProcessor.cs
 using JREClipper.Core.Interfaces;
 using JREClipper.Core.Models;
-using System.Text;
 
 namespace JREClipper.Core.Services
 {
-    //var chunks = ChunkTranscriptWithTimestamps(transcriptData, 30, 15); // 30s windows, 15s overlap
-    //var chunks = ChunkTranscriptWithTimestamps(transcriptData, 30, 30); // 30s windows, no overlap
     public class BasicTranscriptProcessor : ITranscriptProcessor
     {
         public IEnumerable<ProcessedTranscriptSegment> ChunkTranscriptWithTimestamps(RawTranscriptData transcriptData,
@@ -114,42 +111,9 @@ namespace JREClipper.Core.Services
             return TimeSpan.Zero;
         }
 
-        // This signature matches the one in ITranscriptProcessor for non-timestamped text.
-        public IEnumerable<string> ChunkTranscript(RawTranscriptData transcriptData, int chunkSize, int overlap)
+        public Task<IEnumerable<ProcessedTranscriptSegment>> ChunkTranscriptAsync(RawTranscriptData transcriptData, VideoMetadata videoMetadata)
         {
-            if (string.IsNullOrEmpty(transcriptData?.Transcript)) // Changed FullTranscriptText to Transcript
-            {
-                return Enumerable.Empty<string>();
-            }
-
-            var chunks = new List<string>();
-            var currentChunk = new StringBuilder();
-            // Changed FullTranscriptText to Transcript
-            var words = transcriptData.Transcript.Split([' ', '\n', '\r'], StringSplitOptions.RemoveEmptyEntries);
-
-            for (int i = 0; i < words.Length; i++)
-            {
-                currentChunk.Append(words[i]).Append(' ');
-
-                // If we've hit the chunk size, or we're at the last word, finalize this chunk
-                if (currentChunk.Length >= chunkSize || i == words.Length - 1)
-                {
-                    chunks.Add(currentChunk.ToString().Trim());
-                    currentChunk.Clear();
-
-                    // If there's an overlap, re-add the last 'overlap' words to the new chunk
-                    if (overlap > 0 && i < words.Length - 1)
-                    {
-                        int overlapStart = Math.Max(0, i - overlap + 1);
-                        for (int j = overlapStart; j <= i; j++)
-                        {
-                            currentChunk.Append(words[j]).Append(' ');
-                        }
-                    }
-                }
-            }
-
-            return chunks;
+            throw new NotImplementedException("Async chunking not implemented in BasicTranscriptProcessor. Use IntelligentTranscriptProcessor for async operations.");
         }
     }
 }

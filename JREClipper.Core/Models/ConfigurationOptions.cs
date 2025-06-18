@@ -13,9 +13,12 @@ namespace JREClipper.Core.Models
 
     public class ChunkSettings
     {
-        public int MaxChunkDurationSeconds { get; set; }
-        public int MinChunkDurationSeconds { get; set; }
-        public int OverlapDurationSeconds { get; set; }
+        public int MaxChunkDurationSeconds { get; set; } = 180;
+        public int MinChunkDurationSeconds { get; set; } = 45;
+        public int OverlapDurationSeconds { get; set; } = 15;
+
+        public double SimilarityThreshold { get; set; } = 0.82;
+        public int OverlapSentences { get; set; }  = 2;
     }
 
     public class ClipSettings

@@ -7,6 +7,6 @@ namespace JREClipper.Core.Interfaces
     {
         // Processes raw transcript data with timestamps into structured, timed segments.
         IEnumerable<ProcessedTranscriptSegment> ChunkTranscriptWithTimestamps(RawTranscriptData transcriptData, int? segmentDurationSeconds, int? slideSeconds);
-        IEnumerable<string> ChunkTranscript(RawTranscriptData transcriptData, int chunkSize, int overlap);
+        Task<IEnumerable<ProcessedTranscriptSegment>> ChunkTranscriptAsync(RawTranscriptData transcriptData, VideoMetadata videoMetadata);
     }
 }
