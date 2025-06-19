@@ -36,7 +36,7 @@ namespace JREClipper.Core.Services
         // This is the new primary method. It takes pre-computed embeddings as input.
         public IEnumerable<ProcessedTranscriptSegment> ChunkTranscriptFromPrecomputedEmbeddings(
             RawTranscriptData transcriptData,
-            VideoMetadata videoMetadata,
+            VideoMetadata? videoMetadata,
             IReadOnlyDictionary<string, float[]> precomputedEmbeddings)
         {
             if (transcriptData?.TranscriptWithTimestamps == null || transcriptData.TranscriptWithTimestamps.Count == 0)
@@ -66,7 +66,7 @@ namespace JREClipper.Core.Services
         }
 
         public async Task<IEnumerable<ProcessedTranscriptSegment>> ChunkTranscriptAsync(
-            RawTranscriptData transcriptData, VideoMetadata videoMetadata)
+            RawTranscriptData transcriptData, VideoMetadata? videoMetadata)
         {
             throw new NotSupportedException("This method is deprecated. Use ChunkTranscriptFromPrecomputedEmbeddings after running a batch embedding job.");
         }
@@ -117,7 +117,7 @@ namespace JREClipper.Core.Services
             return utterances;
         }
 
-        private List<ProcessedTranscriptSegment> CreateSemanticChunks(List<TimedUtterance> utterances, string videoId, VideoMetadata videoMetadata)
+        private List<ProcessedTranscriptSegment> CreateSemanticChunks(List<TimedUtterance> utterances, string videoId, VideoMetadata? videoMetadata)
         {
             var segments = new List<ProcessedTranscriptSegment>();
             if (utterances.Count == 0) return segments;
@@ -166,7 +166,7 @@ namespace JREClipper.Core.Services
             return segments;
         }
 
-        private ProcessedTranscriptSegment FinalizeSegment(List<TimedUtterance> utterances, string videoId, VideoMetadata videoMetadata)
+        private ProcessedTranscriptSegment FinalizeSegment(List<TimedUtterance> utterances, string videoId, VideoMetadata? videoMetadata)
         {
             var segmentText = string.Join(" ", utterances.Select(u => u.Text));
             var startTime = utterances.First().StartTime;
@@ -179,9 +179,8 @@ namespace JREClipper.Core.Services
                 Text = segmentText,
                 StartTime = startTime,
                 EndTime = endTime,
-                // Add enriched metadata for better retrieval context
-                VideoTitle = videoMetadata.Title,
-                ChannelName = videoMetadata.ChannelName
+                VideoTitle = videoMetadata?.Title ?? "Unknown Title",
+                ChannelName = videoMetadata?.ChannelName ?? "The Joe Rogan Experience",
             };
         }
 

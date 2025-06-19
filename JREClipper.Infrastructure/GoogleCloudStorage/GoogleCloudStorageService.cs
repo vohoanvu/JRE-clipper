@@ -19,6 +19,44 @@ namespace JREClipper.Infrastructure.GoogleCloudStorage
             _storageClient = storageClient;
         }
 
+        public async Task<VideoMetadata?> GetVideoMetadataAsync(string bucketName, string playlistCsvObject, string videoId)
+        {
+            try
+            {
+                using var memoryStream = new MemoryStream();
+                await _storageClient.DownloadObjectAsync(bucketName, playlistCsvObject, memoryStream);
+                memoryStream.Position = 0; // Reset for reading
+
+                using var reader = new StreamReader(memoryStream, Encoding.UTF8);
+                using var csv = new CsvReader(reader, CultureInfo.InvariantCulture);
+
+                await csv.ReadAsync();
+                csv.ReadHeader();
+
+                while (await csv.ReadAsync())
+                {
+                    var record = csv.GetRecord<JrePlaylistCsvRow>();
+                    if (record != null && record.videoId == videoId)
+                    {
+                        return new VideoMetadata
+                        {
+                            VideoId = record.videoId,
+                            Title = record.title ?? string.Empty,
+                            ChannelName = "The Joe Rogan Experience"
+                        };
+                    }
+                }
+
+                // If the loop completes, the videoId was not found.
+                return null;
+            }
+            catch (Google.GoogleApiException ex) when (ex.Error?.Code == 404)
+            {
+                // It's good practice to know if the file itself is missing.
+                throw new FileNotFoundException($"Playlist CSV file '{playlistCsvObject}' not found in bucket '{bucketName}'.", ex);
+            }
+        }
+
         public async Task<List<string>> ListAllTranscriptFiles(string bucketName, string prefix)
         {
             var videoFiles = new List<string>();
@@ -166,32 +204,35 @@ namespace JREClipper.Infrastructure.GoogleCloudStorage
 
         public async Task<string> UploadAllUtterancesToGcsAsync(string outputUtteranceFileUri, List<UtteranceForEmbedding> allUtterancesForEmbedding)
         {
-            if (string.IsNullOrEmpty(outputUtteranceFileUri))
-                throw new ArgumentNullException(nameof(outputUtteranceFileUri));
-            if (allUtterancesForEmbedding == null)
-                throw new ArgumentNullException(nameof(allUtterancesForEmbedding));
-
-            // Parse GCS URI
             if (!outputUtteranceFileUri.StartsWith("gs://"))
                 throw new ArgumentException("Output URI must start with gs://", nameof(outputUtteranceFileUri));
+
             var uriParts = outputUtteranceFileUri.Substring(5).Split('/', 2);
             if (uriParts.Length != 2)
                 throw new ArgumentException("Invalid GCS URI format.", nameof(outputUtteranceFileUri));
+
             var bucketName = uriParts[0];
             var objectName = uriParts[1];
 
             using var memoryStream = new MemoryStream();
+            // Using a StreamWriter is efficient for writing line by line.
             using (var writer = new StreamWriter(memoryStream, new UTF8Encoding(false), bufferSize: 1024, leaveOpen: true))
             {
                 foreach (var utterance in allUtterancesForEmbedding)
                 {
-                    var jsonLine = JsonConvert.SerializeObject(utterance);
+                    var utteranceRecord = new
+                    {
+                        id = utterance.Id,
+                        content = utterance.Text,
+                    };
+                    var jsonLine = JsonConvert.SerializeObject(utteranceRecord);
                     await writer.WriteLineAsync(jsonLine);
                 }
                 await writer.FlushAsync();
             }
 
             memoryStream.Position = 0;
+
             await _storageClient.UploadObjectAsync(bucketName, objectName, "application/x-ndjson", memoryStream);
 
             return $"gs://{bucketName}/{objectName}";
@@ -210,12 +251,12 @@ namespace JREClipper.Infrastructure.GoogleCloudStorage
             var objectName = uriParts[1];
 
             var result = new Dictionary<string, float[]>();
-            
+
             using var memoryStream = new MemoryStream();
             await _storageClient.DownloadObjectAsync(bucketName, objectName, memoryStream);
             memoryStream.Position = 0;
             using var reader = new StreamReader(memoryStream, Encoding.UTF8);
-            
+
             string? line;
             while ((line = await reader.ReadLineAsync()) != null)
             {

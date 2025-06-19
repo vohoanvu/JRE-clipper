@@ -1,0 +1,22 @@
+{
+    "name": "jre-utterance-embedding-job-rest",
+    "displayName": "jre-utterance-embedding-job-rest",
+    "model": "publishers/google/models/text-embedding-005",
+    "inputConfig": {
+        "instancesFormat": "jsonl",
+        "gcsSource": {
+            "uris": [
+                "gs://jre-processed-clips-bucker/utterances-for-embedding/*.jsonl"
+            ]
+        }
+    },
+    "outputConfig": {
+        "predictionsFormat": "jsonl",
+        "gcsDestination": {
+            "outputUriPrefix": "gs://jre-processed-clips-bucker/utterance-embedding-results/"
+        }
+    },
+    "modelParameters": {
+        "task_type": "RETRIEVAL_DOCUMENT"
+    }
+}

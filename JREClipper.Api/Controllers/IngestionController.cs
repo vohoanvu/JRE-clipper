@@ -305,6 +305,20 @@ namespace JREClipper.Api.Controllers
                             var transcriptDataList = JsonConvert.DeserializeObject<List<RawTranscriptData>>(jsonContent);
                             var rawTranscript = transcriptDataList?.FirstOrDefault();
 
+                            // Ensure VideoId is populated if not directly in the JSON root
+                            if (string.IsNullOrEmpty(rawTranscript?.VideoId))
+                            {
+                                var fileName = Path.GetFileNameWithoutExtension(filePath);
+                                if (fileName.StartsWith("transcript-"))
+                                {
+                                    rawTranscript!.VideoId = fileName.Substring("transcript-".Length);
+                                }
+                                else
+                                {
+                                    rawTranscript!.VideoId = fileName;
+                                }
+                            }
+
                             if (rawTranscript != null && rawTranscript.TranscriptWithTimestamps.Count != 0 && !string.IsNullOrWhiteSpace(rawTranscript.Transcript))
                             {
                                 var utterances = _utteranceExtractorService.ExtractUtterances(rawTranscript);
@@ -327,7 +341,7 @@ namespace JREClipper.Api.Controllers
 
                     if (utterancesForBatch.Any())
                     {
-                        var outputUriPrefix = "gs://jre-processed-clip-bucker/utterances-for-embedding/";
+                        var outputUriPrefix = "gs://jre-processed-clips-bucker/utterances-for-embedding/";
                         if (!outputUriPrefix.EndsWith("/"))
                         {
                             outputUriPrefix += "/";
@@ -403,19 +417,59 @@ namespace JREClipper.Api.Controllers
                         _logger.LogInformation($"Skipping empty or missing transcript: {transcriptFile}");
                         continue;
                     }
-                    var videoMetadata = new VideoMetadata
+
+                    var videoId = raw.VideoId;
+                    if (string.IsNullOrEmpty(videoId))
                     {
-                    };
+                        var fileName = Path.GetFileNameWithoutExtension(transcriptFile);
+                        if (fileName.StartsWith("transcript-"))
+                        {
+                            videoId = fileName.Substring("transcript-".Length);
+                        }
+                        else
+                        {
+                            videoId = fileName;
+                        }
+                    }
+
+                    var videoMetadata = await _gcsService.GetVideoMetadataAsync("jre-content", "jre-playlist_cleaned.csv", videoId);
+                    if (videoMetadata == null)
+                    {
+                        _logger.LogWarning($"No metadata found for video ID: {videoId}. Skipping semantic chunking for this transcript.");
+                        continue;
+                    }
+
+                    _logger.LogInformation($"Chunking transcript for video ID: {videoMetadata.VideoId} from {transcriptFile}");
                     var segments = _transcriptProcessor.ChunkTranscriptFromPrecomputedEmbeddings(raw, videoMetadata, embeddingResults);
                     allFinalSegments.AddRange(segments);
-                    //TODO: Continue to process segments
+
+                    if (allFinalSegments.Count == 0)
+                    {
+                        return Ok("No segments generated from any transcripts.");
+                    }
+
+                    // Split allSegments into batches of 30,000
+                    const int maxBatchSize = 30000;
+                    int totalBatches = (int)Math.Ceiling(allFinalSegments.Count / (double)maxBatchSize);
+                    var uploadedBatchUris = new List<string>();
+
+                    for (int i = 0; i < totalBatches; i++)
+                    {
+                        var batch = allFinalSegments.Skip(i * maxBatchSize).Take(maxBatchSize).ToList();
+                        string batchObjectName = $"final-semantic-chunks/jre-segments-batch-{i + 1}.ndjson";
+                        string batchUri = await _gcsService.UploadSegmentedTranscriptNDJSONAsync("jre-processed-clips-bucker", batchObjectName, batch);
+                        uploadedBatchUris.Add(batchUri);
+                        _logger.LogInformation($"Uploaded batch {i + 1}/{totalBatches} to: {batchUri} ({batch.Count} segments)");
+                    }
+
+                    return Accepted(new { Message = $"Uploaded {uploadedBatchUris.Count} NDJSON batch files (max 30,000 segments each) to {_gcsOptions.SegmentedTranscriptDataUri}.", BatchFiles = uploadedBatchUris });
                 }
                 
                 return Ok(new { Message = "Semantic chunking completed successfully", SegmentsCount = allFinalSegments.Count });
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error during semantic chunking: {ex.Message}");
+                _logger.LogInformation($"Error during semantic chunking: {ex.Message}");
                 return StatusCode(StatusCodes.Status500InternalServerError, $"An error occurred during semantic chunking: {ex.Message}");
             }
         }

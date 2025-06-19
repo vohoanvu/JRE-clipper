@@ -1,5 +1,4 @@
 // In a new file: UtteranceExtractorService.cs
-using System.Numerics.Tensors;
 using System.Text;
 using System.Text.Json.Serialization;
 using JREClipper.Core.Models;
@@ -13,7 +12,7 @@ namespace JREClipper.Core.Services
         [JsonPropertyName("id")]
         public string Id { get; set; } = string.Empty;
 
-        [JsonPropertyName("text")]
+        [JsonPropertyName("content")]
         public string Text { get; set; } = string.Empty;
     }
 
@@ -21,6 +20,8 @@ namespace JREClipper.Core.Services
     {
         // Note: No IEmbeddingService dependency!
         private readonly ILogger<UtteranceExtractorService> _logger;
+        private const int MaxUtteranceLengthChars = 2000; // Safeguard for run-on sentences
+        private const int MinUtteranceLengthChars = 10;   // Avoid tiny utterances like "Ok."
 
         public UtteranceExtractorService(ILogger<UtteranceExtractorService> logger)
         {
@@ -39,7 +40,7 @@ namespace JREClipper.Core.Services
             {
                 utterancesForEmbedding.Add(new UtteranceForEmbedding
                 {
-                    Id = $"{transcriptData.VideoId}_{i}", // Create a unique ID
+                    Id = $"{transcriptData.VideoId}_{i}",
                     Text = timedUtterances[i].Text
                 });
             }
@@ -49,48 +50,63 @@ namespace JREClipper.Core.Services
         private List<TimedUtterance> GroupIntoUtterances(List<TimestampedText> entries)
         {
             var utterances = new List<TimedUtterance>();
-            if (!entries.Any()) return utterances;
+            if (entries == null || !entries.Any()) return utterances;
 
             var orderedEntries = entries
                 .Select(e => new { Entry = e, Timestamp = ParseTimestamp(e.Timestamp) })
+                .Where(e => e.Timestamp != TimeSpan.Zero) // Filter out invalid entries
                 .OrderBy(e => e.Timestamp)
                 .ToList();
+
+            if (!orderedEntries.Any()) return utterances;
 
             var currentUtteranceBuilder = new StringBuilder();
             var utteranceStartTime = orderedEntries.First().Timestamp;
 
-            foreach (var entry in orderedEntries)
+            for (int i = 0; i < orderedEntries.Count; i++)
             {
-                currentUtteranceBuilder.Append(entry.Entry.Text).Append(' ');
-                char lastChar = entry.Entry.Text.Trim().LastOrDefault();
+                var currentEntry = orderedEntries[i];
+                currentUtteranceBuilder.Append(currentEntry.Entry.Text).Append(' ');
 
-                // Split on sentence-ending punctuation
-                if (lastChar == '.' || lastChar == '?' || lastChar == '!')
+                string trimmedText = currentEntry.Entry.Text.Trim();
+                char lastChar = trimmedText.LastOrDefault();
+
+                bool isPunctuation = lastChar == '.' || lastChar == '?' || lastChar == '!';
+                bool isEndOfTranscript = i == orderedEntries.Count - 1;
+                bool isOverLength = currentUtteranceBuilder.Length > MaxUtteranceLengthChars;
+
+                // Condition to split: It's a punctuation mark AND the utterance is a reasonable length.
+                // OR we've hit the max length safeguard, OR it's the very end of the transcript.
+                if ((isPunctuation && currentUtteranceBuilder.Length >= MinUtteranceLengthChars) || isOverLength || isEndOfTranscript)
                 {
+                    // Check for abbreviations (like "U.S.A.") to avoid splitting them.
+                    // If the char before the period is a capital letter, it's likely an acronym.
+                    if (lastChar == '.' && trimmedText.Length > 1 && char.IsUpper(trimmedText[^2]))
+                    {
+                        // This is likely an acronym, so we don't split here. Continue the loop.
+                        continue;
+                    }
+
                     utterances.Add(new TimedUtterance
                     {
                         Text = currentUtteranceBuilder.ToString().Trim(),
                         StartTime = utteranceStartTime,
-                        EndTime = entry.Timestamp
+                        EndTime = currentEntry.Timestamp
                     });
-                    currentUtteranceBuilder.Clear();
-                    utteranceStartTime = entry.Timestamp;
-                }
-            }
 
-            // Add any remaining text as the last utterance
-            if (currentUtteranceBuilder.Length > 0)
-            {
-                utterances.Add(new TimedUtterance
-                {
-                    Text = currentUtteranceBuilder.ToString().Trim(),
-                    StartTime = utteranceStartTime,
-                    EndTime = orderedEntries.Last().Timestamp
-                });
+                    currentUtteranceBuilder.Clear();
+
+                    // **RECOMMENDATION 2 FIX:** Set the start time for the *next* utterance
+                    if (!isEndOfTranscript)
+                    {
+                        utteranceStartTime = orderedEntries[i + 1].Timestamp;
+                    }
+                }
             }
 
             return utterances;
         }
+
 
         private static TimeSpan ParseTimestamp(string timestamp)
         {
