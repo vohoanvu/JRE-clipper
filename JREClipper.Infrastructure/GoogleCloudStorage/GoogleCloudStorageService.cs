@@ -362,23 +362,50 @@ namespace JREClipper.Infrastructure.GoogleCloudStorage
             }
         }
 
-        private static (string BucketName, string ObjectName) ParseGcsUri(string gcsUri)
+
+        public async Task<IReadOnlyDictionary<string, float[]>> GetEmbeddingsForSingleVideoAsync(
+        string indexedEmbeddingDirectory, string videoId)
         {
-            if (string.IsNullOrWhiteSpace(gcsUri) || !gcsUri.StartsWith("gs://"))
+            var result = new Dictionary<string, float[]>();
+            var filePath = Path.Combine(Path.GetFullPath(indexedEmbeddingDirectory), $"{videoId}.jsonl");
+
+            if (!File.Exists(filePath))
             {
-                throw new ArgumentException("Invalid GCS URI format. Must start with 'gs://'.", nameof(gcsUri));
+                _logger.LogWarning("Indexed embedding file not found for Video ID {VideoId} at path {FilePath}", videoId, filePath);
+                return result;
             }
 
-            var uri = new Uri(gcsUri);
-            var bucketName = uri.Host;
-            var objectName = uri.AbsolutePath.TrimStart('/');
-
-            if (string.IsNullOrEmpty(bucketName))
+            using var stream = File.OpenRead(filePath);
+            using var reader = new StreamReader(stream);
+            string? line;
+            while ((line = await reader.ReadLineAsync()) != null)
             {
-                throw new ArgumentException("Bucket name cannot be extracted from GCS URI.", nameof(gcsUri));
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                try
+                {
+                    var embeddingResult = JsonConvert.DeserializeObject<EmbeddingPredictionResult>(line);
+                    if (embeddingResult?.Instance?.Id != null && embeddingResult.Predictions?.FirstOrDefault()?.Embeddings?.Values != null)
+                    {
+                        result[embeddingResult.Instance.Id] = embeddingResult.Predictions[0].Embeddings.Values;
+                    }
+                }
+                catch (JsonException ex)
+                {
+                    _logger.LogError(ex, "Failed to deserialize line in indexed file {FilePath}: {Line}", filePath, line);
+                }
             }
-            // ObjectName can be empty if URI points to bucket root, or a prefix if it ends with /
-            return (bucketName, objectName);
+            return result;
+        }
+
+        public async Task UploadStreamToGcsAsync(string buckerName, string trancriptSegmentResulsObject, MemoryStream dataStream)
+        {
+            if (dataStream == null || dataStream.Length == 0)
+            {
+                throw new ArgumentException("Data stream cannot be null or empty.", nameof(dataStream));
+            }
+
+            await _storageClient.UploadObjectAsync(buckerName, trancriptSegmentResulsObject, "application/x-ndjson", dataStream);
+            _logger.LogInformation("Successfully uploaded stream to GCS bucket '{BucketName}' with object name '{ObjectName}'.", buckerName, trancriptSegmentResulsObject);
         }
     }
 
