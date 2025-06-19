@@ -72,6 +72,4 @@ jre-playlist_cleaned.csv
 jre-playlist_cleaned.json
 jre-playlist_cleaned.ndjson
 jre-playlist_for_discovery_engine.ndjson
-utterence-embedding-results/utterance-embedding-results_prediction-model-2025-06-18T23_38_30.594771Z_000000000000.jsonl
-utterence-embedding-results/utterance-embedding-results_prediction-model-2025-06-18T23_38_30.594771Z_000000000001.jsonl
-utterence-embedding-results/utterance-embedding-results_prediction-model-2025-06-18T23_38_30.594771Z_000000000002.jsonl
+utterence-embedding-results

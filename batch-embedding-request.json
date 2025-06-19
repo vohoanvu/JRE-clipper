@@ -6,7 +6,7 @@
         "instancesFormat": "jsonl",
         "gcsSource": {
             "uris": [
-                "gs://jre-processed-clips-bucker/utterances-for-embedding/*.jsonl"
+                "gs://jre-processed-clips-bucker/utterances-for-embedding/utterances_batch_3.jsonl"
             ]
         }
     },

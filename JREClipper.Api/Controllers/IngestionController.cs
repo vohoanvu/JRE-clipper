@@ -264,15 +264,17 @@ namespace JREClipper.Api.Controllers
         /// </summary>
         /// <param name="localPath">The local directory path containing the transcript files (e.g., 'transcripts').</param>
         /// <param name="batchSize">The number of transcript files to process in each batch.</param>
-        public async Task<IActionResult> GetUtterancesFromTranscript([FromQuery] string localPath = "../transcriptions", [FromQuery] int batchSize = 250)
+        public async Task<IActionResult> GetUtterancesFromTranscript(
+            [FromQuery] string localPath = "../transcriptions",
+            [FromQuery] int maxInstancesPerBatch = 990000) // Changed parameter name for clarity
         {
             if (string.IsNullOrEmpty(localPath))
             {
                 return BadRequest("Local path must be provided.");
             }
-            if (batchSize <= 0)
+            if (maxInstancesPerBatch <= 0)
             {
-                return BadRequest("Batch size must be a positive integer.");
+                return BadRequest("Max instances per batch must be a positive integer.");
             }
 
             try
@@ -289,96 +291,87 @@ namespace JREClipper.Api.Controllers
                     return NotFound($"No transcript files matching 'transcript-*.json' found in {fullPath}.");
                 }
 
-                var outputUris = new List<string>();
-                int totalBatches = (int)Math.Ceiling((double)transcriptFiles.Count / batchSize);
-                _logger.LogInformation($"Total transcripts found: {transcriptFiles.Count}. Processing in {totalBatches} batches of up to {batchSize} files each.");
+                // --- PASS 1: EXTRACT ALL UTTERANCES INTO A SINGLE LIST ---
+                _logger.LogInformation("Starting Pass 1: Extracting all utterances from {FileCount} transcript files...", transcriptFiles.Count);
+                var allUtterances = new List<UtteranceForEmbedding>();
 
-                for (int i = 0; i < totalBatches; i++)
+                foreach (var filePath in transcriptFiles)
                 {
-                    var fileBatch = transcriptFiles.Skip(i * batchSize).Take(batchSize).ToList();
-                    var utterancesForBatch = new List<UtteranceForEmbedding>();
-                    _logger.LogInformation($"Processing batch {i + 1}/{totalBatches} with {fileBatch.Count} files.");
-
-                    foreach (var filePath in fileBatch)
+                    try
                     {
-                        try
-                        {
-                            var jsonContent = await System.IO.File.ReadAllTextAsync(filePath);
-                            var transcriptDataList = JsonConvert.DeserializeObject<List<RawTranscriptData>>(jsonContent);
-                            var rawTranscript = transcriptDataList?.FirstOrDefault();
+                        var jsonContent = await System.IO.File.ReadAllTextAsync(filePath);
+                        var rawTranscript = JsonConvert.DeserializeObject<List<RawTranscriptData>>(jsonContent)?.FirstOrDefault();
 
-                            // Ensure VideoId is populated if not directly in the JSON root
-                            if (string.IsNullOrEmpty(rawTranscript?.VideoId))
-                            {
-                                var fileName = Path.GetFileNameWithoutExtension(filePath);
-                                if (fileName.StartsWith("transcript-"))
-                                {
-                                    rawTranscript!.VideoId = fileName.Substring("transcript-".Length);
-                                }
-                                else
-                                {
-                                    rawTranscript!.VideoId = fileName;
-                                }
-                            }
+                        if (rawTranscript == null || rawTranscript.TranscriptWithTimestamps.Count == 0)
+                        {
+                            _logger.LogWarning("Skipping empty or invalid transcript: {FilePath}", filePath);
+                            continue;
+                        }
 
-                            if (rawTranscript != null && rawTranscript.TranscriptWithTimestamps.Count != 0 && !string.IsNullOrWhiteSpace(rawTranscript.Transcript))
-                            {
-                                var utterances = _utteranceExtractorService.ExtractUtterances(rawTranscript);
-                                utterancesForBatch.AddRange(utterances);
-                            }
-                            else
-                            {
-                                _logger.LogWarning($"Skipping empty or invalid transcript: {filePath}");
-                            }
-                        }
-                        catch (JsonException jsonEx)
+                        // Populate VideoId if missing
+                        if (string.IsNullOrEmpty(rawTranscript.VideoId))
                         {
-                            _logger.LogError(jsonEx, $"Error deserializing JSON from file {filePath} in batch {i + 1}.");
+                            var fileName = Path.GetFileNameWithoutExtension(filePath);
+                            rawTranscript.VideoId = fileName.StartsWith("transcript-") ? fileName.Substring("transcript-".Length) : fileName;
                         }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, $"Error processing transcript file {filePath} in batch {i + 1}.");
-                        }
+
+                        var utterances = _utteranceExtractorService.ExtractUtterances(rawTranscript);
+                        allUtterances.AddRange(utterances);
                     }
-
-                    if (utterancesForBatch.Any())
+                    catch (Exception ex)
                     {
-                        var outputUriPrefix = "gs://jre-processed-clips-bucker/utterances-for-embedding/";
-                        if (!outputUriPrefix.EndsWith("/"))
-                        {
-                            outputUriPrefix += "/";
-                        }
-
-                        var outputFileName = $"utterances_for_embedding_batch_{i + 1}.jsonl";
-                        var batchOutputUri = $"{outputUriPrefix}{outputFileName}";
-
-                        _logger.LogInformation($"Uploading {utterancesForBatch.Count} utterances for batch {i + 1} to {batchOutputUri}");
-
-                        var uploadedUri = await _gcsService.UploadAllUtterancesToGcsAsync(batchOutputUri, utterancesForBatch);
-                        outputUris.Add(uploadedUri);
-                    }
-                    else
-                    {
-                        _logger.LogWarning($"No utterances were extracted for batch {i + 1}, no file will be created.");
+                        _logger.LogError(ex, "Error processing transcript file {FilePath}. It will be skipped.", filePath);
                     }
                 }
 
-                if (outputUris.Count == 0)
+                if (allUtterances.Count == 0)
                 {
                     return NotFound("No utterances were extracted from any of the provided transcripts.");
+                }
+                _logger.LogInformation("Pass 1 Complete: Extracted a total of {TotalUtteranceCount} utterances.", allUtterances.Count);
+
+
+                // --- PASS 2: SHARD AND UPLOAD THE AGGREGATED LIST ---
+                int totalBatches = (int)Math.Ceiling((double)allUtterances.Count / maxInstancesPerBatch);
+                var uploadedBatchUris = new List<string>();
+                _logger.LogInformation("Starting Pass 2: Sharding {TotalUtteranceCount} utterances into {BatchCount} batches of up to {BatchSize} each.", allUtterances.Count, totalBatches, maxInstancesPerBatch);
+
+                for (int i = 0; i < totalBatches; i++)
+                {
+                    var batchNumber = i + 1;
+                    var batchUtterances = allUtterances
+                        .Skip(i * maxInstancesPerBatch)
+                        .Take(maxInstancesPerBatch)
+                        .ToList();
+
+                    if (!batchUtterances.Any())
+                    {
+                        _logger.LogWarning("Batch {BatchNum} is empty, skipping upload.", batchNumber);
+                        continue;
+                    }
+
+                    // Define a unique GCS path for each batch's input file
+                    var outputFileName = $"utterances_batch_{batchNumber}.jsonl";
+                    var batchOutputUri = $"gs://jre-processed-clips-bucker/utterances-for-embedding/{outputFileName}";
+
+                    _logger.LogInformation("Uploading {UtteranceCount} utterances for batch {BatchNum} to {Uri}", batchUtterances.Count, batchNumber, batchOutputUri);
+
+                    var uploadedUri = await _gcsService.UploadAllUtterancesToGcsAsync(batchOutputUri, batchUtterances);
+                    uploadedBatchUris.Add(uploadedUri);
                 }
 
                 return Ok(new
                 {
-                    Message = $"Successfully extracted utterances and created {outputUris.Count} batch files.",
+                    Message = $"Successfully sharded {allUtterances.Count} utterances into {uploadedBatchUris.Count} batch files.",
                     TotalTranscriptsProcessed = transcriptFiles.Count,
-                    TotalBatches = totalBatches,
-                    OutputFileUris = outputUris
+                    TotalUtterancesExtracted = allUtterances.Count,
+                    TotalBatchesCreated = uploadedBatchUris.Count,
+                    OutputFileUris = uploadedBatchUris
                 });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "An unexpected error occurred while extracting utterances from local files.");
+                _logger.LogError(ex, "An unexpected error occurred during the utterance preparation process.");
                 return StatusCode(StatusCodes.Status500InternalServerError, $"An error occurred: {ex.Message}");
             }
         }
