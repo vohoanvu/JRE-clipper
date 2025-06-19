@@ -10,8 +10,6 @@ namespace JREClipper.Core.Interfaces
         Task<IEnumerable<ProcessedTranscriptSegment>> ChunkTranscriptAsync(RawTranscriptData transcriptData, VideoMetadata videoMetadata);
 
         IEnumerable<ProcessedTranscriptSegment> ChunkTranscriptFromPrecomputedEmbeddings(
-            RawTranscriptData transcriptData,
-            VideoMetadata videoMetadata,
-            IReadOnlyDictionary<string, float[]> precomputedEmbeddings);
+            RawTranscriptData transcriptData, IReadOnlyDictionary<string, float[]> precomputedEmbeddings);
     }
 }

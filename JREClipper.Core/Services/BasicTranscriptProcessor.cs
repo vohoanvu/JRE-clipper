@@ -117,9 +117,7 @@ namespace JREClipper.Core.Services
         }
 
         public IEnumerable<ProcessedTranscriptSegment> ChunkTranscriptFromPrecomputedEmbeddings(
-            RawTranscriptData transcriptData,
-            VideoMetadata videoMetadata,
-            IReadOnlyDictionary<string, float[]> precomputedEmbeddings)
+            RawTranscriptData transcriptData, IReadOnlyDictionary<string, float[]> precomputedEmbeddings)
         {
             throw new NotImplementedException("Chunking from precomputed embeddings not implemented in BasicTranscriptProcessor. Use IntelligentTranscriptProcessor for this functionality.");
         }

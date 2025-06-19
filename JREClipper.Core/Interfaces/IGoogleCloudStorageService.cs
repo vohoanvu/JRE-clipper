@@ -35,8 +35,9 @@ namespace JREClipper.Core.Interfaces
 
         Task<string> UploadAllUtterancesToGcsAsync(string outputUtteranceFileUri, List<UtteranceForEmbedding> allUtterancesForEmbedding);
 
-        Task<IReadOnlyDictionary<string, float[]>> DownloadUtteranceEmbeddingJsonFileAsync(string gcsUri);
-
         Task<VideoMetadata?> GetVideoMetadataAsync(string bucketName, string playlistCsvObject, string videoId);
+
+        Task<IReadOnlyDictionary<string, float[]>> DownloadLocalEmbeddingResultsAsync(string localDirectoryPath);
+        Task<IReadOnlyDictionary<string, VideoMetadata>> LoadAllVideoMetadataAsync(string localCsvPath);
     }
 }

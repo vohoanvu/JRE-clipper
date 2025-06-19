@@ -35,9 +35,7 @@ namespace JREClipper.Core.Services
 
         // This is the new primary method. It takes pre-computed embeddings as input.
         public IEnumerable<ProcessedTranscriptSegment> ChunkTranscriptFromPrecomputedEmbeddings(
-            RawTranscriptData transcriptData,
-            VideoMetadata? videoMetadata,
-            IReadOnlyDictionary<string, float[]> precomputedEmbeddings)
+            RawTranscriptData transcriptData, IReadOnlyDictionary<string, float[]> precomputedEmbeddings)
         {
             if (transcriptData?.TranscriptWithTimestamps == null || transcriptData.TranscriptWithTimestamps.Count == 0)
             {
@@ -62,7 +60,7 @@ namespace JREClipper.Core.Services
             }
 
             // The rest of the logic is the same!
-            return CreateSemanticChunks(timedUtterances, transcriptData.VideoId, videoMetadata);
+            return CreateSemanticChunks(timedUtterances, transcriptData.VideoId, transcriptData);
         }
 
         public async Task<IEnumerable<ProcessedTranscriptSegment>> ChunkTranscriptAsync(
@@ -117,7 +115,7 @@ namespace JREClipper.Core.Services
             return utterances;
         }
 
-        private List<ProcessedTranscriptSegment> CreateSemanticChunks(List<TimedUtterance> utterances, string videoId, VideoMetadata? videoMetadata)
+        private List<ProcessedTranscriptSegment> CreateSemanticChunks(List<TimedUtterance> utterances, string videoId, RawTranscriptData rawTranscriptData)
         {
             var segments = new List<ProcessedTranscriptSegment>();
             if (utterances.Count == 0) return segments;
@@ -148,7 +146,7 @@ namespace JREClipper.Core.Services
 
                 if ((isSemanticBreak && currentChunkDuration.TotalSeconds >= _appSettings.ChunkSettings!.MinChunkDurationSeconds) || isMaxDuration || isLastUtterance)
                 {
-                    var segment = FinalizeSegment(currentChunkSentences, videoId, videoMetadata);
+                    var segment = FinalizeSegment(currentChunkSentences, videoId, rawTranscriptData);
                     segments.Add(segment);
 
                     // Start the next chunk with an overlap of the last few sentences
@@ -166,7 +164,7 @@ namespace JREClipper.Core.Services
             return segments;
         }
 
-        private ProcessedTranscriptSegment FinalizeSegment(List<TimedUtterance> utterances, string videoId, VideoMetadata? videoMetadata)
+        private ProcessedTranscriptSegment FinalizeSegment(List<TimedUtterance> utterances, string videoId, RawTranscriptData rawTranscriptData)
         {
             var segmentText = string.Join(" ", utterances.Select(u => u.Text));
             var startTime = utterances.First().StartTime;
@@ -179,8 +177,8 @@ namespace JREClipper.Core.Services
                 Text = segmentText,
                 StartTime = startTime,
                 EndTime = endTime,
-                VideoTitle = videoMetadata?.Title ?? "Unknown Title",
-                ChannelName = videoMetadata?.ChannelName ?? "The Joe Rogan Experience",
+                VideoTitle = rawTranscriptData.VideoTitle,
+                ChannelName = rawTranscriptData.ChannelName,
             };
         }
 
@@ -212,14 +210,49 @@ namespace JREClipper.Core.Services
         }
 
         // Using TryParseExact for more robust and cleaner timestamp parsing
-        private static TimeSpan ParseTimestamp(string timestamp)
+        private TimeSpan ParseTimestamp(string timestamp)
         {
-            // Define expected formats from most to least specific
-            string[] formats = ["h\\:mm\\:ss", "mm\\:ss", "m\\:ss", "ss"];
-            if (TimeSpan.TryParseExact(timestamp.Trim(), formats, null, out var timeSpan))
+            if (string.IsNullOrEmpty(timestamp))
             {
-                return timeSpan;
+                _logger.LogInformation($"Warning: Null or empty timestamp provided. Defaulting to TimeSpan.Zero.");
+                return TimeSpan.Zero;
             }
+
+            string trimmedTimestamp = timestamp.Trim();
+
+            // Split by ':'
+            var parts = trimmedTimestamp.Split(':');
+            try
+            {
+                if (parts.Length == 3)
+                {
+                    // h:mm:ss or hh:mm:ss
+                    int hours = int.Parse(parts[0]);
+                    int minutes = int.Parse(parts[1]);
+                    int seconds = int.Parse(parts[2]);
+                    return new TimeSpan(hours, minutes, seconds);
+                }
+                else if (parts.Length == 2)
+                {
+                    // mm:ss or m:ss
+                    int minutes = int.Parse(parts[0]);
+                    int seconds = int.Parse(parts[1]);
+                    return new TimeSpan(0, minutes, seconds);
+                }
+                else if (parts.Length == 1)
+                {
+                    // Just seconds
+                    int seconds = int.Parse(parts[0]);
+                    return new TimeSpan(0, 0, seconds);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogInformation($"Warning: Exception parsing timestamp '{timestamp}': {ex.Message}. Defaulting to TimeSpan.Zero.");
+                return TimeSpan.Zero;
+            }
+
+            _logger.LogInformation($"Warning: Could not parse timestamp. Original: '{timestamp}', Trimmed: '{trimmedTimestamp}'. Defaulting to TimeSpan.Zero.");
             return TimeSpan.Zero;
         }
     }

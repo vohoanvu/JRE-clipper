@@ -7,16 +7,20 @@ using System.Text;
 using CsvHelper;
 using System.Globalization;
 using JREClipper.Core.Services;
+using Microsoft.Extensions.Logging;
 
 namespace JREClipper.Infrastructure.GoogleCloudStorage
 {
     public class GoogleCloudStorageService : IGoogleCloudStorageService
     {
         private readonly StorageClient _storageClient;
+        private readonly ILogger<GoogleCloudStorageService> _logger;
 
-        public GoogleCloudStorageService(StorageClient storageClient)
+        public GoogleCloudStorageService(StorageClient storageClient,
+            ILogger<GoogleCloudStorageService> logger)
         {
             _storageClient = storageClient;
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
         public async Task<VideoMetadata?> GetVideoMetadataAsync(string bucketName, string playlistCsvObject, string videoId)
@@ -185,21 +189,31 @@ namespace JREClipper.Infrastructure.GoogleCloudStorage
             {
                 foreach (var transcriptSegment in segmentedTranscripts)
                 {
+                    // Create a nested object for structData to match the Vertex AI Search schema.
                     var record = new
                     {
-                        content = transcriptSegment.Text,
                         id = transcriptSegment.SegmentId,
+                        content = transcriptSegment.Text,
+                        structData = new
+                        {
+                            videoId = transcriptSegment.VideoId,
+                            startTime = transcriptSegment.StartTime.TotalSeconds,
+                            endTime = transcriptSegment.EndTime.TotalSeconds,
+                            videoTitle = transcriptSegment.VideoTitle,
+                            channelName = transcriptSegment.ChannelName
+                        }
                     };
-                    var jsonLine = JsonConvert.SerializeObject(record); // No indentation for NDJSON
+
+                    var jsonLine = JsonConvert.SerializeObject(record);
                     await writer.WriteLineAsync(jsonLine);
                 }
-                await writer.FlushAsync(); // Ensure all buffered data is written to the stream
+                await writer.FlushAsync();
             }
 
-            memoryStream.Position = 0; // Reset stream position for upload
+            memoryStream.Position = 0;
             await _storageClient.UploadObjectAsync(bucketName, objectName, "application/x-ndjson", memoryStream);
 
-            return $"gs://{bucketName}/{objectName}"; // Return the GCS URI of the uploaded file
+            return $"gs://{bucketName}/{objectName}";
         }
 
         public async Task<string> UploadAllUtterancesToGcsAsync(string outputUtteranceFileUri, List<UtteranceForEmbedding> allUtterancesForEmbedding)
@@ -238,48 +252,133 @@ namespace JREClipper.Infrastructure.GoogleCloudStorage
             return $"gs://{bucketName}/{objectName}";
         }
 
-        public async Task<IReadOnlyDictionary<string, float[]>> DownloadUtteranceEmbeddingJsonFileAsync(string gcsUri)
+        public async Task<IReadOnlyDictionary<string, float[]>> DownloadLocalEmbeddingResultsAsync(
+            string localDirectoryPath = "../utterence-embedding-results/")
         {
-            if (string.IsNullOrEmpty(gcsUri))
-                throw new ArgumentNullException(nameof(gcsUri));
-            if (!gcsUri.StartsWith("gs://"))
-                throw new ArgumentException("GCS URI must start with gs://", nameof(gcsUri));
-            var uriParts = gcsUri.Substring(5).Split('/', 2);
-            if (uriParts.Length != 2)
-                throw new ArgumentException("Invalid GCS URI format.", nameof(gcsUri));
-            var bucketName = uriParts[0];
-            var objectName = uriParts[1];
+            if (string.IsNullOrEmpty(localDirectoryPath)) throw new ArgumentNullException(nameof(localDirectoryPath));
 
             var result = new Dictionary<string, float[]>();
+            var fullPath = Path.GetFullPath(localDirectoryPath);
 
-            using var memoryStream = new MemoryStream();
-            await _storageClient.DownloadObjectAsync(bucketName, objectName, memoryStream);
-            memoryStream.Position = 0;
-            using var reader = new StreamReader(memoryStream, Encoding.UTF8);
-
-            string? line;
-            while ((line = await reader.ReadLineAsync()) != null)
+            if (!Directory.Exists(fullPath))
             {
-                if (!string.IsNullOrWhiteSpace(line))
+                _logger.LogError("The specified local directory does not exist: {DirectoryPath}", fullPath);
+                throw new DirectoryNotFoundException($"The specified local directory does not exist: {fullPath}");
+            }
+
+            // Get all .ndjson files from the directory
+            var embeddingFiles = Directory.GetFiles(fullPath, "*.jsonl");
+
+            if (embeddingFiles.Length == 0)
+            {
+                _logger.LogWarning("No '.jsonl' files found in directory: {DirectoryPath}", fullPath);
+                return result; // Return empty dictionary
+            }
+
+            foreach (var filePath in embeddingFiles)
+            {
+                _logger.LogInformation("Processing embedding result file: {FileName}", Path.GetFileName(filePath));
+
+                // Use File.OpenRead for efficient reading
+                using var stream = File.OpenRead(filePath);
+                using var reader = new StreamReader(stream, Encoding.UTF8);
+                string? line;
+                while ((line = await reader.ReadLineAsync()) != null)
                 {
-                    var embeddingResult = JsonConvert.DeserializeObject<dynamic>(line);
-                    // Ensure the deserialized object has the expected properties
-                    if (embeddingResult != null && embeddingResult?.id != null && embeddingResult?.embedding != null)
+                    if (string.IsNullOrWhiteSpace(line)) continue;
+
+                    try
                     {
-                        string id = embeddingResult!.id.ToString();
-                        float[] embedding = ((Newtonsoft.Json.Linq.JArray)embeddingResult.embedding)
-                            .Select(item => (float)item)
-                            .ToArray();
-                        result[id] = embedding;
+                        var embeddingResult = JsonConvert.DeserializeObject<EmbeddingPredictionResult>(line);
+
+                        if (embeddingResult?.Instance?.Id != null && embeddingResult.Predictions?.FirstOrDefault()?.Embeddings?.Values != null)
+                        {
+                            string id = embeddingResult.Instance.Id;
+                            float[] embedding = embeddingResult.Predictions[0].Embeddings.Values;
+                            result[id] = embedding;
+                        }
+                        else
+                        {
+                            _logger.LogError("Skipping invalid or incomplete line in embedding result file: {Line}", line);
+                        }
                     }
-                    else
+                    catch (JsonException ex)
                     {
-                        throw new InvalidDataException($"Invalid data format in line: {line}");
+                        _logger.LogError(ex, "Failed to deserialize line in {FilePath}: {Line}", filePath, line);
                     }
                 }
             }
 
+            _logger.LogInformation("Successfully loaded {EmbeddingCount} embeddings from {FileCount} files.", result.Count, embeddingFiles.Length);
             return result;
+        }
+
+        /// <summary>
+        /// Loads and parses a local playlist CSV file into a dictionary for fast lookups.
+        /// </summary>
+        /// <param name="localCsvPath">The local file path for the playlist CSV.</param>
+        /// <returns>A dictionary mapping video IDs to their metadata.</returns>
+        public async Task<IReadOnlyDictionary<string, VideoMetadata>> LoadAllVideoMetadataAsync(string localCsvPath = "../jre-playlist_cleaned.csv")
+        {
+            // OPTIMIZATION: Loads metadata only ONCE
+            var metadataDict = new Dictionary<string, VideoMetadata>();
+            var fullPath = Path.GetFullPath(localCsvPath);
+
+            if (!File.Exists(fullPath))
+            {
+                _logger.LogError("Playlist CSV file not found at the specified path: {FilePath}", fullPath);
+                throw new FileNotFoundException($"Playlist CSV file not found at the specified path: {fullPath}");
+            }
+
+            try
+            {
+                using var stream = File.OpenRead(fullPath);
+                using var reader = new StreamReader(stream, Encoding.UTF8);
+                using var csv = new CsvReader(reader, CultureInfo.InvariantCulture);
+
+                await csv.ReadAsync();
+                csv.ReadHeader();
+
+                while (await csv.ReadAsync())
+                {
+                    var record = csv.GetRecord<JrePlaylistCsvRow>();
+                    if (record != null && !string.IsNullOrEmpty(record.videoId))
+                    {
+                        metadataDict[record.videoId] = new VideoMetadata
+                        {
+                            VideoId = record.videoId,
+                            Title = record.title ?? string.Empty,
+                            ChannelName = "The Joe Rogan Experience" // Default value
+                        };
+                    }
+                }
+                return metadataDict;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to read or parse the local playlist CSV file: {FilePath}", fullPath);
+                // Re-throw the exception to let the caller know something went wrong.
+                throw;
+            }
+        }
+
+        private static (string BucketName, string ObjectName) ParseGcsUri(string gcsUri)
+        {
+            if (string.IsNullOrWhiteSpace(gcsUri) || !gcsUri.StartsWith("gs://"))
+            {
+                throw new ArgumentException("Invalid GCS URI format. Must start with 'gs://'.", nameof(gcsUri));
+            }
+
+            var uri = new Uri(gcsUri);
+            var bucketName = uri.Host;
+            var objectName = uri.AbsolutePath.TrimStart('/');
+
+            if (string.IsNullOrEmpty(bucketName))
+            {
+                throw new ArgumentException("Bucket name cannot be extracted from GCS URI.", nameof(gcsUri));
+            }
+            // ObjectName can be empty if URI points to bucket root, or a prefix if it ends with /
+            return (bucketName, objectName);
         }
     }
 

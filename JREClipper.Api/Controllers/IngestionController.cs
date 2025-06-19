@@ -1,4 +1,6 @@
 // JREClipper.Api/Controllers/IngestionController.cs
+using System;
+using System.Text;
 using JREClipper.Core.Interfaces;
 using JREClipper.Core.Models;
 using JREClipper.Core.Services;
@@ -346,12 +348,12 @@ namespace JREClipper.Api.Controllers
                         {
                             outputUriPrefix += "/";
                         }
-                        
+
                         var outputFileName = $"utterances_for_embedding_batch_{i + 1}.jsonl";
                         var batchOutputUri = $"{outputUriPrefix}{outputFileName}";
 
                         _logger.LogInformation($"Uploading {utterancesForBatch.Count} utterances for batch {i + 1} to {batchOutputUri}");
-                        
+
                         var uploadedUri = await _gcsService.UploadAllUtterancesToGcsAsync(batchOutputUri, utterancesForBatch);
                         outputUris.Add(uploadedUri);
                     }
@@ -382,7 +384,7 @@ namespace JREClipper.Api.Controllers
         }
 
 
-        [HttpGet("run-semantic-chunking")]
+        [HttpPost("run-semantic-chunking")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -391,86 +393,86 @@ namespace JREClipper.Api.Controllers
         /// Runs semantic chunking on all trancript utterances with embeddings in Google Cloud Storage.
         /// </summary>
         /// <returns>Status of the semantic chunking process.</returns>
-        public async Task<IActionResult> RunSematicChunking([FromBody] string utteranceEmbeddingUri)
+        public async Task<IActionResult> RunSematicChunking()
         {
             if (string.IsNullOrEmpty(_gcsOptions.InputDataUri))
             {
-                return BadRequest("GCS URI must be provided.");
+                return BadRequest("The GCS URI for the embedding results directory must be provided.");
             }
-
-            (string inputBucket, string inputPrefix) = ParseGcsUri(_gcsOptions.InputDataUri);
-            var transcriptFiles = await _gcsService.ListAllTranscriptFiles(inputBucket, inputPrefix);
-            if (transcriptFiles.Count == 0)
-            {
-                return NotFound($"No transcript files found at {_gcsOptions.InputDataUri}.");
-            }
-            var allFinalSegments = new List<ProcessedTranscriptSegment>();
 
             try
             {
-                var embeddingResults = await _gcsService.DownloadUtteranceEmbeddingJsonFileAsync(utteranceEmbeddingUri);
+                // --- Setup Phase ---
+                _logger.LogInformation("Loading all embedding results from {Uri}...", "../utterence-embedding-results/");
+                var precomputedEmbeddings = await _gcsService.DownloadLocalEmbeddingResultsAsync("../utterence-embedding-results/");
+
+                var fullPath = Path.GetFullPath("../transcriptions/");
+                if (!Directory.Exists(fullPath))
+                {
+                    _logger.LogError("The specified local directory does not exist: {DirectoryPath}", fullPath);
+                    throw new DirectoryNotFoundException($"The specified local directory does not exist: {fullPath}");
+                }
+                var transcriptFiles = Directory.GetFiles(fullPath, "*.json");
+                var allFinalSegments = new List<ProcessedTranscriptSegment>();
+
+                // --- Main Processing Loop ---
+                // This loop will now run to completion for ALL files.
                 foreach (var transcriptFile in transcriptFiles)
                 {
-                    var raw = await _gcsService.GetSingleTranscript(inputBucket, transcriptFile);
-                    if (raw == null || string.IsNullOrWhiteSpace(raw.Transcript) || raw.TranscriptWithTimestamps.Count == 0)
+                    _logger.LogInformation("Processing local transcript file: {TranscriptFile}", transcriptFile);
+                    var jsonContent = await System.IO.File.ReadAllTextAsync(transcriptFile);
+                    var transcriptDataList = JsonConvert.DeserializeObject<List<RawTranscriptData>>(jsonContent);
+                    var raw = transcriptDataList?.FirstOrDefault();
+
+                    if (raw == null || raw.TranscriptWithTimestamps.Count == 0)
                     {
-                        _logger.LogInformation($"Skipping empty or missing transcript: {transcriptFile}");
+                        _logger.LogWarning("Skipping empty or invalid transcript: {TranscriptFile}", transcriptFile);
                         continue;
                     }
 
-                    var videoId = raw.VideoId;
-                    if (string.IsNullOrEmpty(videoId))
+                    if (string.IsNullOrEmpty(raw.VideoId))
                     {
                         var fileName = Path.GetFileNameWithoutExtension(transcriptFile);
-                        if (fileName.StartsWith("transcript-"))
-                        {
-                            videoId = fileName.Substring("transcript-".Length);
-                        }
-                        else
-                        {
-                            videoId = fileName;
-                        }
+                        raw.VideoId = fileName.StartsWith("transcript-") ? fileName.Substring("transcript-".Length) : fileName;
                     }
 
-                    var videoMetadata = await _gcsService.GetVideoMetadataAsync("jre-content", "jre-playlist_cleaned.csv", videoId);
-                    if (videoMetadata == null)
-                    {
-                        _logger.LogWarning($"No metadata found for video ID: {videoId}. Skipping semantic chunking for this transcript.");
-                        continue;
-                    }
-
-                    _logger.LogInformation($"Chunking transcript for video ID: {videoMetadata.VideoId} from {transcriptFile}");
-                    var segments = _transcriptProcessor.ChunkTranscriptFromPrecomputedEmbeddings(raw, videoMetadata, embeddingResults);
+                    _logger.LogInformation("Chunking transcript for video: {VideoTitle} ({VideoId})", raw.VideoTitle, raw.VideoId);
+                    var segments = _transcriptProcessor.ChunkTranscriptFromPrecomputedEmbeddings(raw, precomputedEmbeddings);
                     allFinalSegments.AddRange(segments);
-
-                    if (allFinalSegments.Count == 0)
-                    {
-                        return Ok("No segments generated from any transcripts.");
-                    }
-
-                    // Split allSegments into batches of 30,000
-                    const int maxBatchSize = 30000;
-                    int totalBatches = (int)Math.Ceiling(allFinalSegments.Count / (double)maxBatchSize);
-                    var uploadedBatchUris = new List<string>();
-
-                    for (int i = 0; i < totalBatches; i++)
-                    {
-                        var batch = allFinalSegments.Skip(i * maxBatchSize).Take(maxBatchSize).ToList();
-                        string batchObjectName = $"final-semantic-chunks/jre-segments-batch-{i + 1}.ndjson";
-                        string batchUri = await _gcsService.UploadSegmentedTranscriptNDJSONAsync("jre-processed-clips-bucker", batchObjectName, batch);
-                        uploadedBatchUris.Add(batchUri);
-                        _logger.LogInformation($"Uploaded batch {i + 1}/{totalBatches} to: {batchUri} ({batch.Count} segments)");
-                    }
-
-                    return Accepted(new { Message = $"Uploaded {uploadedBatchUris.Count} NDJSON batch files (max 30,000 segments each) to {_gcsOptions.SegmentedTranscriptDataUri}.", BatchFiles = uploadedBatchUris });
                 }
-                
-                return Ok(new { Message = "Semantic chunking completed successfully", SegmentsCount = allFinalSegments.Count });
+
+                // --- BATCHING AND UPLOADING MOVED HERE ---
+                // This code now runs only AFTER all files have been processed.
+                if (allFinalSegments.Count == 0)
+                {
+                    return Ok("No segments were generated from any transcripts. Please check logs.");
+                }
+
+                const int maxBatchSize = 30000;
+                int totalBatches = (int)Math.Ceiling(allFinalSegments.Count / (double)maxBatchSize);
+                var uploadedBatchUris = new List<string>();
+
+                _logger.LogInformation("Starting upload of {SegmentCount} total segments in {BatchCount} batches.", allFinalSegments.Count, totalBatches);
+
+                for (int i = 0; i < totalBatches; i++)
+                {
+                    var batch = allFinalSegments.Skip(i * maxBatchSize).Take(maxBatchSize).ToList();
+                    string batchObjectName = $"final-semantic-chunks/jre-segments-batch-{i + 1}.ndjson";
+                    string batchUri = await _gcsService.UploadSegmentedTranscriptNDJSONAsync("jre-processed-clips-bucker", batchObjectName, batch);
+                    uploadedBatchUris.Add(batchUri);
+                    _logger.LogInformation("Uploaded batch {BatchNum}/{TotalBatches} to: {Uri} ({SegmentCount} segments)", i + 1, totalBatches, batchUri, batch.Count);
+                }
+
+                return Accepted(new
+                {
+                    Message = $"Successfully chunked {transcriptFiles.Length} transcripts into {allFinalSegments.Count} segments.",
+                    UploadedBatchFiles = uploadedBatchUris
+                });
             }
             catch (Exception ex)
             {
-                _logger.LogInformation($"Error during semantic chunking: {ex.Message}");
-                return StatusCode(StatusCodes.Status500InternalServerError, $"An error occurred during semantic chunking: {ex.Message}");
+                _logger.LogError(ex, "A critical error occurred during the semantic chunking process.");
+                return StatusCode(StatusCodes.Status500InternalServerError, $"An error occurred: {ex.Message}");
             }
         }
     }
