@@ -416,15 +416,15 @@ namespace JREClipper.Api.Controllers
                 var allFinalSegments = new List<ProcessedTranscriptSegment>();
 
                 // --- Main Processing Loop ---
-                // This loop will now run to completion for ALL files.
+                // This loop will now run to completion for ALL files.  
                 foreach (var transcriptFile in transcriptFiles)
                 {
-                    _logger.LogInformation("Processing local transcript file: {TranscriptFile}", transcriptFile);
+                    _logger.LogInformation("Processing local transcript file: {TranscriptFile} as {i} out of {totalTranscripts}", transcriptFile, Array.IndexOf(transcriptFiles, transcriptFile) + 1, transcriptFiles.Length);
                     var jsonContent = await System.IO.File.ReadAllTextAsync(transcriptFile);
-                    var transcriptDataList = JsonConvert.DeserializeObject<List<RawTranscriptData>>(jsonContent);
+                    var transcriptDataList = JsonConvert.DeserializeObject<List<RawTranscriptData>>(jsonContent) ?? [];
                     var raw = transcriptDataList?.FirstOrDefault();
 
-                    if (raw == null || raw.TranscriptWithTimestamps.Count == 0)
+                    if (raw == null || raw.TranscriptWithTimestamps.Count == 0 || string.IsNullOrEmpty(raw.Transcript))
                     {
                         _logger.LogWarning("Skipping empty or invalid transcript: {TranscriptFile}", transcriptFile);
                         continue;
@@ -439,6 +439,7 @@ namespace JREClipper.Api.Controllers
                     _logger.LogInformation("Chunking transcript for video: {VideoTitle} ({VideoId})", raw.VideoTitle, raw.VideoId);
                     var segments = _transcriptProcessor.ChunkTranscriptFromPrecomputedEmbeddings(raw, precomputedEmbeddings);
                     allFinalSegments.AddRange(segments);
+                    _logger.LogInformation("Processed {SegmentCount} segments from transcript file: {TranscriptFile}", segments.Count(), transcriptFile);
                 }
 
                 // --- BATCHING AND UPLOADING MOVED HERE ---
@@ -453,6 +454,7 @@ namespace JREClipper.Api.Controllers
                 var uploadedBatchUris = new List<string>();
 
                 _logger.LogInformation("Starting upload of {SegmentCount} total segments in {BatchCount} batches.", allFinalSegments.Count, totalBatches);
+                _logger.LogInformation("But processed total {TranscriptCount} transcript files in {DirectoryPath}.", transcriptFiles.Length, fullPath);
 
                 for (int i = 0; i < totalBatches; i++)
                 {

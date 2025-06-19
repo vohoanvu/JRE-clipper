@@ -37,13 +37,8 @@ namespace JREClipper.Core.Services
         public IEnumerable<ProcessedTranscriptSegment> ChunkTranscriptFromPrecomputedEmbeddings(
             RawTranscriptData transcriptData, IReadOnlyDictionary<string, float[]> precomputedEmbeddings)
         {
-            if (transcriptData?.TranscriptWithTimestamps == null || transcriptData.TranscriptWithTimestamps.Count == 0)
-            {
-                return [];
-            }
-
-            var timedUtterances = GroupIntoUtterances(transcriptData.TranscriptWithTimestamps);
-            if (!timedUtterances.Any()) return [];
+            var timedUtterances = TranscriptSegmentationUtil.GroupIntoUtterancesByPause(
+                transcriptData.TranscriptWithTimestamps, _logger);
 
             // Populate the utterances with their pre-computed embeddings
             for (int i = 0; i < timedUtterances.Count; i++)
@@ -69,51 +64,6 @@ namespace JREClipper.Core.Services
             throw new NotSupportedException("This method is deprecated. Use ChunkTranscriptFromPrecomputedEmbeddings after running a batch embedding job.");
         }
 
-        private List<TimedUtterance> GroupIntoUtterances(List<TimestampedText> entries)
-        {
-            var utterances = new List<TimedUtterance>();
-            if (!entries.Any()) return utterances;
-
-            var orderedEntries = entries
-                .Select(e => new { Entry = e, Timestamp = ParseTimestamp(e.Timestamp) })
-                .OrderBy(e => e.Timestamp)
-                .ToList();
-
-            var currentUtteranceBuilder = new StringBuilder();
-            var utteranceStartTime = orderedEntries.First().Timestamp;
-
-            foreach (var entry in orderedEntries)
-            {
-                currentUtteranceBuilder.Append(entry.Entry.Text).Append(' ');
-                char lastChar = entry.Entry.Text.Trim().LastOrDefault();
-
-                // Split on sentence-ending punctuation
-                if (lastChar == '.' || lastChar == '?' || lastChar == '!')
-                {
-                    utterances.Add(new TimedUtterance
-                    {
-                        Text = currentUtteranceBuilder.ToString().Trim(),
-                        StartTime = utteranceStartTime,
-                        EndTime = entry.Timestamp
-                    });
-                    currentUtteranceBuilder.Clear();
-                    utteranceStartTime = entry.Timestamp;
-                }
-            }
-
-            // Add any remaining text as the last utterance
-            if (currentUtteranceBuilder.Length > 0)
-            {
-                utterances.Add(new TimedUtterance
-                {
-                    Text = currentUtteranceBuilder.ToString().Trim(),
-                    StartTime = utteranceStartTime,
-                    EndTime = orderedEntries.Last().Timestamp
-                });
-            }
-
-            return utterances;
-        }
 
         private List<ProcessedTranscriptSegment> CreateSemanticChunks(List<TimedUtterance> utterances, string videoId, RawTranscriptData rawTranscriptData)
         {
@@ -207,53 +157,6 @@ namespace JREClipper.Core.Services
             }
 
             return dotProduct / (norm1 * norm2);
-        }
-
-        // Using TryParseExact for more robust and cleaner timestamp parsing
-        private TimeSpan ParseTimestamp(string timestamp)
-        {
-            if (string.IsNullOrEmpty(timestamp))
-            {
-                _logger.LogInformation($"Warning: Null or empty timestamp provided. Defaulting to TimeSpan.Zero.");
-                return TimeSpan.Zero;
-            }
-
-            string trimmedTimestamp = timestamp.Trim();
-
-            // Split by ':'
-            var parts = trimmedTimestamp.Split(':');
-            try
-            {
-                if (parts.Length == 3)
-                {
-                    // h:mm:ss or hh:mm:ss
-                    int hours = int.Parse(parts[0]);
-                    int minutes = int.Parse(parts[1]);
-                    int seconds = int.Parse(parts[2]);
-                    return new TimeSpan(hours, minutes, seconds);
-                }
-                else if (parts.Length == 2)
-                {
-                    // mm:ss or m:ss
-                    int minutes = int.Parse(parts[0]);
-                    int seconds = int.Parse(parts[1]);
-                    return new TimeSpan(0, minutes, seconds);
-                }
-                else if (parts.Length == 1)
-                {
-                    // Just seconds
-                    int seconds = int.Parse(parts[0]);
-                    return new TimeSpan(0, 0, seconds);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogInformation($"Warning: Exception parsing timestamp '{timestamp}': {ex.Message}. Defaulting to TimeSpan.Zero.");
-                return TimeSpan.Zero;
-            }
-
-            _logger.LogInformation($"Warning: Could not parse timestamp. Original: '{timestamp}', Trimmed: '{trimmedTimestamp}'. Defaulting to TimeSpan.Zero.");
-            return TimeSpan.Zero;
         }
     }
 }
