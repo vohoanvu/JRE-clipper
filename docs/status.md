@@ -1,55 +1,62 @@
-# Project Status: "What would Joe Rogan say?" - Backend Service
+# Project Status: "What would Joe Rogan say?" - Web App
 
-**Project Lead:** [Your Name/Lead Engineer's Name]
-**Date:** `2024-07-27`
-**Overall Status:** `On Track`
-
----
-
-## 1. Implementation Phases
-
-| Phase                                | Description                                                                                                                                                            | Status                 | Notes / Blockers                                                                 |
-| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- | -------------------------------------------------------------------------------- |
-| **Phase 1: Setup & Foundation**      | Create solution, projects, project references, and install initial NuGet packages. Define core data models and service interfaces (`IVector...`, `IEmbedding...`, etc.). | `[x] Completed`      | All models and interfaces defined.                                               |
-| **Phase 2: Infrastructure Services** | Implement concrete services for external systems. This includes `GoogleCloudStorageService`, `MockEmbeddingService`, `GoogleVertexAiEmbeddingService`, and the selected Vector DB services (`Qdrant`, `VertexAI`). | `[x] Completed`      | Implemented GCS, Vertex AI Embedding, Mock Embedding, Vertex AI Vector DB, XAI Grok Embedding (hypothetical).       |
-| **Phase 3: Core Business Logic**     | Implement the `BasicTranscriptProcessor` for chunking and the `VectorizationOrchestratorService` to coordinate the ingestion and search workflows.                   | `[x] In Progress`      | `BasicTranscriptProcessor` implemented. `VectorizationOrchestratorService` pending. |
-| **Phase 4: Asynchronous Ingestion**  | Implement the Pub/Sub publisher in the API and create the background worker service (as a separate Cloud Run instance) to consume messages and run the ingestion process. | `[ ] Not Started`      | Requires Pub/Sub topic to be created in GCP.                                     |
-| **Phase 5: API Endpoints & DI**      | Build the `IngestionController` and `SearchController`. Wire up all services using Dependency Injection, including the provider factories for embeddings and vector DBs. | `[x] Completed`      | DI for core services, including embedding/vector DB factories and `HttpClient` for `XaiGrokEmbeddingService`, configured in `Program.cs`. Controllers implemented. Configuration models aligned with `appsettings.json`. |
-| **Phase 6: Containerization & Config** | Create the `Dockerfile` for the API service and the worker service. Finalize `appsettings.json` with configurations for all environments (Dev, Staging, Prod). | `[x] In Progress`      | `appsettings.json` and `appsettings.Development.json` populated and aligned with C# option classes. Dockerfiles pending. |
+**Date:** 2024-07-28
+**Overall Status:** `In Progress`
 
 ---
 
-## 2. Milestone Checklist
+## 1. Architecture Overview
 
-| Milestone                                                  | Requirement Addressed                                          | Status      | Validation Notes                                                                                   |
-| ---------------------------------------------------------- | -------------------------------------------------------------- | ----------- | -------------------------------------------------------------------------------------------------- |
-| **M1: Data Source Integration Complete**                   | Can read metadata and transcript files from Google Cloud Storage. | `[ ]`       | Verified by running the ingestion process and confirming files are downloaded and parsed correctly.  |
-| **M2: Initial Data Ingestion Pipeline Operational**        | Can process and vectorize a batch of 10+ JRE episodes into a Vector DB. | `[ ]`       | Vector DB dashboard shows points have been upserted with correct metadata.                         |
-| **M3: Core Search Functionality Live**                     | The `GET /api/search/videos` endpoint returns relevant segments for a query. | `[ ]`       | A query for "aliens" returns segments containing text about aliens, UFOs, etc.                 |
-| **M4: Asynchronous Ingestion Trigger is Functional**       | `POST /api/ingestion/start` successfully queues a job via Pub/Sub. | `[ ]`       | Endpoint returns `202 Accepted`. GCP console shows a message published to the topic.               |
-| **M5: Pluggable Architecture is Verified**                 | Can switch between `Qdrant` and `VertexAI` via a configuration change. | `[x]`       | Embedding service factory and DI setup allows for selection via config. Vector DB factory and DI setup allows for selection. |
-| **M6: Full Dataset Ingested into Staging**                 | All available JRE transcripts are processed and available for search in the staging environment. | `[ ]`       | A search for an obscure topic returns at least one relevant result.                                |
+This project has been implemented as a serverless web application using the Google Cloud Platform and Firebase.
+
+-   **Frontend:** Firebase Hosting (Vanilla JavaScript, HTML, CSS)
+    -   `index.html`: Main page with search functionality.
+    -   `status.html`: Page to display the real-time status of a video generation job.
+-   **Backend API:** Firebase Functions (Node.js)
+    -   `getVertexAiToken`: A callable function that provides a short-lived OAuth 2.0 access token to the frontend for authenticating with Vertex AI Search.
+    -   `initiateVideoJob`: A callable function that receives video segments from the frontend, creates a job document in Firestore, and publishes a message to a Pub/Sub topic to trigger the video processor.
+-   **Video Processing:** Cloud Run Job (Node.js, ffmpeg, yt-dlp)
+    -   A containerized background job triggered by a Pub/Sub message.
+    -   It downloads the source YouTube videos, clips the specified segments using `ffmpeg`, concatenates them, and uploads the final video to Google Cloud Storage.
+-   **Job Management:** Firestore
+    -   A `videoJobs` collection stores the status, progress, and final output URL for each video generation request.
+-   **Video Storage:** Google Cloud Storage
+    -   A dedicated bucket to store the generated video summaries.
+-   **Search Provider:** Vertex AI Search (Discovery Engine)
+    -   Provides the core search functionality over the JRE episode transcripts.
 
 ---
 
-## 3. Testing Criteria
+## 2. Implementation Phases
 
-| Test Category                   | Description                                                                                                                                              | Status            |
-| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
-| **Unit Tests**                  | - `BasicTranscriptProcessor` correctly chunks text based on time.<br>- Models correctly deserialize from sample JSON/CSV.                               | `[ ] Not Covered` |
-| **Integration Tests (Ingestion)** | - `VectorizationOrchestratorService` can successfully execute a full flow: GCS download -> Process -> Embed (mocked) -> Upsert to Vector DB (local). | `[ ] Not Covered` |
-| **Integration Tests (Search)**    | - `SearchController` can successfully execute a full flow: Query -> Embed (mocked) -> Search Vector DB (local) -> Return formatted results.          | `[ ] Not Covered` |
-| **System Tests (E2E)**          | - `POST` to ingestion API triggers the background worker, which fully processes a file from GCS into the staging Vector DB.<br>- `GET` from search API returns data from the staging Vector DB. | `[ ] Not Covered` |
-| **Configuration Tests**         | - The application starts successfully with each configured provider (`Qdrant`, `VertexAI`, `GoogleVertexAI`, `XaiGrok`, `Mock`).<br>- The application fails gracefully with an invalid provider name. | `[x]`             | DI and Options configured and aligned.                                                               |
-| **Performance Tests**           | - Search API response time is < 2 seconds under a simulated load of 20 concurrent users.                                                                 | `[ ] Not Covered` |
+| Phase                                      | Description                                                                                                                                                            | Status            | Notes / Blockers                                                                 |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- | -------------------------------------------------------------------------------- |
+| **Phase 1: Frontend UI**                   | Create the user interface for searching, viewing results, and tracking job status.                                                                                     | `[x] Completed`   | UI is minimalist and functional.                                                 |
+| **Phase 2: Vertex AI Search Integration**  | Implement the client-side logic to call the Vertex AI Search API and display results.                                                                                  | `[x] Completed`   | Using a custom implementation instead of the widget for more control.            |
+| **Phase 3: Backend Foundation**            | Set up Firebase Functions for secure token handling and job initiation.                                                                                                | `[x] Completed`   | `getVertexAiToken` and `initiateVideoJob` functions are implemented.             |
+| **Phase 4: Video Processing (Cloud Run Job)**| Implement the core video processing logic in a containerized Cloud Run Job.                                                                                            | `[x] In Progress` | `Dockerfile` and job logic are complete. Deployment is the next step.            |
+| **Phase 5: Job Status & Tracking**         | Use Firestore to track job progress and update the `status.html` page in real-time.                                                                                    | `[x] Completed`   | Firestore listeners are implemented on the client-side.                          |
+| **Phase 6: Deployment & E2E Testing**      | Deploy all components (Firebase Hosting, Functions, Cloud Run Job) and conduct end-to-end testing of the entire workflow.                                              | `[ ] Not Started` | Requires configuring Pub/Sub triggers and IAM permissions.                       |
+
+---
+
+## 3. Milestone Checklist
+
+| Milestone                                        | Requirement Addressed                                                              | Status  | Validation Notes                                                              |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------- | ------- | ----------------------------------------------------------------------------- |
+| **M1: User can search for episodes**             | The user can enter a query and see a list of relevant video segments.              | `[x]`   | Verified. The frontend calls Vertex AI Search and displays results.           |
+| **M2: User can initiate a video generation job** | The "Generate Video" button sends the selected segments to the backend.            | `[x]`   | Verified. The `initiateVideoJob` function is called with the correct data.    |
+| **M3: Video processing job is triggered**        | The backend successfully publishes a message to Pub/Sub to start the job.          | `[ ]`   | To be verified after deployment.                                              |
+| **M4: Video is correctly processed and uploaded**| The Cloud Run Job downloads, clips, concatenates, and uploads the video to GCS.    | `[ ]`   | To be verified after deployment.                                              |
+| **M5: User can see real-time job status**        | The `status.html` page reflects the current state of the job from Firestore.       | `[x]`   | Verified. The page correctly listens for and displays status updates.         |
+| **M6: User can download the final video**        | A download link for the generated video appears on the status page upon completion.| `[ ]`   | To be verified after a successful E2E run.                                    |
 
 ---
 
 ## 4. Deployment Stages
 
-| Stage                   | Description                                                                                                                                                                                                                                     | Status                 |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
-| **Stage 1: Local Development**  | Developer runs services on their local machine. Uses local secrets, .NET Hot Reload, and Docker Desktop for Qdrant.                                                                                                                        | `[x] Ready`            |
-| **Stage 2: CI/CD Pipeline**     | A `cloudbuild.yaml` file is committed. Pushing to the `main` branch automatically builds, tests, and pushes Docker images for the API and worker services to Google Artifact Registry.                                                  | `[ ] Not Started`      |
-| **Stage 3: Staging Deployment** | A Cloud Build trigger deploys the images from Artifact Registry to a dedicated "staging" Cloud Run environment. This environment uses a separate staging GCS bucket, Pub/Sub topic, and Vector DB index. Used for final E2E testing and UAT. | `[ ] Not Started`      |
-| **Stage 4: Production Deployment**| Upon manual approval, a Cloud Build trigger deploys the tested images to the "production" Cloud Run environment. All secrets are managed by Google Secret Manager. Monitoring and alerting are active. Traffic is shifted gradually. | `[ ] Not Started`      |
+| Stage                           | Description                                                                                                                                                           | Status            |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| **Stage 1: Local Development**  | Use the Firebase Emulator Suite to run Functions and test frontend interactions locally.                                                                              | `[x] Ready`       |
+| **Stage 2: Firebase Deployment**| Deploy the frontend (Hosting) and backend functions to the Firebase project.                                                                                          | `[ ] Not Started` |
+| **Stage 3: Cloud Run Deployment** | Build the Docker image for the video processor, push it to Google Artifact Registry, and create the Cloud Run Job with a Pub/Sub trigger.                             | `[ ] Not Started` |
