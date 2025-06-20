@@ -924,3 +924,135 @@ docker run -d --name qdrant-local -p 6333:6333 -p 6334:6334 qdrant/qdrant
 3. **Storage Cost Considerations**
 
 *   **GCS Storage Classes:** Your JRE transcript data is likely write-once, read-many. Using the `Standard` storage class is appropriate for actively accessed data. If you find parts of the dataset become archival, you could implement lifecycle policies to move them to cheaper `Nearline` or `Coldline` storage, but for this app's purpose, `Standard` is likely the best choice.
+
+
+
+### **Architectural Vision: A Fully Serverless, Event-Driven Workflow**
+
+Here is the high-level data flow for our new, simplified architecture:
+
+1.  **Frontend (Firebase Hosting):** A user interacts with a static HTML page containing the Vertex AI Search widget.
+2.  **Search (Vertex AI):** The widget communicates directly and securely with the Vertex AI Search API endpoint you provided. The user gets search results instantly in the UI.
+3.  **Job Initiation (Cloud Function):** When the user clicks a "Generate Video" button next to a search result, the frontend makes a direct call to a new, simple HTTP-triggered Cloud Function.
+4.  **Queueing (Pub/Sub):** The Cloud Function takes the search result data, creates a job ID, and publishes a message to a Pub/Sub topic.
+5.  **Processing (Cloud Run Job):** A **Cloud Run Job** (a service designed for long-running, non-HTTP tasks) is triggered by the Pub/Sub message. It performs the heavy lifting of downloading, clipping, and stitching the video.
+6.  **Status & Output (Firestore & GCS):** The Cloud Run Job writes the final video/report to GCS and updates the job's status in a **Firestore** database, which is ideal for real-time status updates on the frontend.
+
+This architecture minimizes custom code and eliminates the need to manage a constantly running backend server.
+
+---
+
+## The Step-by-Step Implementation Plan
+
+### **Phase 1: Frontend Setup with Firebase and Vertex AI Search Widget**
+
+**Goal:** Create a live, searchable web page with zero backend code.
+
+1.  **Create a Firebase Project:**
+    *   Go to the [Firebase Console](https://console.firebase.google.com/).
+    *   Click "Add project" and link it to your existing Google Cloud project (`gen-lang-client-demo`).
+
+2.  **Set up Firebase Hosting:**
+    *   On your local machine, install the Firebase CLI: `npm install -g firebase-tools`.
+    *   Log in: `firebase login`.
+    *   In a new local directory for your frontend, run `firebase init hosting`.
+        *   Select your existing project.
+        *   Use `public` as the public directory.
+        *   Configure as a single-page app? **No**.
+
+3.  **Create the `index.html` Page:**
+    *   In the newly created `public` directory, edit `index.html`.
+    *   This will be a simple, clean HTML page. You can use a minimalist CSS framework like Pico.css or just plain HTML/CSS.
+    *   It should contain a title, a brief description, and a `<div>` where the Vertex AI widget will be rendered.
+
+4.  **Integrate the Vertex AI Search Widget:**
+    *   Go to your Vertex AI Search application in the Google Cloud Console.
+    *   Navigate to the "Integration" section.
+    *   Copy the provided `<script>` and `<discovery-search-widget>` HTML tags.
+    *   Paste these tags directly into your `index.html`. The widget handles authentication and communication with the search API securely out-of-the-box.
+
+5.  **Deploy the Frontend:**
+    *   From your frontend directory, run: `firebase deploy --only hosting`.
+    *   Firebase will give you a live URL (e.g., `your-project.web.app`). You now have a working search engine.
+
+---
+
+### **Phase 2: Create the Job Initiation Cloud Function**
+
+**Goal:** Create a lightweight, serverless endpoint to kick off the video generation process. We will use the .NET runtime for the Cloud Function.
+
+1.  **Create the Cloud Function:**
+    *   Go to the Google Cloud Console -> Cloud Functions.
+    *   Click "Create Function".
+    *   **Environment:** 2nd gen.
+    *   **Function name:** `initiate-video-job`.
+    *   **Region:** `us-central1`.
+    *   **Trigger:** HTTP. Check "Allow unauthenticated invocations" for now (we can secure it later with App Check).
+    *   **Runtime:** .NET 8 (or your preferred version).
+    *   **Source Code:** Select "Inline editor".
+
+2.  **Write the Cloud Function Code (C#):**
+    *   The Cloud Console provides a template. You will modify the main `Function.cs` file. This is the **only C# code** you need for this part of the workflow.
+    *   The function will receive the search result data (videoId, startTime, endTime, etc.) in the HTTP request body.
+    *   **Logic:**
+        a.  Generate a new `JobId` (`Guid.NewGuid().ToString()`).
+        b.  Create a payload object containing the `JobId` and the received segment data.
+        c.  Use the `Google.Cloud.PubSub.V1` library to publish this payload to a new Pub/Sub topic (`video-processing-jobs`).
+        d.  Return the `JobId` in the HTTP response.
+
+3.  **Update the Frontend:**
+    *   Add JavaScript to your `index.html` page.
+    *   This script will listen for the `searchResultClicked` event from the Vertex AI widget.
+    *   When a result is clicked, a "Generate Video" button should appear.
+    *   Clicking this button will use the `fetch` API to make a `POST` request to your new Cloud Function's trigger URL, sending the relevant segment data. It will then store the returned `JobId` in local storage and redirect the user to a status page (e.g., `status.html?jobId=...`).
+
+---
+
+### **Phase 3: Create the Video Processing Cloud Run Job**
+
+**Goal:** Set up a containerized, long-running job that is triggered by Pub/Sub and does the heavy lifting.
+
+1.  **Create a `Dockerfile`:**
+    *   This is the most "custom" part. You need a Dockerfile that starts from a base image (like Debian) and installs `yt-dlp` and `FFmpeg`.
+    *   It will also contain a simple Python or Bash script that acts as the entry point. This script will be responsible for the video processing logic (download, cut, stitch, upload). **No .NET code is needed here.**
+
+2.  **Build and Push the Docker Image:**
+    *   Use Google Cloud Build to automatically build your Dockerfile and push the resulting image to Google Artifact Registry. You can set up a trigger to do this automatically when you commit the Dockerfile to a Git repository.
+
+3.  **Create the Cloud Run Job:**
+    *   Go to the Google Cloud Console -> Cloud Run.
+    *   Select the "Jobs" tab and click "Create Job".
+    *   **Source:** Select the container image you just pushed to Artifact Registry.
+    *   **Configuration:**
+        *   Increase the **Task timeout** to at least 30-60 minutes to allow for video downloading and processing.
+        *   Allocate sufficient CPU and Memory (e.g., 2 vCPU, 4 GiB Memory).
+    *   **Trigger:** This is the key step.
+        *   Select "Cloud Pub/Sub".
+        *   Choose the `video-processing-jobs` topic you created earlier.
+        *   This configures the job to automatically execute whenever a new message is published. The message payload will be passed to your container as an environment variable.
+
+---
+
+### **Phase 4: Implement State Management and Status Page**
+
+**Goal:** Allow the user to see the status of their job in real-time.
+
+1.  **Set up Firestore:**
+    *   Go to the Firebase Console -> Firestore Database.
+    *   Create a new database in Native mode.
+    *   **Security Rules:** Set up rules so that clients can read from the `jobs` collection, but only your backend services can write to it.
+
+2.  **Update the Cloud Run Job Script:**
+    *   Modify the entry point script inside your Docker container.
+    *   **On Start:** Use a library (like `google-cloud-firestore` for Python) to create a new document in a `jobs` collection in Firestore with the `JobId`. Set its status to `{"status": "Processing", "progress": 0}`.
+    *   **During Processing:** Periodically update the document's `progress` field (e.g., after each clip is downloaded).
+    *   **On Completion/Failure:** Update the document with the final status, including GCS URLs for the video and report, or an error message.
+
+3.  **Create the `status.html` Page:**
+    *   Add a new page to your Firebase Hosting project.
+    *   **JavaScript Logic:**
+        a.  On page load, get the `jobId` from the URL query parameter.
+        b.  Use the Firebase Web SDK to listen for real-time updates on the corresponding document in the Firestore `jobs` collection (`onSnapshot`).
+        c.  Update the UI dynamically as the status changes (e.g., show a progress bar, display "Complete", provide download links when they appear).
+
+This plan maximizes the use of managed, serverless components, requires minimal custom code (only for the Cloud Function and the processing script), and results in a highly scalable, cost-effective, and modern cloud-native application.

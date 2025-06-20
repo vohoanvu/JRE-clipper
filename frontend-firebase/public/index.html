@@ -1,68 +1,77 @@
 <!DOCTYPE html>
 <html>
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>What would Joe Rogan say? - JRE Clipper</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
-    <script src="https://cloud.google.com/ai/gen-app-builder/client?hl=en_US"></script>
 
-    <!-- update the version number as needed -->
-    <script defer src="/__/firebase/11.9.1/firebase-app-compat.js"></script>
-    <!-- include only the Firebase features as you need -->
-    <script defer src="/__/firebase/11.9.1/firebase-auth-compat.js"></script>
-    <script defer src="/__/firebase/11.9.1/firebase-database-compat.js"></script>
-    <script defer src="/__/firebase/11.9.1/firebase-firestore-compat.js"></script>
-    <script defer src="/__/firebase/11.9.1/firebase-functions-compat.js"></script>
-    <script defer src="/__/firebase/11.9.1/firebase-messaging-compat.js"></script>
-    <script defer src="/__/firebase/11.9.1/firebase-storage-compat.js"></script>
-    <script defer src="/__/firebase/11.9.1/firebase-analytics-compat.js"></script>
-    <script defer src="/__/firebase/11.9.1/firebase-remote-config-compat.js"></script>
-    <script defer src="/__/firebase/11.9.1/firebase-performance-compat.js"></script>
-    <!-- 
-      initialize the SDK after all desired features are loaded, set useEmulator to false
-      to avoid connecting the SDK to running emulators.
-    -->
-    <script defer src="/__/firebase/init.js?useEmulator=true"></script>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>What would Joe Rogan say? - JRE Clipper</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
+  <script src="https://cloud.google.com/ai/gen-app-builder/client?hl=en_US"></script>
 
-    <style media="screen">
-      body {
-        font-family: "Pico", sans-serif;
-      }
-      main {
-        padding: 2rem;
-      }
-    </style>
-  </head>
-  <body>
-    <main class="container">
-      <h1>What would Joe Rogan say about...?</h1>
-      <p>Enter a topic to get a summary video and timestamp report from all Joe Rogan Experience episodes.</p>
-      
-      <!-- Element that opens the widget on click. It does not have to be an input -->
-      <input type="search" placeholder="e.g. Jiu Jitsu, Bears, Bees, Aliens" id="searchWidgetTrigger" />
+  <!-- Firebase App is required and must be listed first -->
+  <script defer src="/__/firebase/11.9.1/firebase-app-compat.js"></script>
 
-      <!-- Search widget element is not visible by default -->
-      <gen-search-widget
-        configId="5b33ea72-7b1e-46e3-8b0f-be1f35a618e4"
-        location="us"
-        triggerId="searchWidgetTrigger">
-      </gen-search-widget>
-    </main>
+  <script defer src="/__/firebase/init.js?useEmulator=true"></script>
 
-    <script>
-      document.addEventListener('DOMContentLoaded', async function() {
-        try {
-          let app = firebase.app();
-          const getAuthToken = firebase.functions().httpsCallable('getAuthToken');
-          const result = await getAuthToken();
-          const searchWidget = document.querySelector('gen-search-widget');
-          searchWidget.authToken = result.data.token;
-        } catch (e) {
-          console.error(e);
-          document.getElementById('load').textContent = 'Error loading the Firebase SDK, check the console.';
+  <style media="screen">
+    body {
+      font-family: "Pico", sans-serif;
+    }
+
+    main {
+      padding: 2rem;
+    }
+
+    #auth-container {
+      margin-bottom: 1rem;
+    }
+  </style>
+</head>
+
+<body>
+  <main class="container">
+    <h1>What would Joe Rogan say about...?</h1>
+    <p>Enter a topic to get a summary video and timestamp report from all Joe Rogan Experience episodes.</p>
+
+    <!-- Element that opens the widget on click. It does not have to be an input -->
+    <input type="search" placeholder="Authenticating, please wait..." id="searchWidgetTrigger" disabled />
+
+    <!-- Search widget element is not visible by default -->
+    <gen-search-widget configId="5b33ea72-7b1e-46e3-8b0f-be1f35a618e4" location="us" triggerId="searchWidgetTrigger">
+    </gen-search-widget>
+  </main>
+  <script>
+    const searchInput = document.getElementById('searchWidgetTrigger');
+    const searchWidget = document.querySelector('gen-search-widget');
+
+    // URL to your new Cloud Function that provides a service account token
+    const tokenFunctionUrl = 'https://us-central1-gen-lang-client-demo.cloudfunctions.net/getVertexAiToken';
+
+    fetch(tokenFunctionUrl)
+      .then(response => {
+        if (!response.ok) {
+          // Try to get more detailed error from the function response
+          return response.json().then(err => {
+            throw new Error(`Failed to fetch token: ${response.status} - ${err.error || 'Unknown error'}`);
+          });
         }
+        return response.json();
+      })
+      .then(data => {
+        if (data.accessToken) {
+          searchWidget.authToken = data.accessToken;
+          searchInput.disabled = false;
+          searchInput.placeholder = "e.g. Jiu Jitsu, Bears, Bees, Aliens";
+        } else {
+          console.error("Could not fetch access token from backend.", data.error || '');
+          searchInput.placeholder = "Authentication error. See console.";
+        }
+      })
+      .catch(error => {
+        console.error("Error fetching access token:", error);
+        searchInput.placeholder = "Could not authenticate. See console.";
       });
-    </script>
-  </body>
+  </script>
+</body>
+
 </html>
