@@ -66,10 +66,72 @@ This project has been implemented as a serverless web application using the Goog
 
 ---
 
-## 5. Recent Progress: YouTube Download Implementation
+## 5. Recent Progress: Python Migration and Firestore Fix
 
 **Date:** 2025-06-21
-**Status:** `BREAKTHROUGH - YouTube downloading working!`
+**Status:** `MIGRATION COMPLETE - Python Cloud Function Deployed!`
+
+### Major Architecture Change: Node.js → Python Migration
+
+**Decision:** Migrated video processing from Node.js Firebase Functions to Python Cloud Run Functions due to yt-dlp stability issues.
+
+**Why Python?**
+- yt-dlp's **official Python embedding API** is the most stable integration method
+- Better error handling and customization options
+- More reliable in containerized Cloud Run environments
+- No subprocess dependency issues
+
+**Implementation Completed:**
+1. **Python Cloud Function** - `/frontend-firebase/python-video-processor/main.py`
+2. **yt-dlp Python API Integration** - Using official `yt_dlp.YoutubeDL()` class
+3. **FFmpeg Processing** - Using `ffmpeg-python` for video segment processing
+4. **Google Cloud Integration** - Proper ADC authentication for Storage and Firestore
+5. **Pub/Sub Trigger** - `@functions_framework.cloud_event` for message processing
+
+**Deployment Status:**
+- ✅ Python Cloud Function successfully deployed with inline editor
+- ✅ Pub/Sub messages correctly triggering Python entry point
+- ✅ Payload parsing and job initiation working
+
+### Bug Fix: Firestore Database Configuration
+
+**Issue Identified:** 
+```
+ERROR: 404 The database (default) does not exist for project gen-lang-client-demo
+```
+
+**Root Cause:** Firestore client was using "(default)" database instead of "jre-clipper-db"
+
+**Solution Applied:**
+```python
+# Before (incorrect):
+firestore_client = firestore.Client(credentials=credentials, project=project_id)
+
+# After (fixed):
+firestore_client = firestore.Client(credentials=credentials, project=project_id, database=FIRESTORE_DB)
+```
+
+**Files Updated:**
+- `/frontend-firebase/python-video-processor/main.py` - Fixed Firestore client initialization
+- `/frontend-firebase/python-video-processor/requirements.txt` - Complete dependency list
+
+**Current Status:**
+- ✅ Firestore database name properly configured
+- ✅ All Google Cloud clients properly authenticated with ADC
+- ✅ Ready for full end-to-end testing
+
+**Next Steps:**
+1. Test complete video processing pipeline
+2. Verify GCS upload functionality  
+3. Validate job status updates in Firestore
+4. Update frontend to use new Python endpoints (if needed)
+
+---
+
+## 6. Previous Progress: YouTube Download Implementation (Node.js - Deprecated)
+
+**Date:** 2025-06-21
+**Status:** `DEPRECATED - Migrated to Python`
 
 ### Problem Solved: yt-dlp Integration Issues
 
@@ -95,14 +157,6 @@ This project has been implemented as a serverless web application using the Goog
 - ✅ Proper file detection and validation
 - ✅ Clean temporary directory management
 
-**Key Components Updated:**
-- `/frontend-firebase/functions/index.js` - Updated `downloadYouTubeVideo` function
-- `/frontend-firebase/functions/package.json` - Removed `youtube-dl-exec` dependency
-- `/frontend-firebase/functions/.gitignore` - Added patterns for test files and videos
-
-**Next Steps:**
-- Deploy updated Firebase Functions
-- End-to-end testing with full video processing pipeline
-- Production validation
+**Migration Reason:** While the Node.js solution worked locally, it still failed in Cloud Run/Firebase Functions due to missing yt-dlp binary. The Python embedding API eliminated this issue entirely.
 
 ---
