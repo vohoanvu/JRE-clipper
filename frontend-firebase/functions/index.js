@@ -19,27 +19,10 @@ const corsHandler = cors({
 const pubSubClient = new PubSub();
 const firestore = getFirestore('jre-clipper-db');
 
-// Multi-purpose function: handles both Vertex AI tokens AND job status requests
+// Multi-purpose function: handles Vertex AI tokens
 export const getVertexAiToken = onRequest(async (req, res) => {
     corsHandler(req, res, async () => {
         try {
-            // Check if this is a job status request
-            if (req.body && req.body.jobId) {
-                logger.info("Processing job status request");
-
-                const { jobId } = req.body;
-                const jobDoc = await firestore.collection("videoJobs").doc(jobId).get();
-
-                if (!jobDoc.exists) {
-                    return res.status(404).json({ error: "Job not found" });
-                }
-
-                const jobData = jobDoc.data();
-                logger.info(`Job status retrieved for ${jobId}: ${jobData.status}`);
-                return res.status(200).json({ jobData });
-            }
-
-            // Otherwise, handle Vertex AI token request
             logger.info("Attempting to get Vertex AI access token");
 
             const auth = new GoogleAuth({
@@ -62,13 +45,13 @@ export const getVertexAiToken = onRequest(async (req, res) => {
             res.status(200).json({ accessToken: accessToken.token });
 
         } catch (error) {
-            logger.error("Error in getVertexAiToken function:", {
+            logger.error("Error getting access token:", {
                 message: error.message,
                 stack: error.stack,
                 code: error.code
             });
             res.status(500).json({
-                error: "Could not process request",
+                error: "Could not generate access token",
                 details: error.message
             });
         }
@@ -119,10 +102,11 @@ export const initiateVideoJob = onCall({
     try {
         // Create a Firestore document to track the job status immediately
         await firestore.collection("videoJobs").doc(jobId).set({
+            videoId: segments[0].videoId,
             status: "Queued",
             createdAt: new Date().toISOString(),
             jobId: jobId,
-            videoTitle: segments[0]?.videoTitle || "Untitled",
+            videoTitle: segments[0].videoTitle || "Untitled",
             segmentCount: segments.length,
         });
         logger.info(`Job ${jobId} status set to Queued in Firestore with ${segments.length} segments.`);
@@ -152,4 +136,32 @@ export const initiateVideoJob = onCall({
             "An error occurred while queueing the job."
         );
     }
+});
+
+// Function to get job status for the frontend (HTTP endpoint)
+export const getJobStatus = onRequest(async (req, res) => {
+    corsHandler(req, res, async () => {
+        try {
+            logger.info("Received job status request");
+            
+            const { jobId } = req.body;
+            if (!jobId) {
+                return res.status(400).json({ error: "Job ID is required" });
+            }
+
+            const jobDoc = await firestore.collection("videoJobs").doc(jobId).get();
+            
+            if (!jobDoc.exists) {
+                return res.status(404).json({ error: "Job not found" });
+            }
+
+            const jobData = jobDoc.data();
+            logger.info(`Job status retrieved for ${jobId}: ${jobData.status}`);
+            res.status(200).json({ jobData });
+            
+        } catch (error) {
+            logger.error("Error getting job status:", error);
+            res.status(500).json({ error: "Internal server error" });
+        }
+    });
 });

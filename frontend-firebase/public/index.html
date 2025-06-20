@@ -53,7 +53,7 @@
     const searchResultsContainer = document.getElementById('search-results');
     const generateVideoButton = document.getElementById('generateVideoButton');
 
-    const tokenFunctionUrl = 'https://getvertexaitoken-bokxplfqhq-uc.a.run.app';
+    const tokenFunctionUrl = 'https://us-central1-gen-lang-client-demo.cloudfunctions.net/getVertexAiToken';
     const searchApiUrl = 'https://us-discoveryengine.googleapis.com/v1alpha/projects/408323719521/locations/us/collections/default_collection/engines/jreclipper_1750261043616/servingConfigs/default_search:search';
 
     let accessToken = null;
@@ -189,7 +189,7 @@
         const initiateVideoJob = firebase.functions().httpsCallable('initiateVideoJob');
         const payload = { segments: segments };
         console.log("Calling function with payload:", payload);
-        
+
         initiateVideoJob(payload)
           .then((result) => {
             const jobId = result.data.jobId;

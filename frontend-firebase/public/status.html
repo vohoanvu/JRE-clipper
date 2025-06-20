@@ -126,8 +126,8 @@
       function checkJobStatus(id) {
         console.log("Checking job status for:", id);
 
-        // Use the existing getVertexAiToken function URL but with jobId in body
-        fetch('https://us-central1-gen-lang-client-demo.cloudfunctions.net/getVertexAiToken', {
+        // Use the dedicated getJobStatus function endpoint
+        fetch('https://us-central1-gen-lang-client-demo.cloudfunctions.net/getJobStatus', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -136,14 +136,13 @@
         })
           .then(response => {
             if (!response.ok) {
-              throw new Error(`HTTP error! status: ${response.status}`);
+              return response.json().then(err => {
+                throw new Error(err.error || `HTTP ${response.status}`);
+              });
             }
             return response.json();
           })
           .then(data => {
-            if (data.error) {
-              throw new Error(data.error);
-            }
             console.log("Job status received:", data.jobData);
             updateUI(data.jobData);
 
@@ -158,7 +157,13 @@
           .catch(error => {
             console.error("Error getting job status:", error);
             jobStatus.textContent = 'Error';
-            errorMessage.textContent = `Job with ID ${id} not found.`;
+            
+            if (error.message.includes('Job not found')) {
+              errorMessage.textContent = `Job with ID ${id} not found.`;
+            } else {
+              errorMessage.textContent = `Could not connect to status updates: ${error.message}`;
+            }
+            
             errorContainer.style.display = 'block';
 
             // Stop polling on error
