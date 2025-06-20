@@ -77,3 +77,10 @@ utterence-embedding-results-3
 utterence-embedding-results-4
 utterence-embedding-results-1
 indexed-embeddings
+
+
+# Dependency directories
+node_modules/
+
+# Optional npm cache directory
+.npm
