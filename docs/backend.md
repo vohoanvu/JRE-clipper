@@ -979,7 +979,7 @@ This architecture minimizes custom code and eliminates the need to manage a cons
 
 ### **Phase 2: Create the Job Initiation Cloud Function**
 
-**Goal:** Create a lightweight, serverless endpoint to kick off the video generation process. We will use the .NET runtime for the Cloud Function.
+**Goal:** Create a lightweight, serverless endpoint to kick off the video generation process. We will use the Firebase NodeJS for the Cloud Function.
 
 1.  **Create the Cloud Function:**
     *   Go to the Google Cloud Console -> Cloud Functions.
@@ -988,11 +988,11 @@ This architecture minimizes custom code and eliminates the need to manage a cons
     *   **Function name:** `initiate-video-job`.
     *   **Region:** `us-central1`.
     *   **Trigger:** HTTP. Check "Allow unauthenticated invocations" for now (we can secure it later with App Check).
-    *   **Runtime:** .NET 8 (or your preferred version).
+    *   **Runtime:** Firebase NodeJS 22.
     *   **Source Code:** Select "Inline editor".
 
-2.  **Write the Cloud Function Code (C#):**
-    *   The Cloud Console provides a template. You will modify the main `Function.cs` file. This is the **only C# code** you need for this part of the workflow.
+2.  **Write the Cloud Function Code:**
+    *   The Cloud Console provides a template. You will modify the main `functions/index.js` file. This is the **only code** you need for this part of the workflow.
     *   The function will receive the search result data (videoId, startTime, endTime, etc.) in the HTTP request body.
     *   **Logic:**
         a.  Generate a new `JobId` (`Guid.NewGuid().ToString()`).

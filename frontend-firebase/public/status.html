@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Video Generation Status - JRE Clipper</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
+
+  <!-- Firebase App, Firestore, and Auth are required -->
+  <script defer src="/__/firebase/11.9.1/firebase-app-compat.js"></script>
+  <script defer src="/__/firebase/11.9.1/firebase-firestore-compat.js"></script>
+  <script defer src="/__/firebase/init.js?useEmulator=true"></script>
+
+  <style media="screen">
+    main {
+      padding: 2rem;
+      max-width: 800px;
+      margin: auto;
+    }
+    #status-container {
+      border: 1px solid #ccc;
+      padding: 2rem;
+      border-radius: 8px;
+    }
+    .progress-bar {
+        width: 100%;
+        background-color: #e0e0e0;
+        border-radius: 4px;
+        overflow: hidden;
+    }
+    .progress-bar-inner {
+        height: 20px;
+        width: 0%; /* Starts at 0% */
+        background-color: #4caf50;
+        text-align: center;
+        line-height: 20px;
+        color: white;
+        transition: width 0.5s ease-in-out;
+    }
+  </style>
+</head>
+
+<body>
+  <main class="container">
+    <a href="index.html">← Back to Search</a>
+    <h1>Video Generation Status</h1>
+
+    <div id="status-container">
+      <h5 id="job-id-display">Job ID: Loading...</h5>
+      <p><strong>Status:</strong> <span id="job-status">Initializing...</span></p>
+      <p id="video-title"><strong>Video Title:</strong> <span id="job-title-text"></span></p>
+      
+      <div id="progress-container" style="display: none;">
+        <p><strong>Progress:</strong></p>
+        <div class="progress-bar">
+            <div id="progress-bar-inner" class="progress-bar-inner">0%</div>
+        </div>
+        <p><small id="progress-message">Starting up...</small></p>
+      </div>
+
+      <div id="error-container" style="display: none; color: red;">
+        <p><strong>Error:</strong> <span id="error-message"></span></p>
+      </div>
+
+      <a id="download-button" href="#" role="button" class="contrast" style="display: none;">Download Video</a>
+    </div>
+
+  </main>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const jobIdDisplay = document.getElementById('job-id-display');
+      const jobStatus = document.getElementById('job-status');
+      const jobTitleText = document.getElementById('job-title-text');
+      const progressContainer = document.getElementById('progress-container');
+      const progressBarInner = document.getElementById('progress-bar-inner');
+      const progressMessage = document.getElementById('progress-message');
+      const errorContainer = document.getElementById('error-container');
+      const errorMessage = document.getElementById('error-message');
+      const downloadButton = document.getElementById('download-button');
+
+      let unsubscribe; // To hold the Firestore listener unsubscribe function
+
+      // 1. Get Job ID from URL
+      const params = new URLSearchParams(window.location.search);
+      const jobId = params.get('jobId');
+
+      if (jobId) {
+        jobIdDisplay.textContent = `Job ID: ${jobId}`;
+        listenForStatusChanges(jobId);
+      } else {
+        jobStatus.textContent = 'No Job ID provided in the URL.';
+        jobIdDisplay.textContent = 'Job ID: Not Found';
+      }
+
+      // 2. Listen for real-time updates from Firestore
+      function listenForStatusChanges(id) {
+        const db = firebase.firestore();
+        const jobRef = db.collection('videoJobs').doc(id);
+
+        unsubscribe = jobRef.onSnapshot((doc) => {
+          if (doc.exists) {
+            const data = doc.data();
+            updateUI(data);
+          } else {
+            jobStatus.textContent = 'Error';
+            errorMessage.textContent = `Job with ID ${id} not found.`;
+            errorContainer.style.display = 'block';
+            if (unsubscribe) unsubscribe(); // Stop listening
+          }
+        }, (error) => {
+          console.error("Error listening to job status:", error);
+          jobStatus.textContent = 'Error';
+          errorMessage.textContent = 'Could not connect to status updates.';
+          errorContainer.style.display = 'block';
+        });
+      }
+
+      // 3. Update the UI based on the data from Firestore
+      function updateUI(data) {
+        jobStatus.textContent = data.status || 'Unknown';
+        jobTitleText.textContent = data.videoTitle || 'N/A';
+
+        // Reset containers
+        progressContainer.style.display = 'none';
+        errorContainer.style.display = 'none';
+        downloadButton.style.display = 'none';
+
+        switch (data.status) {
+          case 'Processing':
+            progressContainer.style.display = 'block';
+            const progress = data.progress || 0;
+            progressBarInner.style.width = `${progress}%`;
+            progressBarInner.textContent = `${progress}%`;
+            progressMessage.textContent = data.progressMessage || 'Working...';
+            break;
+          
+          case 'Complete':
+            jobStatus.innerHTML = '✅ Complete';
+            if (data.videoUrl) {
+              downloadButton.href = data.videoUrl;
+              downloadButton.style.display = 'block';
+            } else {
+                errorMessage.textContent = 'Processing is complete, but the video URL is missing.';
+                errorContainer.style.display = 'block';
+            }
+            if (unsubscribe) unsubscribe(); // Stop listening once complete
+            break;
+
+          case 'Failed':
+            jobStatus.innerHTML = '❌ Failed';
+            errorMessage.textContent = data.error || 'An unknown error occurred.';
+            errorContainer.style.display = 'block';
+            if (unsubscribe) unsubscribe(); // Stop listening on failure
+            break;
+
+          case 'Queued':
+            // Initial state, no progress bar needed yet
+            break;
+        }
+      }
+
+      // Stop listening when the user navigates away
+      window.addEventListener('beforeunload', () => {
+        if (unsubscribe) {
+          unsubscribe();
+        }
+      });
+    });
+  </script>
+</body>
+
+</html>

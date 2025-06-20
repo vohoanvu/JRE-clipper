@@ -1,0 +1,194 @@
+vohoanvu@VoHoanVus-MacBook-Pro frontend-firebase % curl -X POST -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+-H "Content-Type: application/json" \
+"https://us-discoveryengine.googleapis.com/v1alpha/projects/408323719521/locations/us/collections/default_collection/engines/jreclipper_1750261043616/servingConfigs/default_search:search" \
+-d '{"query":"Artificial Intelligence and its connection to Ancient Civilization and Aliens","pageSize":10,"queryExpansionSpec":{"condition":"AUTO"},"spellCorrectionSpec":{"mode":"AUTO"},"languageCode":"en-US","userInfo":{"timeZone":"Asia/Saigon"}}'
+{
+  "results": [
+    {
+      "id": "deba172880fa9c1324b73ce80f428153",
+      "document": {
+        "name": "projects/408323719521/locations/us/collections/default_collection/dataStores/jre-transcriptions_1750261216656/branches/0/documents/deba172880fa9c1324b73ce80f428153",
+        "id": "deba172880fa9c1324b73ce80f428153",
+        "structData": {
+          "id": "ZFarwiXKSng_6237_6269",
+          "structData": {
+            "videoTitle": "Joe Rogan Experience #1915 - Brian Simpson",
+            "videoId": "ZFarwiXKSng",
+            "endTime": 6269,
+            "startTime": 6237,
+            "channelName": "PowerfulJRE"
+          },
+          "content": "think that a curious alien would want to look at a species that's on the verge of changing what type of civilization it is they're becoming integrated with technology and computers artificial intelligence is ready to to emerge Gene editing is a real thing that's being practiced right now and in levels that we probably aren't even aware of this is just we know that one story because one guy got busted and he went to jail but we know they did it okay so how many of them did they do that they didn't tell us about maybe they decided like maybe it'd be better if we just shut the [ __ ] up see I feel like I feel like every every time I'm on here we talk about the"
+        }
+      }
+    },
+    {
+      "id": "ed23ee0c99be9cb869d805051a37a09d",
+      "document": {
+        "name": "projects/408323719521/locations/us/collections/default_collection/dataStores/jre-transcriptions_1750261216656/branches/0/documents/ed23ee0c99be9cb869d805051a37a09d",
+        "id": "ed23ee0c99be9cb869d805051a37a09d",
+        "structData": {
+          "structData": {
+            "startTime": 1340,
+            "videoTitle": "Joe Rogan Experience #125 - Giorgio A. Tsoukalos, Eddie Bravo",
+            "endTime": 1370,
+            "channelName": "PowerfulJRE",
+            "videoId": "OfkKlekmIBo"
+          },
+          "id": "OfkKlekmIBo_1340_1370",
+          "content": "the possibilities are there's two in my opinion there's his idea that we've been visited by Ancient Aliens and then there's the the idea that Civilization has been restarted several times and that is that there's some sort of a cataclysmic event that's killed almost everybody except for a small amount of stragglers and they regrouped and rebuilt and rethought things out and that's one of the reasons why things come so quickly and technology is moving so fast and as your mom said or it was your grandmother whoever it was that we are relearning we've done this before that is possible and it can also be a combination of both you see that that's"
+        }
+      }
+    },
+    {
+      "id": "4b6fbd32563d0177ac42d8293b8f7613",
+      "document": {
+        "name": "projects/408323719521/locations/us/collections/default_collection/dataStores/jre-transcriptions_1750261216656/branches/0/documents/4b6fbd32563d0177ac42d8293b8f7613",
+        "id": "4b6fbd32563d0177ac42d8293b8f7613",
+        "structData": {
+          "id": "HDgQBk1wl3M_5357_5387",
+          "content": "there's another argument from the seti people is that if we encounter aliens they're probably not going to be biological right but they've moved past that yeah yeah well that's the the fear of artificial intelligence right the fear of artificial intelligence that has become sentient and it has no use for us yeah that's an interesting thing let's think about that for a second because when you say well they the AAA will want to conquerors or want to control us wanting is a human emotion yes why would a computer have wants yes that's a really good point like why would it have desires and needs and all those are based on biological needs like the these",
+          "structData": {
+            "channelName": "PowerfulJRE",
+            "videoTitle": "Joe Rogan Experience #1888 - Michael Shermer",
+            "startTime": 5357,
+            "endTime": 5387,
+            "videoId": "HDgQBk1wl3M"
+          }
+        }
+      }
+    },
+    {
+      "id": "a7c243fe609ee1d364ff4c0ace539b48",
+      "document": {
+        "name": "projects/408323719521/locations/us/collections/default_collection/dataStores/jre-transcriptions_1750261216656/branches/0/documents/a7c243fe609ee1d364ff4c0ace539b48",
+        "id": "a7c243fe609ee1d364ff4c0ace539b48",
+        "structData": {
+          "structData": {
+            "videoTitle": "Joe Rogan Experience #1888 - Michael Shermer",
+            "channelName": "PowerfulJRE",
+            "startTime": 5429,
+            "endTime": 5460,
+            "videoId": "HDgQBk1wl3M"
+          },
+          "content": "artificial intelligence was really far more intelligent than us why would it even talk to us right why wouldn't it just exist right this is my argument for why I don't fear making contact with extraterrestrial this is the argument that we shouldn't try to communicate with them or send signals out because look what happened historically when an advanced civilization came in contact with a less Advanced civilization they enslaved him or genocide or so on but I don't think you could get to the point where you're you have a Interstellar civilization and you have Dyson spheres and you have massive super advanced technology and so on and and still be you know Colonials enslaving people",
+          "id": "HDgQBk1wl3M_5429_5460"
+        }
+      }
+    },
+    {
+      "id": "80de90b0dcfaf39f219f5289a8b4077e",
+      "document": {
+        "name": "projects/408323719521/locations/us/collections/default_collection/dataStores/jre-transcriptions_1750261216656/branches/0/documents/80de90b0dcfaf39f219f5289a8b4077e",
+        "id": "80de90b0dcfaf39f219f5289a8b4077e",
+        "structData": {
+          "structData": {
+            "videoTitle": "Joe Rogan Experience #1963 - Michael Shellenberger",
+            "videoId": "7WK4sRwHg9Y",
+            "startTime": 4787,
+            "channelName": "PowerfulJRE",
+            "endTime": 4820
+          },
+          "id": "7WK4sRwHg9Y_4787_4820",
+          "content": "of civilization the coinciding of artificial intelligence at least seemingly becoming Fair sentient like I don't know what the [ __ ] is going on but that I know that one Google uh engineer who said that that AI had become sentient quite a while ago and everyone's dismissing him like oh no no no my friend Duncan Trussell uh interviewed him and it's a goddamn terrifying interview when you you hear this guy's not a Nutter he's he's a little nuts all Engineers are little nuts but he's he's essentially saying like hey I'm pretty sure this thing's alive and when do you get to deci side that it is alive if it can answer every"
+        }
+      }
+    },
+    {
+      "id": "353553304f7cdf745518e2b6f05cdcc8",
+      "document": {
+        "name": "projects/408323719521/locations/us/collections/default_collection/dataStores/jre-transcriptions_1750261216656/branches/0/documents/353553304f7cdf745518e2b6f05cdcc8",
+        "id": "353553304f7cdf745518e2b6f05cdcc8",
+        "structData": {
+          "structData": {
+            "channelName": "PowerfulJRE",
+            "videoTitle": "Joe Rogan Experience #1645 - Christopher Mellon",
+            "endTime": 1284,
+            "videoId": "h8vjx6-ZFvI",
+            "startTime": 1253
+          },
+          "content": "could get closer to the Target Etc there's all kinds of advantages including energy and it would be easy for a civilization uh more advanced than ours we're getting on the cusp of this ourselves to create using artificial intelligence probes that were self-sufficient launch them out in whatever numbers let them go see what they find and report back and that's that's entirely plausible there's no scientific reason for thinking that that couldn't happen moreover if even one space fairing Society started to expand outward as we are are in our",
+          "id": "h8vjx6-ZFvI_1253_1284"
+        }
+      }
+    },
+    {
+      "id": "9a0bb0a9ae399c062fa4041d58459ea6",
+      "document": {
+        "name": "projects/408323719521/locations/us/collections/default_collection/dataStores/jre-transcriptions_1750261216656/branches/0/documents/9a0bb0a9ae399c062fa4041d58459ea6",
+        "id": "9a0bb0a9ae399c062fa4041d58459ea6",
+        "structData": {
+          "content": "and we managed to avoid creating some sort of artificial intelligence because we got hit with a solar flare that killed the [ __ ] power grid or something like that and then we got wiser as a civilization then we got to a place where we could travel and we traveled to another planet and we got there and there was robots just robots no humans no humans and they were just running around aimlessly because they had killed off all the biological life and they're just sitting there operating on the sun with nothing to do and no purpose and no reason to exist and like what happened these crazy monkeys that lived on this planet they decided to for an experiment make an artificial intelligence and just let it",
+          "id": "3Dp4RrpbWqo_8112_8145",
+          "structData": {
+            "endTime": 8145,
+            "videoId": "3Dp4RrpbWqo",
+            "videoTitle": "Joe Rogan Experience #1293 - Andrew Santino",
+            "startTime": 8112,
+            "channelName": "PowerfulJRE"
+          }
+        }
+      }
+    },
+    {
+      "id": "272d213dba597ca5619bae173adc4ce6",
+      "document": {
+        "name": "projects/408323719521/locations/us/collections/default_collection/dataStores/jre-transcriptions_1750261216656/branches/0/documents/272d213dba597ca5619bae173adc4ce6",
+        "id": "272d213dba597ca5619bae173adc4ce6",
+        "structData": {
+          "structData": {
+            "startTime": 7596,
+            "videoTitle": "Joe Rogan Experience #1742 - Jimmy Corsetti",
+            "videoId": "l_Y3tUZRvOE",
+            "channelName": "PowerfulJRE",
+            "endTime": 7631
+          },
+          "content": "destruction of mankind and it's very specifically says this is the reason why we don't know our ancient past and i find it interesting that the central intelligence agency was discussing this they probably had some sort of inkling that some of the stories from ancient civilizations about cataclysmics cataclysm cataclysmic disasters probably had some merit to them right and they were probably trying to protect us or at least protect the president put them in a bunker yeah you want to hear something fun i'm going to do i was going to keep it to myself but i keep pushing it off so maybe the internet will help us do it i want to fi well i've already looked into it briefly and was really complicated because it's hard it doesn't fall into any other categories but i want to do a freedom of information act",
+          "id": "l_Y3tUZRvOE_7596_7631"
+        }
+      }
+    },
+    {
+      "id": "01be61e53799d44558bdb1e4d750f0bf",
+      "document": {
+        "name": "projects/408323719521/locations/us/collections/default_collection/dataStores/jre-transcriptions_1750261216656/branches/0/documents/01be61e53799d44558bdb1e4d750f0bf",
+        "id": "01be61e53799d44558bdb1e4d750f0bf",
+        "structData": {
+          "id": "ZGYcAuVR7Bc_9674_9708",
+          "structData": {
+            "videoId": "ZGYcAuVR7Bc",
+            "startTime": 9674,
+            "endTime": 9708,
+            "videoTitle": "Joe Rogan Experience #2015 - Zach Bryan",
+            "channelName": "PowerfulJRE"
+          },
+          "content": "it and every the internet's weird it's all weird but so is this artificial intelligence thing that we're talking about and then this UFO thing like why is that why is that like in the mainstream discussion so frequently today you think it's a distraction from something I don't know man dude aliens are real right I I that was decided I well listen I don't know but I think it's very unlikely that we are the only Consciousness in the universe the only intelligent conscious communicating being other than like whales and orcas so if that's the case case so if there are things out there it's very likely there's going to be many more than we"
+        }
+      }
+    },
+    {
+      "id": "f6716b434313804cdd2a4459ab3b1775",
+      "document": {
+        "name": "projects/408323719521/locations/us/collections/default_collection/dataStores/jre-transcriptions_1750261216656/branches/0/documents/f6716b434313804cdd2a4459ab3b1775",
+        "id": "f6716b434313804cdd2a4459ab3b1775",
+        "structData": {
+          "content": "interf the the the the alien creature interfaces with this machine biologically or through some sort ofur they might not even be human at that point in time they might be like well we're going to be some sort of a a combination of artificial intelligence and biology or or or strictly artificial intelligence at this point and these things interact with this craft and that's how it moves there's no like buttons you switch like alien and [ __ ] joysticks like the Millennium Falcon there's none of that [ __ ] it's all done with the creature so he gets into this thing first of all he realizes there's no seams it doesn't make any",
+          "structData": {
+            "endTime": 4591,
+            "startTime": 4561,
+            "videoTitle": "Joe Rogan Experience #2132 - Andrew Schulz",
+            "videoId": "B75H_HkJQvE",
+            "channelName": "PowerfulJRE"
+          },
+          "id": "B75H_HkJQvE_4561_4591"
+        }
+      }
+    }
+  ],
+  "totalSize": 1009,
+  "attributionToken": "qwL0KgEKCwisptXCBhC29IQBEiQ2ODU2MDlmMS0wMDAwLTIyNDItYTdhMi1mYzQxMTY3M2JlMDEiB0dFTkVSSUMqVI6RyTDUv-IwqLWcMfHr6TG3t4wtxsvzF5LxrDCV8awwlZLFMKu1nDGs1qExo4CXIo6-nRXUsp0VwvCeFa_WoTGY1rct7uvpMZD3sjDPv-Iwm9a3LTABShIweDE0MDBmYjliOTI2M2M3MTBSgAFwcm9qZWN0cy80MDgzMjM3MTk1MjEvbG9jYXRpb25zL3VzL2NvbGxlY3Rpb25zL2RlZmF1bHRfY29sbGVjdGlvbi9lbmdpbmVzL2pyZWNsaXBwZXJfMTc1MDI2MTA0MzYxNi9zZXJ2aW5nQ29uZmlncy9kZWZhdWx0X3NlYXJjaA",
+  "nextPageToken": "QMwUmYzcjNxEDNjZWLyE2Nh1iM0IjMtADMwATLwYWOwYTN4YDJa4kkRvPEGIc5PyKCLIBMxIgC",
+  "guidedSearchResult": {},
+  "summary": {},
+  "queryExpansionInfo": {}
+}

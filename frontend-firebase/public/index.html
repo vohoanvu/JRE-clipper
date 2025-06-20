@@ -10,6 +10,7 @@
 
   <!-- Firebase App is required and must be listed first -->
   <script defer src="/__/firebase/11.9.1/firebase-app-compat.js"></script>
+  <script defer src="/__/firebase/11.9.1/firebase-functions-compat.js"></script>
 
   <script defer src="/__/firebase/init.js?useEmulator=true"></script>
 
@@ -33,44 +34,162 @@
     <h1>What would Joe Rogan say about...?</h1>
     <p>Enter a topic to get a summary video and timestamp report from all Joe Rogan Experience episodes.</p>
 
-    <!-- Element that opens the widget on click. It does not have to be an input -->
-    <input type="search" placeholder="Authenticating, please wait..." id="searchWidgetTrigger" disabled />
+    <!-- The search input field and buttons -->
+    <div style="display: flex; gap: 1rem;"></div>
+    <input type="search" placeholder="Authenticating, please wait..." id="searchInput" style="margin: 0;" disabled />
+    <button id="searchButton" style="margin: 0;" disabled>Search</button>
+    </div>
 
-    <!-- Search widget element is not visible by default -->
-    <gen-search-widget configId="5b33ea72-7b1e-46e3-8b0f-be1f35a618e4" location="us" triggerId="searchWidgetTrigger">
-    </gen-search-widget>
+    <!-- Container for search results -->
+    <div id="search-results" style="margin-top: 2rem;"></div>
+
+    <!-- Generate Video Button (hidden by default) -->
+    <button id="generateVideoButton" style="display: none; margin-top: 1rem;">Generate Video</button>
+
   </main>
   <script>
-    const searchInput = document.getElementById('searchWidgetTrigger');
-    const searchWidget = document.querySelector('gen-search-widget');
+    const searchInput = document.getElementById('searchInput');
+    const searchButton = document.getElementById('searchButton');
+    const searchResultsContainer = document.getElementById('search-results');
+    const generateVideoButton = document.getElementById('generateVideoButton');
 
-    // URL to your new Cloud Function that provides a service account token
     const tokenFunctionUrl = 'https://us-central1-gen-lang-client-demo.cloudfunctions.net/getVertexAiToken';
+    const searchApiUrl = 'https://us-discoveryengine.googleapis.com/v1alpha/projects/408323719521/locations/us/collections/default_collection/engines/jreclipper_1750261043616/servingConfigs/default_search:search';
 
+    let accessToken = null;
+    let lastSearchResults = []; // Store the full search results
+
+    // --- 1. AUTHENTICATION ---
     fetch(tokenFunctionUrl)
       .then(response => {
-        if (!response.ok) {
-          // Try to get more detailed error from the function response
-          return response.json().then(err => {
-            throw new Error(`Failed to fetch token: ${response.status} - ${err.error || 'Unknown error'}`);
-          });
-        }
+        if (!response.ok) { return response.json().then(err => { throw new Error(`Auth Error: ${err.error || 'Unknown'}`); }); }
         return response.json();
       })
       .then(data => {
         if (data.accessToken) {
-          searchWidget.authToken = data.accessToken;
+          accessToken = data.accessToken;
           searchInput.disabled = false;
+          searchButton.disabled = false;
           searchInput.placeholder = "e.g. Jiu Jitsu, Bears, Bees, Aliens";
         } else {
-          console.error("Could not fetch access token from backend.", data.error || '');
           searchInput.placeholder = "Authentication error. See console.";
+          console.error("Could not fetch access token from backend.", data.error || '');
         }
       })
       .catch(error => {
-        console.error("Error fetching access token:", error);
         searchInput.placeholder = "Could not authenticate. See console.";
+        console.error("Error fetching access token:", error);
       });
+
+    // --- 2. SEARCH EVENT HANDLING ---
+    searchButton.addEventListener('click', () => {
+      const query = searchInput.value.trim();
+      if (query) performSearch(query);
+    });
+
+    searchInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        const query = searchInput.value.trim();
+        if (query) performSearch(query);
+      }
+    });
+
+    // --- 3. PERFORM SEARCH ---
+    function performSearch(query) {
+      if (!accessToken) { console.error("Cannot search: Not authenticated."); return; }
+
+      searchInput.placeholder = "Searching...";
+      searchButton.setAttribute('aria-busy', 'true');
+      generateVideoButton.style.display = 'none'; // Hide button during new search
+      searchResultsContainer.innerHTML = '';
+
+      fetch(searchApiUrl, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: query, pageSize: 10, queryExpansionSpec: { condition: "AUTO" }, spellCorrectionSpec: { mode: "AUTO" }, languageCode: "en-US" })
+      })
+        .then(response => {
+          if (!response.ok) { return response.json().then(err => { throw new Error(`API Error: ${err.error.message}`); }); }
+          return response.json();
+        })
+        .then(data => {
+          lastSearchResults = data.results || []; // Save full results
+          displayResults(lastSearchResults);
+          if (lastSearchResults.length > 0) {
+            generateVideoButton.style.display = 'block'; // Show button on success
+          }
+        })
+        .catch(error => {
+          console.error('Search failed:', error);
+          searchResultsContainer.innerHTML = `<p style="color: red;">Search failed: ${error.message}</p>`;
+        })
+        .finally(() => {
+          searchInput.placeholder = "e.g. Jiu Jitsu, Bears, Bees, Aliens";
+          searchButton.removeAttribute('aria-busy');
+        });
+    }
+
+    // --- 4. DISPLAY RESULTS ---
+    function displayResults(results) {
+      if (results.length === 0) {
+        searchResultsContainer.innerHTML = '<p>No results found.</p>';
+        return;
+      }
+
+      const uniqueTitles = [...new Set(results.map(item => item.document.structData.structData.videoTitle))];
+
+      let html = '<h5>JRE and his guest talked about this in these episodes:</h5><ul>';
+      uniqueTitles.forEach(title => {
+        html += `<li>${title}</li>`;
+      });
+      html += '</ul>';
+      searchResultsContainer.innerHTML = html;
+    }
+
+    // --- 5. JOB INITIATION ---
+    generateVideoButton.addEventListener('click', initiateJob);
+
+    function initiateJob() {
+      if (lastSearchResults.length === 0) {
+        alert("No search results available to generate a video from.");
+        return;
+      }
+
+      generateVideoButton.setAttribute('aria-busy', 'true');
+      generateVideoButton.textContent = 'Initiating...';
+
+      // Extract all relevant segment data from the search results
+      const segments = lastSearchResults.map(item => {
+        const data = item.document.structData.structData;
+        // Extract start and end times from id (format: "videoId_startTime_endTime")
+        const idParts = data.id ? data.id.split('_') : [];
+        let startTime = idParts.length >= 2 ? parseInt(idParts[1]) : data.startTime;
+        let endTime = idParts.length >= 3 ? parseInt(idParts[2]) : data.endTime;
+        return {
+          videoId: data.videoId,
+          startTimeSeconds: startTime,
+          endTimeSeconds: endTime,
+          videoTitle: data.videoTitle,
+          segmentText: item.document.structData.content
+        };
+      });
+
+      const initiateVideoJob = firebase.functions().httpsCallable('initiateVideoJob');
+      initiateVideoJob({ segments: segments })
+        .then((result) => {
+          const jobId = result.data.jobId;
+          console.log("Job initiated successfully. Job ID:", jobId);
+          localStorage.setItem('latestJobId', jobId);
+          window.location.href = `status.html?jobId=${jobId}`;
+        })
+        .catch((error) => {
+          console.error("Error initiating job:", error);
+          alert(`Failed to start video generation: ${error.message}`);
+          generateVideoButton.removeAttribute('aria-busy');
+          generateVideoButton.textContent = 'Generate Video';
+        });
+    }
+
   </script>
 </body>
 
