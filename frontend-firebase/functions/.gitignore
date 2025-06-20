@@ -1,0 +1,22 @@
+# Firebase Functions specific ignores
+node_modules/
+npm-debug.log
+firebase-debug.log
+firebase-debug.*.log
+
+# Runtime files
+.env
+.env.local
+
+# yt-dlp binary (will be downloaded during setup)
+bin/yt-dlp
+
+# Temporary directories
+tmp/
+
+# Test files and downloaded videos
+test-*.js
+*.mp4
+*.mkv
+*.webm
+*.m4a
