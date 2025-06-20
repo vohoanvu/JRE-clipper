@@ -12,7 +12,7 @@
   <script defer src="/__/firebase/11.9.1/firebase-app-compat.js"></script>
   <script defer src="/__/firebase/11.9.1/firebase-functions-compat.js"></script>
 
-  <script defer src="/__/firebase/init.js?useEmulator=true"></script>
+  <script defer src="/__/firebase/init.js"></script>
 
   <style media="screen">
     body {
@@ -174,20 +174,44 @@
         };
       });
 
-      const initiateVideoJob = firebase.functions().httpsCallable('initiateVideoJob');
-      initiateVideoJob({ segments: segments })
-        .then((result) => {
-          const jobId = result.data.jobId;
-          console.log("Job initiated successfully. Job ID:", jobId);
-          localStorage.setItem('latestJobId', jobId);
-          window.location.href = `status.html?jobId=${jobId}`;
-        })
-        .catch((error) => {
-          console.error("Error initiating job:", error);
-          alert(`Failed to start video generation: ${error.message}`);
-          generateVideoButton.removeAttribute('aria-busy');
-          generateVideoButton.textContent = 'Generate Video';
-        });
+      console.log("Preparing to call initiateVideoJob with segments:", segments);
+
+      // Wait for Firebase to be ready
+      if (typeof firebase === 'undefined') {
+        console.error("Firebase is not loaded");
+        alert("Firebase is not ready. Please refresh the page.");
+        generateVideoButton.removeAttribute('aria-busy');
+        generateVideoButton.textContent = 'Generate Video';
+        return;
+      }
+
+      try {
+        const initiateVideoJob = firebase.functions().httpsCallable('initiateVideoJob');
+        const payload = { segments: segments };
+        console.log("Calling function with payload:", payload);
+        
+        initiateVideoJob(payload)
+          .then((result) => {
+            const jobId = result.data.jobId;
+            console.log("Job initiated successfully. Job ID:", jobId);
+            localStorage.setItem('latestJobId', jobId);
+            window.location.href = `status.html?jobId=${jobId}`;
+          })
+          .catch((error) => {
+            console.error("Error initiating job:", error);
+            console.error("Error code:", error.code);
+            console.error("Error message:", error.message);
+            console.error("Error details:", error.details);
+            alert(`Failed to start video generation: ${error.message}`);
+            generateVideoButton.removeAttribute('aria-busy');
+            generateVideoButton.textContent = 'Generate Video';
+          });
+      } catch (error) {
+        console.error("Error setting up function call:", error);
+        alert(`Failed to initialize video generation: ${error.message}`);
+        generateVideoButton.removeAttribute('aria-busy');
+        generateVideoButton.textContent = 'Generate Video';
+      }
     }
 
   </script>

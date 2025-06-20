@@ -7,36 +7,48 @@
   <title>Video Generation Status - JRE Clipper</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
 
-  <!-- Firebase App, Firestore, and Auth are required -->
-  <script defer src="/__/firebase/11.9.1/firebase-app-compat.js"></script>
-  <script defer src="/__/firebase/11.9.1/firebase-firestore-compat.js"></script>
-  <script defer src="/__/firebase/init.js?useEmulator=true"></script>
-
   <style media="screen">
     main {
       padding: 2rem;
       max-width: 800px;
       margin: auto;
     }
+
     #status-container {
       border: 1px solid #ccc;
       padding: 2rem;
       border-radius: 8px;
     }
+
     .progress-bar {
-        width: 100%;
-        background-color: #e0e0e0;
-        border-radius: 4px;
-        overflow: hidden;
+      width: 100%;
+      background-color: #e0e0e0;
+      border-radius: 4px;
+      overflow: hidden;
     }
+
     .progress-bar-inner {
-        height: 20px;
-        width: 0%; /* Starts at 0% */
-        background-color: #4caf50;
-        text-align: center;
-        line-height: 20px;
-        color: white;
-        transition: width 0.5s ease-in-out;
+      height: 20px;
+      width: 0%;
+      /* Starts at 0% */
+      background-color: #4caf50;
+      text-align: center;
+      line-height: 20px;
+      color: white;
+    }
+
+    .error-container {
+      background-color: #ffebee;
+      border: 1px solid #f44336;
+      padding: 1rem;
+      border-radius: 4px;
+      margin-top: 1rem;
+      display: none;
+    }
+
+    .download-container {
+      margin-top: 2rem;
+      display: none;
     }
   </style>
 </head>
@@ -47,23 +59,30 @@
     <h1>Video Generation Status</h1>
 
     <div id="status-container">
-      <h5 id="job-id-display">Job ID: Loading...</h5>
+      <p><strong id="job-id-display">Job ID: Loading...</strong></p>
       <p><strong>Status:</strong> <span id="job-status">Initializing...</span></p>
-      <p id="video-title"><strong>Video Title:</strong> <span id="job-title-text"></span></p>
-      
+      <p><strong>Video Title:</strong> <span id="job-title-text">Loading...</span></p>
+
+      <!-- Progress Bar -->
       <div id="progress-container" style="display: none;">
         <p><strong>Progress:</strong></p>
         <div class="progress-bar">
-            <div id="progress-bar-inner" class="progress-bar-inner">0%</div>
+          <div class="progress-bar-inner" id="progress-bar-inner">0%</div>
         </div>
-        <p><small id="progress-message">Starting up...</small></p>
+        <p id="progress-message">Preparing...</p>
       </div>
 
-      <div id="error-container" style="display: none; color: red;">
-        <p><strong>Error:</strong> <span id="error-message"></span></p>
+      <!-- Error Container -->
+      <div class="error-container" id="error-container">
+        <h3>Error</h3>
+        <p id="error-message"></p>
       </div>
 
-      <a id="download-button" href="#" role="button" class="contrast" style="display: none;">Download Video</a>
+      <!-- Download Container -->
+      <div class="download-container" id="download-container">
+        <h3>Video Ready!</h3>
+        <button id="download-button" onclick="downloadVideo()">Download Video</button>
+      </div>
     </div>
 
   </main>
@@ -77,9 +96,7 @@
       const progressMessage = document.getElementById('progress-message');
       const errorContainer = document.getElementById('error-container');
       const errorMessage = document.getElementById('error-message');
-      const downloadButton = document.getElementById('download-button');
-
-      let unsubscribe; // To hold the Firestore listener unsubscribe function
+      const downloadContainer = document.getElementById('download-container');
 
       // 1. Get Job ID from URL
       const params = new URLSearchParams(window.location.search);
@@ -93,79 +110,101 @@
         jobIdDisplay.textContent = 'Job ID: Not Found';
       }
 
-      // 2. Listen for real-time updates from Firestore
+      // 2. Poll for status updates using the existing Cloud Function
       function listenForStatusChanges(id) {
-        const db = firebase.firestore();
-        const jobRef = db.collection('videoJobs').doc(id);
+        console.log("Setting up status polling for job:", id);
 
-        unsubscribe = jobRef.onSnapshot((doc) => {
-          if (doc.exists) {
-            const data = doc.data();
-            updateUI(data);
-          } else {
+        // Initial check
+        checkJobStatus(id);
+
+        // Poll every 3 seconds
+        window.pollInterval = setInterval(() => {
+          checkJobStatus(id);
+        }, 3000);
+      }
+
+      function checkJobStatus(id) {
+        console.log("Checking job status for:", id);
+
+        // Use the existing getVertexAiToken function URL but with jobId in body
+        fetch('https://us-central1-gen-lang-client-demo.cloudfunctions.net/getVertexAiToken', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ jobId: id })
+        })
+          .then(response => {
+            if (!response.ok) {
+              throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.json();
+          })
+          .then(data => {
+            if (data.error) {
+              throw new Error(data.error);
+            }
+            console.log("Job status received:", data.jobData);
+            updateUI(data.jobData);
+
+            // Stop polling if job is complete or failed
+            if (data.jobData.status === 'Complete' || data.jobData.status === 'Failed') {
+              if (window.pollInterval) {
+                clearInterval(window.pollInterval);
+                window.pollInterval = null;
+              }
+            }
+          })
+          .catch(error => {
+            console.error("Error getting job status:", error);
             jobStatus.textContent = 'Error';
             errorMessage.textContent = `Job with ID ${id} not found.`;
             errorContainer.style.display = 'block';
-            if (unsubscribe) unsubscribe(); // Stop listening
-          }
-        }, (error) => {
-          console.error("Error listening to job status:", error);
-          jobStatus.textContent = 'Error';
-          errorMessage.textContent = 'Could not connect to status updates.';
-          errorContainer.style.display = 'block';
-        });
-      }
 
-      // 3. Update the UI based on the data from Firestore
-      function updateUI(data) {
-        jobStatus.textContent = data.status || 'Unknown';
-        jobTitleText.textContent = data.videoTitle || 'N/A';
-
-        // Reset containers
-        progressContainer.style.display = 'none';
-        errorContainer.style.display = 'none';
-        downloadButton.style.display = 'none';
-
-        switch (data.status) {
-          case 'Processing':
-            progressContainer.style.display = 'block';
-            const progress = data.progress || 0;
-            progressBarInner.style.width = `${progress}%`;
-            progressBarInner.textContent = `${progress}%`;
-            progressMessage.textContent = data.progressMessage || 'Working...';
-            break;
-          
-          case 'Complete':
-            jobStatus.innerHTML = '✅ Complete';
-            if (data.videoUrl) {
-              downloadButton.href = data.videoUrl;
-              downloadButton.style.display = 'block';
-            } else {
-                errorMessage.textContent = 'Processing is complete, but the video URL is missing.';
-                errorContainer.style.display = 'block';
+            // Stop polling on error
+            if (window.pollInterval) {
+              clearInterval(window.pollInterval);
+              window.pollInterval = null;
             }
-            if (unsubscribe) unsubscribe(); // Stop listening once complete
-            break;
+          });
+      }
 
-          case 'Failed':
-            jobStatus.innerHTML = '❌ Failed';
-            errorMessage.textContent = data.error || 'An unknown error occurred.';
-            errorContainer.style.display = 'block';
-            if (unsubscribe) unsubscribe(); // Stop listening on failure
-            break;
+      function updateUI(jobData) {
+        jobStatus.textContent = jobData.status || 'Unknown';
+        jobTitleText.textContent = jobData.videoTitle || 'Unknown';
 
-          case 'Queued':
-            // Initial state, no progress bar needed yet
-            break;
+        // Handle different statuses
+        if (jobData.status === 'Queued') {
+          progressContainer.style.display = 'block';
+          progressBarInner.style.width = '10%';
+          progressBarInner.textContent = '10%';
+          progressMessage.textContent = 'Job queued, waiting to start...';
+        } else if (jobData.status === 'Processing') {
+          progressContainer.style.display = 'block';
+          const progress = jobData.progress || 50;
+          progressBarInner.style.width = progress + '%';
+          progressBarInner.textContent = progress + '%';
+          progressMessage.textContent = jobData.progressMessage || 'Processing video segments...';
+        } else if (jobData.status === 'Complete') {
+          progressContainer.style.display = 'block';
+          progressBarInner.style.width = '100%';
+          progressBarInner.textContent = '100%';
+          progressMessage.textContent = 'Video generation complete!';
+
+          if (jobData.finalVideoUrl) {
+            downloadContainer.style.display = 'block';
+          }
+        } else if (jobData.status === 'Failed') {
+          errorContainer.style.display = 'block';
+          errorMessage.textContent = jobData.error || 'Unknown error occurred.';
         }
       }
 
-      // Stop listening when the user navigates away
-      window.addEventListener('beforeunload', () => {
-        if (unsubscribe) {
-          unsubscribe();
-        }
-      });
+      // Make downloadVideo function globally accessible
+      window.downloadVideo = function () {
+        // Implementation for downloading video
+        alert('Download functionality will be implemented when video processing is complete.');
+      };
     });
   </script>
 </body>
