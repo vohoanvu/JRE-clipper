@@ -1,4 +1,4 @@
-const { onRequest, onCall } = require("firebase-functions/v2/https");
+const { onRequest, onCall, HttpsError } = require("firebase-functions/v2/https");
 const { onMessagePublished } = require("firebase-functions/v2/pubsub");
 const { PubSub } = require("@google-cloud/pubsub");
 const { Firestore } = require("@google-cloud/firestore");
@@ -41,7 +41,7 @@ exports.initiateVideoJob = onCall({
     // Validate incoming data
     const { videoId, startTimeSeconds, endTimeSeconds, videoTitle, segmentText } = request.data;
     if (!videoId || startTimeSeconds == null || endTimeSeconds == null) {
-        throw new functions.https.HttpsError(
+        throw new HttpsError(
             "invalid-argument",
             "The function must be called with videoId, startTimeSeconds, and endTimeSeconds."
         );
@@ -85,7 +85,7 @@ exports.initiateVideoJob = onCall({
             status: "Failed",
             error: "Failed to publish job to processing queue.",
         });
-        throw new functions.https.HttpsError(
+        throw new HttpsError(
             "internal",
             "An error occurred while queueing the job."
         );
