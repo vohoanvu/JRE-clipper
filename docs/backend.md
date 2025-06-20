@@ -1055,4 +1055,35 @@ This architecture minimizes custom code and eliminates the need to manage a cons
         b.  Use the Firebase Web SDK to listen for real-time updates on the corresponding document in the Firestore `jobs` collection (`onSnapshot`).
         c.  Update the UI dynamically as the status changes (e.g., show a progress bar, display "Complete", provide download links when they appear).
 
-This plan maximizes the use of managed, serverless components, requires minimal custom code (only for the Cloud Function and the processing script), and results in a highly scalable, cost-effective, and modern cloud-native application.
+
+# Firestore Schema Documentation
+
+## videoJobs Collection
+
+Document ID: `{jobId}` (UUID)
+
+### Document Structure:
+```javascript
+{
+    // Core fields (set by initiateVideoJob)
+    jobId: string,           // UUID
+    status: string,          // "Queued" | "Processing" | "Complete" | "Failed"
+    createdAt: string,       // ISO timestamp
+    videoTitle: string,      // Title from segments
+    segmentCount: number,    // Number of video segments
+    
+    // Progress fields (updated by video processor)
+    progress?: number,       // 0-100
+    progressMessage?: string, // Human-readable status
+    
+    // Completion fields
+    finalVideoUrl?: string,  // S3 URL when complete
+    
+    // Error fields
+    error?: string          // Error message if failed
+}
+```
+
+### Security Rules:
+- Read: Public (for status tracking)
+- Write: Service accounts only (backend functions)
