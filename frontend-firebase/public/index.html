@@ -19,23 +19,52 @@
       font-family: "Pico", sans-serif;
     }
 
-    main {
+    main.container {
       padding: 2rem;
+      max-width: 1500px;
+      margin: 0 auto;
+      width: 95%;
+    }
+
+    h1 {
+      text-align: center;
+      margin-bottom: 1rem;
+    }
+
+    .videos-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 2rem;
+      margin-top: 2rem;
+    }
+
+    @media (max-width: 768px) {
+      .videos-grid {
+        grid-template-columns: 1fr;
+        gap: 1rem;
+      }
     }
 
     .video-container {
-      margin: 2rem 0;
+      margin: 0;
       padding: 1rem;
       border: 1px solid #ddd;
       border-radius: 8px;
       background: #f9f9f9;
+      height: fit-content;
     }
 
     .video-embed {
       width: 100%;
-      height: 315px;
+      height: 280px;
       border: none;
       border-radius: 4px;
+    }
+
+    @media (max-width: 768px) {
+      .video-embed {
+        height: 240px;
+      }
     }
 
     .segments-list {
@@ -45,13 +74,12 @@
     .segment-item {
       display: flex;
       justify-content: space-between;
-      align-items: flex-start;
-      padding: 0.5rem;
+      align-items: center;
+      padding: 0.75rem;
       margin: 0.5rem 0;
       background: white;
       border: 1px solid #e0e0e0;
       border-radius: 4px;
-      cursor: pointer;
       transition: background-color 0.2s;
     }
 
@@ -64,30 +92,28 @@
       margin-right: 1rem;
     }
 
-    .segment-text {
-      font-size: 0.9rem;
+    .segment-timestamp-text {
+      font-size: 1rem;
       color: #333;
-      margin-bottom: 0.25rem;
+      font-weight: 600;
+      line-height: 1.4;
     }
 
-    .segment-timestamp {
-      font-size: 0.8rem;
-      color: #666;
-      font-weight: bold;
-    }
-
-    .timestamp-btn {
+    .skip-btn {
       background: #0066cc;
       color: white;
       border: none;
-      padding: 0.25rem 0.5rem;
+      padding: 0.35rem 0.7rem;
       border-radius: 4px;
-      font-size: 0.8rem;
+      font-size: 0.75rem;
       cursor: pointer;
-      min-width: 60px;
+      font-weight: 600;
+      white-space: nowrap;
+      text-transform: uppercase;
+      max-width: fit-content;
     }
 
-    .timestamp-btn:hover {
+    .skip-btn:hover {
       background: #0056b3;
     }
 
@@ -109,6 +135,116 @@
       margin-bottom: 0.5rem;
       color: #333;
     }
+
+    .answer-section {
+      background: #f8f9fa;
+      border: 1px solid #dee2e6;
+      border-radius: 8px;
+      padding: 1.5rem;
+      margin: 2rem 0;
+    }
+
+    .answer-header {
+      font-size: 1.2rem;
+      font-weight: bold;
+      color: #0066cc;
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .answer-content {
+      font-size: 1rem;
+      line-height: 1.6;
+      color: #333;
+      white-space: pre-wrap;
+    }
+
+    .answer-loading {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      color: #666;
+      font-style: italic;
+    }
+
+    .gemini-loading {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      margin-right: 0.5rem;
+    }
+
+    .gemini-loading .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      animation: gemini-pulse 1.4s ease-in-out infinite;
+    }
+
+    .gemini-loading .dot:nth-child(1) {
+      background: #4285F4; /* Google Blue */
+      animation-delay: 0s;
+    }
+
+    .gemini-loading .dot:nth-child(2) {
+      background: #EA4335; /* Google Red */
+      animation-delay: 0.2s;
+    }
+
+    .gemini-loading .dot:nth-child(3) {
+      background: #FBBC04; /* Google Yellow */
+      animation-delay: 0.4s;
+    }
+
+    .gemini-loading .dot:nth-child(4) {
+      background: #34A853; /* Google Green */
+      animation-delay: 0.6s;
+    }
+
+    @keyframes gemini-pulse {
+      0%, 60%, 100% {
+        transform: scale(1);
+        opacity: 0.7;
+      }
+      30% {
+        transform: scale(1.4);
+        opacity: 1;
+      }
+    }
+
+    .answer-loading .dots::after {
+      content: '';
+      animation: dots 1.5s ease-in-out infinite;
+    }
+
+    @keyframes dots {
+      0%, 20% { content: ''; }
+      40% { content: '.'; }
+      60% { content: '..'; }
+      80%, 100% { content: '...'; }
+    }
+
+    .answer-error {
+      color: #dc3545;
+      background: #f8d7da;
+      border: 1px solid #f5c6cb;
+      padding: 1rem;
+      border-radius: 4px;
+    }
+
+    .citations {
+      margin-top: 1rem;
+      padding-top: 1rem;
+      border-top: 1px solid #dee2e6;
+      font-size: 0.9rem;
+      color: #666;
+    }
+
+    .citation {
+      margin: 0.25rem 0;
+    }
   </style>
 </head>
 
@@ -122,6 +258,9 @@
       <input type="search" placeholder="Authenticating, please wait..." id="searchInput" style="margin: 0;" disabled />
       <button id="searchButton" style="margin: 0;" disabled>Search</button>
     </div>
+    
+    <!-- Container for AI-generated answer -->
+    <div id="answer-section" style="margin-top: 2rem;"></div>
 
     <!-- Container for search results -->
     <div id="search-results" style="margin-top: 2rem;"></div>
@@ -135,13 +274,17 @@
     const searchInput = document.getElementById('searchInput');
     const searchButton = document.getElementById('searchButton');
     const searchResultsContainer = document.getElementById('search-results');
+    const answerSection = document.getElementById('answer-section');
     const videoPlayersContainer = document.getElementById('video-players-container');
 
     const tokenFunctionUrl = 'https://us-central1-gen-lang-client-demo.cloudfunctions.net/getVertexAiToken';
     const searchApiUrl = 'https://us-discoveryengine.googleapis.com/v1alpha/projects/408323719521/locations/us/collections/default_collection/engines/jreclipper_1750261043616/servingConfigs/default_search:search';
+    const answerApiUrl = 'https://us-discoveryengine.googleapis.com/v1alpha/projects/408323719521/locations/us/collections/default_collection/engines/jreclipper_1750261043616/servingConfigs/default_search:answer';
 
     let accessToken = null;
     let lastSearchResults = [];
+    let currentSession = null;
+    let currentQueryId = null;
     let players = {}; // Store YouTube player instances
 
     // --- 1. AUTHENTICATION ---
@@ -159,7 +302,7 @@
           accessToken = data.accessToken;
           searchInput.disabled = false;
           searchButton.disabled = false;
-          searchInput.placeholder = "e.g. Jiu Jitsu, Bears, Bees, Aliens";
+          searchInput.placeholder = "e.g. Jiu Jitsu, Bears, Bees, Aliens, Psychedelic Drugs";
         } else {
           searchInput.placeholder = "Authentication error. See console.";
           console.error("Could not fetch access token from backend.", data.error || '');
@@ -193,6 +336,7 @@
       searchInput.placeholder = "Searching...";
       searchButton.setAttribute('aria-busy', 'true');
       searchResultsContainer.innerHTML = '';
+      answerSection.innerHTML = '';
       videoPlayersContainer.innerHTML = '';
 
       fetch(searchApiUrl, {
@@ -206,7 +350,9 @@
           pageSize: 20, 
           queryExpansionSpec: { condition: "AUTO" }, 
           spellCorrectionSpec: { mode: "AUTO" }, 
-          languageCode: "en-US" 
+          languageCode: "en-US",
+          userInfo: { timeZone: "Asia/Saigon" },
+          session: "projects/408323719521/locations/us/collections/default_collection/engines/jreclipper_1750261043616/sessions/-"
         })
       })
         .then(response => {
@@ -219,9 +365,22 @@
         })
         .then(data => {
           lastSearchResults = data.results || [];
-          displaySearchSummary(lastSearchResults);
+          
+          // Extract session and queryId from the API response
+          currentSession = data.sessionInfo?.name || null;
+          currentQueryId = data.sessionInfo?.queryId || null;
+          
+          console.log('Search completed:', data);
+          
           if (lastSearchResults.length > 0) {
+            // Generate AI answer first
+            generateAnswer(query);
+            // Then display search summary
+            displaySearchSummary(lastSearchResults);
+            // Finally load video players
             loadVideoPlayers(lastSearchResults);
+          } else {
+            displaySearchSummary(lastSearchResults);
           }
         })
         .catch(error => {
@@ -270,9 +429,120 @@
       });
       html += '</div>';
       
-      html += '<p style="color: #666; font-style: italic;">Watch the eposide segments below...</p>';
+      html += '<p style="color: #666; font-style: italic;">Watch the episode segments below...</p>';
       
       searchResultsContainer.innerHTML = html;
+    }
+
+    // --- 4.5. GENERATE AI ANSWER ---
+    function generateAnswer(originalQuery) {
+      if (!currentSession || !currentQueryId) {
+        console.error('Cannot generate answer: Missing session or queryId');
+        return;
+      }
+
+      answerSection.innerHTML = `
+        <div class="answer-section">
+          <div class="answer-header">
+            🎙️ What Joe Rogan Would Say...
+          </div>
+          <div class="answer-loading">
+            <div class="gemini-loading">
+              <div class="dot"></div>
+              <div class="dot"></div>
+              <div class="dot"></div>
+              <div class="dot"></div>
+            </div>
+            <span>AI Joe Rogan is thinking<span class="dots"></span></span>
+          </div>
+        </div>
+      `;
+
+      const answerPayload = {
+        query: {
+          text: originalQuery,
+          queryId: currentQueryId
+        },
+        session: currentSession,
+        answerGenerationSpec: {
+          ignoreAdversarialQuery: false,
+          ignoreNonAnswerSeekingQuery: false,
+          ignoreLowRelevantContent: false,
+          multimodalSpec: {},
+          includeCitations: true,
+          promptSpec: {
+            preamble: "You are an expert at the Joe Rogan Experience podcast and its content. You are very knowledgeable about JRE content and more importantly all of the guests that have appeared on the JRE show.\n\nUse Joe Rogan style of communication.\nUse the tone of professional comedians that are close to the Comedy circle of Joe Rogan.\n\nOccasionally at the end of every answer, make a joke about encouraging the users to take more psychedelic drugs and practice Martial Arts to learn more about the given topic. Use some funny emojis"
+          },
+          modelSpec: {
+            modelVersion: "stable"
+          }
+        }
+      };
+
+      console.log('Generating answer with payload:', answerPayload);
+
+      fetch(answerApiUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(answerPayload)
+      })
+        .then(response => {
+          if (!response.ok) {
+            return response.json().then(err => {
+              throw new Error(`Answer API Error: ${err.error?.message || 'Unknown error'}`);
+            });
+          }
+          return response.json();
+        })
+        .then(data => {
+          console.log('Answer response:', data);
+          displayAnswer(data);
+        })
+        .catch(error => {
+          console.error('Answer generation failed:', error);
+          answerSection.innerHTML = `
+            <div class="answer-section">
+              <div class="answer-header">
+                🎙️ What Joe Rogan Would Say...
+              </div>
+              <div class="answer-error">
+                Failed to generate answer: ${error.message}
+              </div>
+            </div>
+          `;
+        });
+    }
+
+    // --- 4.6. DISPLAY AI ANSWER ---
+    function displayAnswer(answerData) {
+      if (!answerData?.answer) {
+        answerSection.innerHTML = `
+          <div class="answer-section">
+            <div class="answer-header">
+              🎙️ What Joe Rogan Would Say...
+            </div>
+            <div class="answer-error">
+              No answer generated. Try a different search query.
+            </div>
+          </div>
+        `;
+        return;
+      }
+
+      const answer = answerData.answer;
+      let answerText = answer.answerText || 'No answer text available.';
+
+      answerSection.innerHTML = `
+        <div class="answer-section">
+          <div class="answer-header">
+            🎙️ What Joe Rogan Would Say About "${lastSearchResults.length > 0 ? searchInput.value : 'this topic'}"
+          </div>
+          <div class="answer-content">${answerText}</div>
+        </div>
+      `;
     }
 
     // --- 5. LOAD VIDEO PLAYERS ---
@@ -354,7 +624,7 @@
         return;
       }
 
-      let playersHtml = '';
+      let playersHtml = '<div class="videos-grid">';
       
       // Convert videoGroups object to array format for rendering
       videoIds.forEach((videoId, index) => {
@@ -385,13 +655,12 @@
             <div class="segments-list">
               <div class="segments-header">Relevant Segments (${segments.length}):</div>
               ${segments.map((segment, segIndex) => `
-                <div class="segment-item" onclick="seekToTime('${videoId}', ${segment.startTimeSeconds})">
+                <div class="segment-item">
                   <div class="segment-content">
-                    <div class="segment-text">${segment.segmentText}</div>
-                    <div class="segment-timestamp">${formatTime(segment.startTimeSeconds)} - ${formatTime(segment.endTimeSeconds)}</div>
+                    <div class="segment-timestamp-text">The search topic was mentioned at: ${formatTimeHMS(segment.startTimeSeconds)}</div>
                   </div>
-                  <button class="timestamp-btn" onclick="event.stopPropagation(); seekToTime('${videoId}', ${segment.startTimeSeconds})">
-                    ${formatTime(segment.startTimeSeconds)}
+                  <button class="skip-btn" onclick="seekToTime('${videoId}', ${segment.startTimeSeconds})">
+                    SKIP TO
                   </button>
                 </div>
               `).join('')}
@@ -400,19 +669,10 @@
         `;
       });
 
+      playersHtml += '</div>';
       videoPlayersContainer.innerHTML = playersHtml;
 
-      // Auto-seek to first relevant segment for each video
-      videoIds.forEach(videoId => {
-        const segments = videoGroups[videoId].segments;
-        if (segments.length > 0) {
-          const firstSegment = segments[0];
-          // Add a small delay to allow iframe to load
-          setTimeout(() => {
-            seekToTime(videoId, firstSegment.startTimeSeconds);
-          }, 2000);
-        }
-      });
+      // Note: Removed auto-seek functionality to prevent autoplay on page load
     }
 
     // --- 7. UTILITY FUNCTIONS ---
@@ -422,13 +682,58 @@
       return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
     }
 
+    function formatTimeHMS(seconds) {
+      const hours = Math.floor(seconds / 3600);
+      const minutes = Math.floor((seconds % 3600) / 60);
+      const remainingSeconds = seconds % 60;
+      
+      if (hours > 0) {
+        return `${hours}:${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
+      } else {
+        return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+      }
+    }
+
     function seekToTime(videoId, startTime) {
-      // For embedded YouTube players, we need to update the src to include the start time
+      console.log(`Seeking to time ${startTime} for video ${videoId}`);
+      
       const iframe = document.getElementById(`player-${videoId}`);
-      if (iframe) {
-        const currentSrc = iframe.src;
-        const baseUrl = currentSrc.split('?')[0] || currentSrc.split('&t=')[0];
-        iframe.src = `${baseUrl}?enablejsapi=1&rel=0&t=${startTime}s`;
+      if (!iframe) {
+        console.error(`Could not find iframe with id: player-${videoId}`);
+        return;
+      }
+      
+      // Create a new URL with the timestamp
+      const baseUrl = `https://www.youtube.com/embed/${videoId}`;
+      const params = new URLSearchParams({
+        enablejsapi: '1',
+        rel: '0',
+        start: startTime,
+        autoplay: '1'
+      });
+      const newSrc = `${baseUrl}?${params.toString()}`;
+      
+      console.log(`Updating iframe src to: ${newSrc}`);
+      
+      // Update the iframe source
+      iframe.src = newSrc;
+      
+      // Scroll to the video player smoothly
+      iframe.scrollIntoView({ 
+        behavior: 'smooth', 
+        block: 'center' 
+      });
+      
+      // Optional: Add visual feedback
+      const button = event?.target;
+      if (button) {
+        button.textContent = 'LOADING...';
+        button.disabled = true;
+        
+        setTimeout(() => {
+          button.textContent = 'SKIP TO';
+          button.disabled = false;
+        }, 2000);
       }
     }
 
