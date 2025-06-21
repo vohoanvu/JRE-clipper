@@ -46,6 +46,23 @@
       display: none;
     }
 
+    .retry-container {
+      background-color: #fff3cd;
+      border: 1px solid #ffeaa7;
+      padding: 1rem;
+      border-radius: 4px;
+      margin-top: 1rem;
+      display: none;
+    }
+
+    .suggestions-container {
+      background-color: #e8f5e8;
+      border: 1px solid #4caf50;
+      padding: 1rem;
+      border-radius: 4px;
+      margin-top: 0.5rem;
+    }
+
     .download-container {
       margin-top: 2rem;
       display: none;
@@ -74,8 +91,25 @@
 
       <!-- Error Container -->
       <div class="error-container" id="error-container">
-        <h3>Error</h3>
+        <h3>❌ Processing Failed</h3>
         <p id="error-message"></p>
+      </div>
+
+      <!-- Retry Container (for bot detection errors) -->
+      <div class="retry-container" id="retry-container">
+        <h3>⚠️ YouTube Rate Limiting Detected</h3>
+        <p id="retry-message"></p>
+        <div class="suggestions-container" id="suggestions-container">
+          <p><strong>💡 Suggestion:</strong> <span id="suggestions-text"></span></p>
+        </div>
+        <div style="margin-top: 1rem;">
+          <button id="try-fewer-videos-btn" onclick="goBackToSelection()">
+            🔄 Try with Fewer Videos
+          </button>
+          <button id="wait-and-retry-btn" onclick="retryCurrentJob()" style="margin-left: 0.5rem;">
+            ⏳ Wait & Retry Same Videos
+          </button>
+        </div>
       </div>
 
       <!-- Download Container -->
@@ -96,7 +130,14 @@
       const progressMessage = document.getElementById('progress-message');
       const errorContainer = document.getElementById('error-container');
       const errorMessage = document.getElementById('error-message');
+      const retryContainer = document.getElementById('retry-container');
+      const retryMessage = document.getElementById('retry-message');
+      const suggestionsContainer = document.getElementById('suggestions-container');
+      const suggestionsText = document.getElementById('suggestions-text');
       const downloadContainer = document.getElementById('download-container');
+
+      // Store current job data for retry functionality
+      let currentJobData = null;
 
       // 1. Get Job ID from URL
       const params = new URLSearchParams(window.location.search);
@@ -175,8 +216,15 @@
       }
 
       function updateUI(jobData) {
+        currentJobData = jobData; // Store for retry functionality
         jobStatus.textContent = jobData.status || 'Unknown';
         jobTitleText.textContent = jobData.videoTitle || 'Unknown';
+
+        // Hide all containers first
+        progressContainer.style.display = 'none';
+        errorContainer.style.display = 'none';
+        retryContainer.style.display = 'none';
+        downloadContainer.style.display = 'none';
 
         // Handle different statuses
         if (jobData.status === 'Queued') {
@@ -199,16 +247,67 @@
           if (jobData.finalVideoUrl) {
             downloadContainer.style.display = 'block';
           }
-        } else if (jobData.status === 'Failed') {
+        } else if (jobData.status === 'Failed - Retry Recommended') {
+          // Special handling for bot detection/rate limiting
+          retryContainer.style.display = 'block';
+          retryMessage.textContent = jobData.error || 'YouTube is restricting video content scraping right now.';
+          
+          if (jobData.suggestions) {
+            suggestionsText.textContent = jobData.suggestions;
+          } else {
+            suggestionsText.textContent = 'Try selecting fewer videos from your search results to avoid detection.';
+          }
+        } else if (jobData.status && jobData.status.startsWith('Failed')) {
+          // Handle other failure types
           errorContainer.style.display = 'block';
-          errorMessage.textContent = jobData.error || 'Unknown error occurred.';
+          
+          if (jobData.status === 'Failed - Video Unavailable') {
+            errorMessage.textContent = `📹 ${jobData.error || 'The video is no longer available on YouTube.'}`;
+          } else if (jobData.status === 'Failed - Age Restricted') {
+            errorMessage.textContent = `🔞 ${jobData.error || 'The video has age restrictions that prevent processing.'}`;
+          } else if (jobData.status === 'Failed - Technical Issue') {
+            errorMessage.textContent = `⚙️ ${jobData.error || 'A technical issue occurred during processing.'}`;
+          } else {
+            errorMessage.textContent = jobData.error || 'An unknown error occurred.';
+          }
         }
       }
 
-      // Make downloadVideo function globally accessible
+      // Make functions globally accessible
       window.downloadVideo = function () {
-        // Implementation for downloading video
-        alert('Download functionality will be implemented when video processing is complete.');
+        if (currentJobData && currentJobData.finalVideoUrl) {
+          window.open(currentJobData.finalVideoUrl, '_blank');
+        } else {
+          alert('Video URL not available yet.');
+        }
+      };
+
+      window.goBackToSelection = function () {
+        // Store the current search query if available
+        const searchQuery = localStorage.getItem('lastSearchQuery') || '';
+        
+        // Redirect back to index with a flag to show video selection
+        window.location.href = `index.html?showSelection=true&query=${encodeURIComponent(searchQuery)}`;
+      };
+
+      window.retryCurrentJob = function () {
+        if (!currentJobData) {
+          alert('No job data available for retry.');
+          return;
+        }
+
+        const confirmRetry = confirm(
+          'This will retry the same video selection after a delay. ' +
+          'YouTube might still block the request. Are you sure you want to continue?'
+        );
+
+        if (confirmRetry) {
+          // Add a delay before retry to respect rate limiting
+          setTimeout(() => {
+            alert('Retry functionality would be implemented here. For now, please go back and select fewer videos.');
+            goBackToSelection();
+          }, 2000);
+        }
       };
     });
   </script>

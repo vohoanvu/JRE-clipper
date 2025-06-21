@@ -43,6 +43,21 @@
     <!-- Container for search results -->
     <div id="search-results" style="margin-top: 2rem;"></div>
 
+    <!-- Video Selection Container (hidden by default) -->
+    <div id="video-selection-container" style="display: none; margin-top: 2rem; padding: 1rem; border: 1px solid #ccc; border-radius: 8px;">
+      <h5>⚠️ YouTube Rate Limiting Detected</h5>
+      <p>To avoid YouTube's bot detection, please select fewer videos from your search results:</p>
+      <div id="video-selection-list"></div>
+      <div style="margin-top: 1rem;">
+        <button id="selectAllVideos" style="margin-right: 0.5rem;">Select All</button>
+        <button id="selectNoneVideos" style="margin-right: 0.5rem;">Select None</button>
+        <button id="generateSelectedVideo" disabled>Generate Video from Selected</button>
+      </div>
+      <small style="color: #666; display: block; margin-top: 0.5rem;">
+        💡 Tip: Select 2-3 videos for best results and to avoid rate limiting.
+      </small>
+    </div>
+
     <!-- Generate Video Button (hidden by default) -->
     <button id="generateVideoButton" style="display: none; margin-top: 1rem;">Generate Video</button>
 
@@ -52,6 +67,11 @@
     const searchButton = document.getElementById('searchButton');
     const searchResultsContainer = document.getElementById('search-results');
     const generateVideoButton = document.getElementById('generateVideoButton');
+    const videoSelectionContainer = document.getElementById('video-selection-container');
+    const videoSelectionList = document.getElementById('video-selection-list');
+    const selectAllButton = document.getElementById('selectAllVideos');
+    const selectNoneButton = document.getElementById('selectNoneVideos');
+    const generateSelectedButton = document.getElementById('generateSelectedVideo');
 
     const tokenFunctionUrl = 'https://us-central1-gen-lang-client-demo.cloudfunctions.net/getVertexAiToken';
     const searchApiUrl = 'https://us-discoveryengine.googleapis.com/v1alpha/projects/408323719521/locations/us/collections/default_collection/engines/jreclipper_1750261043616/servingConfigs/default_search:search';
@@ -71,6 +91,9 @@
           searchInput.disabled = false;
           searchButton.disabled = false;
           searchInput.placeholder = "e.g. Jiu Jitsu, Bears, Bees, Aliens";
+          
+          // Check if we're coming back from a retry flow
+          checkForRetryFlow();
         } else {
           searchInput.placeholder = "Authentication error. See console.";
           console.error("Could not fetch access token from backend.", data.error || '');
@@ -80,6 +103,32 @@
         searchInput.placeholder = "Could not authenticate. See console.";
         console.error("Error fetching access token:", error);
       });
+
+    // --- 1.5. RETRY FLOW HANDLING ---
+    function checkForRetryFlow() {
+      const params = new URLSearchParams(window.location.search);
+      const showSelection = params.get('showSelection');
+      const query = params.get('query');
+      
+      if (showSelection === 'true' && query) {
+        // Auto-perform the search and show selection UI
+        searchInput.value = decodeURIComponent(query);
+        
+        // Add a helpful message
+        const retryMessage = document.createElement('div');
+        retryMessage.style.cssText = 'background: #fff3cd; border: 1px solid #ffeaa7; padding: 1rem; border-radius: 4px; margin: 1rem 0;';
+        retryMessage.innerHTML = `
+          <strong>🔄 Retry Mode:</strong> Select fewer videos from the results below to avoid YouTube rate limiting.
+          <br><small>Recommended: Choose 2-3 videos for best success rate.</small>
+        `;
+        searchInput.parentNode.appendChild(retryMessage);
+        
+        performSearch(decodeURIComponent(query));
+        
+        // Clean up URL
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+    }
 
     // --- 2. SEARCH EVENT HANDLING ---
     searchButton.addEventListener('click', () => {
@@ -101,6 +150,7 @@
       searchInput.placeholder = "Searching...";
       searchButton.setAttribute('aria-busy', 'true');
       generateVideoButton.style.display = 'none'; // Hide button during new search
+      videoSelectionContainer.style.display = 'none'; // Hide selection container
       searchResultsContainer.innerHTML = '';
 
       fetch(searchApiUrl, {
@@ -117,6 +167,22 @@
           displayResults(lastSearchResults);
           if (lastSearchResults.length > 0) {
             generateVideoButton.style.display = 'block'; // Show button on success
+            
+            // Add "Select Videos" button if there are multiple videos
+            const videoGroups = {};
+            lastSearchResults.forEach(item => {
+              const videoId = item.document.structData.structData.videoId;
+              if (!videoGroups[videoId]) videoGroups[videoId] = true;
+            });
+            
+            if (Object.keys(videoGroups).length > 1) {
+              const selectVideosBtn = document.createElement('button');
+              selectVideosBtn.textContent = 'Select Specific Videos (Recommended)';
+              selectVideosBtn.style.marginTop = '0.5rem';
+              selectVideosBtn.style.marginLeft = '0.5rem';
+              selectVideosBtn.onclick = () => showVideoSelection(lastSearchResults);
+              generateVideoButton.parentNode.appendChild(selectVideosBtn);
+            }
           }
         })
         .catch(error => {
@@ -136,30 +202,151 @@
         return;
       }
 
-      const uniqueTitles = [...new Set(results.map(item => item.document.structData.structData.videoTitle))];
-
-      let html = '<h5>JRE and his guest talked about this in these episodes:</h5><ul>';
-      uniqueTitles.forEach(title => {
-        html += `<li>${title}</li>`;
+      // Group results by video
+      const videoGroups = {};
+      results.forEach(item => {
+        const videoId = item.document.structData.structData.videoId;
+        const videoTitle = item.document.structData.structData.videoTitle;
+        
+        if (!videoGroups[videoId]) {
+          videoGroups[videoId] = {
+            title: videoTitle,
+            segments: []
+          };
+        }
+        
+        videoGroups[videoId].segments.push(item);
       });
-      html += '</ul>';
+
+      const uniqueVideos = Object.keys(videoGroups);
+      
+      let html = `<h5>Found ${results.length} relevant segments from ${uniqueVideos.length} JRE episodes:</h5>`;
+      
+      // Show video breakdown
+      html += '<div style="background: #f5f5f5; padding: 1rem; border-radius: 4px; margin: 1rem 0;">';
+      Object.entries(videoGroups).forEach(([videoId, data]) => {
+        html += `<div style="margin-bottom: 0.5rem;">
+          <strong>${data.title}</strong> - ${data.segments.length} segment${data.segments.length > 1 ? 's' : ''}
+        </div>`;
+      });
+      html += '</div>';
+      
+      if (uniqueVideos.length > 3) {
+        html += `<div style="background: #fff3cd; border: 1px solid #ffeaa7; padding: 1rem; border-radius: 4px; margin: 1rem 0;">
+          <strong>💡 Pro Tip:</strong> You have ${uniqueVideos.length} videos selected. 
+          For faster processing and to avoid YouTube rate limiting, consider selecting fewer videos using the "Select Videos" option below.
+        </div>`;
+      }
+      
       searchResultsContainer.innerHTML = html;
     }
 
-    // --- 5. JOB INITIATION ---
-    generateVideoButton.addEventListener('click', initiateJob);
+    // --- 5. VIDEO SELECTION FUNCTIONS ---
+    function showVideoSelection(results) {
+      // Group results by video
+      const videoGroups = {};
+      results.forEach(item => {
+        const videoId = item.document.structData.structData.videoId;
+        const videoTitle = item.document.structData.structData.videoTitle;
+        
+        if (!videoGroups[videoId]) {
+          videoGroups[videoId] = {
+            title: videoTitle,
+            segments: []
+          };
+        }
+        
+        videoGroups[videoId].segments.push(item);
+      });
 
-    function initiateJob() {
-      if (lastSearchResults.length === 0) {
-        alert("No search results available to generate a video from.");
+      let selectionHtml = '';
+      Object.entries(videoGroups).forEach(([videoId, data]) => {
+        selectionHtml += `
+          <div style="margin-bottom: 1rem; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px;">
+            <label style="display: flex; align-items: center; cursor: pointer;">
+              <input type="checkbox" class="video-checkbox" data-video-id="${videoId}" checked style="margin-right: 0.5rem;">
+              <div>
+                <strong>${data.title}</strong><br>
+                <small style="color: #666;">${data.segments.length} segment${data.segments.length > 1 ? 's' : ''} • Video ID: ${videoId}</small>
+              </div>
+            </label>
+          </div>
+        `;
+      });
+      
+      videoSelectionList.innerHTML = selectionHtml;
+      videoSelectionContainer.style.display = 'block';
+      
+      // Update button state
+      updateGenerateSelectedButton();
+      
+      // Add event listeners
+      document.querySelectorAll('.video-checkbox').forEach(checkbox => {
+        checkbox.addEventListener('change', updateGenerateSelectedButton);
+      });
+    }
+
+    function updateGenerateSelectedButton() {
+      const checkedBoxes = document.querySelectorAll('.video-checkbox:checked');
+      generateSelectedButton.disabled = checkedBoxes.length === 0;
+      generateSelectedButton.textContent = `Generate Video from ${checkedBoxes.length} Selected Video${checkedBoxes.length !== 1 ? 's' : ''}`;
+    }
+
+    // --- 6. SELECTION EVENT HANDLERS ---
+    selectAllButton.addEventListener('click', () => {
+      document.querySelectorAll('.video-checkbox').forEach(checkbox => {
+        checkbox.checked = true;
+      });
+      updateGenerateSelectedButton();
+    });
+
+    selectNoneButton.addEventListener('click', () => {
+      document.querySelectorAll('.video-checkbox').forEach(checkbox => {
+        checkbox.checked = false;
+      });
+      updateGenerateSelectedButton();
+    });
+
+    generateSelectedButton.addEventListener('click', () => {
+      const selectedVideoIds = Array.from(document.querySelectorAll('.video-checkbox:checked'))
+        .map(checkbox => checkbox.dataset.videoId);
+      
+      const selectedSegments = lastSearchResults.filter(item => 
+        selectedVideoIds.includes(item.document.structData.structData.videoId)
+      );
+      
+      initiateJobWithSegments(selectedSegments);
+    });
+
+    // --- 7. JOB INITIATION ---
+    generateVideoButton.addEventListener('click', () => {
+      // Store search query for potential retry
+      localStorage.setItem('lastSearchQuery', searchInput.value.trim());
+      initiateJobWithSegments(lastSearchResults);
+    });
+
+    function initiateJobWithSegments(segments) {
+      if (segments.length === 0) {
+        alert("No segments available to generate a video from.");
         return;
       }
 
-      generateVideoButton.setAttribute('aria-busy', 'true');
-      generateVideoButton.textContent = 'Initiating...';
+      const activeButton = event.target || generateVideoButton;
+      activeButton.setAttribute('aria-busy', 'true');
+      activeButton.textContent = 'Initiating...';
+
+      // Count unique videos for user feedback
+      const videoGroups = {};
+      segments.forEach(item => {
+        const videoId = item.document.structData.structData.videoId;
+        videoGroups[videoId] = true;
+      });
+      const videoCount = Object.keys(videoGroups).length;
+      
+      console.log(`Initiating job with ${segments.length} segments from ${videoCount} videos`);
 
       // Extract all relevant segment data from the search results
-      const segments = lastSearchResults.map(item => {
+      const segmentData = segments.map(item => {
         const data = item.document.structData.structData;
         // Extract start and end times from id (format: "videoId_startTime_endTime")
         const idParts = data.id ? data.id.split('_') : [];
@@ -174,20 +361,20 @@
         };
       });
 
-      console.log("Preparing to call initiateVideoJob with segments:", segments);
+      console.log("Preparing to call initiateVideoJob with segments:", segmentData);
 
       // Wait for Firebase to be ready
       if (typeof firebase === 'undefined') {
         console.error("Firebase is not loaded");
         alert("Firebase is not ready. Please refresh the page.");
-        generateVideoButton.removeAttribute('aria-busy');
-        generateVideoButton.textContent = 'Generate Video';
+        activeButton.removeAttribute('aria-busy');
+        activeButton.textContent = activeButton === generateVideoButton ? 'Generate Video' : 'Generate Video from Selected';
         return;
       }
 
       try {
         const initiateVideoJob = firebase.functions().httpsCallable('initiateVideoJob');
-        const payload = { segments: segments };
+        const payload = { segments: segmentData };
         console.log("Calling function with payload:", payload);
 
         initiateVideoJob(payload)
@@ -203,14 +390,14 @@
             console.error("Error message:", error.message);
             console.error("Error details:", error.details);
             alert(`Failed to start video generation: ${error.message}`);
-            generateVideoButton.removeAttribute('aria-busy');
-            generateVideoButton.textContent = 'Generate Video';
+            activeButton.removeAttribute('aria-busy');
+            activeButton.textContent = activeButton === generateVideoButton ? 'Generate Video' : 'Generate Video from Selected';
           });
       } catch (error) {
         console.error("Error setting up function call:", error);
         alert(`Failed to initialize video generation: ${error.message}`);
-        generateVideoButton.removeAttribute('aria-busy');
-        generateVideoButton.textContent = 'Generate Video';
+        activeButton.removeAttribute('aria-busy');
+        activeButton.textContent = activeButton === generateVideoButton ? 'Generate Video' : 'Generate Video from Selected';
       }
     }
 
