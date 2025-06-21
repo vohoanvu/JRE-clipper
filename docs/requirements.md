@@ -2,26 +2,26 @@
 
 ## 1. Project Overview
 
-The "What would Joe Rogan say?" app enables users to input a topic and receive a summary video and timestamp report of Joe Rogan Experience (JRE) podcast episodes where the topic is discussed. The app searches all available JRE episodes on YouTube, identifies relevant discussions by Joe Rogan or his guests, extracts clips from these discussions, compiles them into a single summary video, and generates a timestamp report listing episode details and specific times where the topic is mentioned. The summary video and report are then made available for users to download.
+The "What would Joe Rogan say?" app enables users to input a topic and discover relevant discussions from Joe Rogan Experience (JRE) podcast episodes. The app searches all available JRE episodes, identifies relevant discussions by Joe Rogan or his guests, and presents the results through embedded YouTube players with clickable timestamp navigation. Users can watch specific segments directly in the browser without needing to download videos, providing a seamless and legal viewing experience that respects YouTube's terms of service.
 
 ## 2. Functional Requirements
 
 - **User Interface (UI)**: Provide a web page featuring a text input form where users can enter a topic (e.g., "Jiu Jitsu", "Bees", "Aliens").
 - **Topic Search**: Search a pre-indexed database containing vectorized transcripts segments and metadata from all JRE episodes to identify mentions or discussions of the user-specified topic.
-- **Clip Selection**: Select and rank relevant clips based on their relevance to the topic and the duration of the discussion.
-- **Video Generation**: Extract selected clips from their respective episodes and compile them into a single summary video, potentially including enhancements such as audio normalization or transitions.
-- **Report Generation**: Produce a timestamp report including:
-  - JRE episode numbers or titles.
-  - Specific timestamps where the topic is discussed.
-  - Optional brief descriptions of the context for each clip.
-- **Delivery**: Store the summary video and timestamp report in the cloud and provide users with download links for both.
+- **Results Display**: Present search results as embedded YouTube players, one for each relevant episode, with the video title and episode information.
+- **Timestamp Navigation**: Below each embedded player, display clickable timestamps where the topic is discussed, allowing users to jump directly to relevant segments.
+- **Auto-seek Functionality**: Optionally, automatically seek to the first relevant segment when a video loads.
+- **Episode Metadata**: Display episode titles, guest names, and brief context descriptions for each relevant segment.
+- **Responsive Design**: Ensure the interface works well on desktop and mobile devices with proper YouTube embed responsiveness.
 
 ## 3. Non-Functional Requirements
 
-- **Performance**: Efficiently process large volumes of data due to the extensive library of JRE episodes.
-- **Accuracy**: Accurately detect topics and select clips to ensure relevance and contextual appropriateness.
-- **Scalability**: Support multiple simultaneous user requests without performance degradation.
-- **Responsiveness**: Deliver a user-friendly experience with timely feedback and progress indicators during processing.
+- **Performance**: Efficiently search and display results from large volumes of transcript data.
+- **Accuracy**: Accurately detect topics and display relevant segments with proper context.
+- **Usability**: Provide intuitive timestamp navigation and seamless YouTube embed integration.
+- **Responsiveness**: Deliver fast search results and smooth video playback experience.
+- **Legal Compliance**: Fully comply with YouTube's terms of service by using official embed players instead of downloading content.
+- **Accessibility**: Ensure proper keyboard navigation and screen reader compatibility for embedded videos and timestamps.
 
 ## 4. Dependencies and Constraints
 
