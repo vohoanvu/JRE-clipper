@@ -15,11 +15,25 @@
   <script defer src="/__/firebase/init.js"></script>
 
   <style media="screen">
+    * {
+      box-sizing: border-box;
+    }
+    
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+    }
+    
     body {
       font-family: "Pico", sans-serif;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
     }
 
     main.container {
+      flex: 1; /* This will make main take up available space */
       padding: 2rem;
       max-width: 1500px;
       margin: 0 auto;
@@ -245,6 +259,122 @@
     .citation {
       margin: 0.25rem 0;
     }
+
+    /* Footer Styles - Ultra Compact Version */
+    .footer {
+      background: #2c3e50;
+      color: #ecf0f1;
+      border-top: 1px solid #34495e;
+      padding: 0.75rem 0 0 0; /* Reduced from 1.5rem to 0.75rem */
+      margin: 0; /* Ensure no margin */
+      margin-top: auto; /* Push footer to bottom */
+    }
+
+    .footer-content {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 1rem; /* Reduced horizontal padding */
+      display: grid;
+      grid-template-columns: 1fr 1fr; /* Changed to 2 columns */
+      gap: 1rem; /* Reduced gap from 2rem to 1rem */
+      justify-items: center; /* Center the content in each column */
+    }
+
+    @media (max-width: 768px) {
+      .footer-content {
+        grid-template-columns: 1fr;
+        gap: 0.5rem; /* Even smaller gap on mobile */
+        padding: 0 0.5rem; /* Reduced mobile padding */
+      }
+    }
+
+    .footer-section h3 {
+      color: #3498db;
+      margin-bottom: 0.25rem; /* Further reduced margin */
+      font-size: 0.9rem; /* Even smaller font size */
+    }
+
+    .footer-section p {
+      margin-bottom: 0.15rem; /* Further reduced margin */
+      line-height: 1.3; /* Even tighter line height */
+      font-size: 0.8rem; /* Smaller font size */
+    }
+
+    .footer-section a {
+      color: #3498db;
+      text-decoration: none;
+      transition: color 0.3s ease;
+    }
+
+    .footer-section a:hover {
+      color: #5dade2;
+    }
+
+    .footer-bottom {
+      text-align: center;
+      border-top: 1px solid #34495e;
+      color: #95a5a6;
+      padding: 0.4rem 0 0.3rem 0; /* Further reduced padding */
+      font-size: 0.75rem; /* Even smaller font size */
+      margin: 0; /* Ensure no margin */
+    }
+
+    .contact-links {
+      list-style: none;
+      padding: 0;
+      margin: 0; /* Remove any default margin */
+    }
+
+    .contact-links li {
+      margin-bottom: 0.15rem; /* Further reduced margin */
+      font-size: 0.8rem; /* Smaller font size */
+    }
+
+    .contact-links i {
+      margin-right: 0.5rem;
+      width: 16px;
+    }
+
+    .pricing-highlight {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      padding: 0.6rem; /* Further reduced padding */
+      border-radius: 4px; /* Smaller border radius */
+      text-align: center;
+    }
+
+    .pricing-highlight h3 {
+      color: white !important;
+      margin-bottom: 0.25rem; /* Further reduced margin */
+      font-size: 0.9rem; /* Smaller font size */
+    }
+
+    .pricing-highlight p {
+      color: #f8f9fa;
+      margin-bottom: 0.4rem; /* Further reduced margin */
+      font-size: 0.75rem; /* Smaller font size */
+      line-height: 1.2; /* Tighter line height */
+    }
+
+    .pricing-btn {
+      display: inline-block;
+      background: #fff;
+      color: #2c3e50; /* Dark text for better contrast on white background */
+      padding: 0.3rem 0.6rem; /* Further reduced padding */
+      border-radius: 3px; /* Smaller border radius */
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 0.75rem; /* Smaller font size */
+      transition: all 0.3s ease;
+      border: 1px solid transparent; /* Thinner border */
+    }
+
+    .pricing-btn:hover {
+      background: #f8f9fa;
+      color: #1a252f; /* Even darker on hover */
+      border-color: #dee2e6;
+      transform: translateY(-1px);
+      box-shadow: 0 1px 2px rgba(0,0,0,0.1); /* Smaller shadow */
+    }
   </style>
 </head>
 
@@ -257,6 +387,9 @@
     <div style="display: flex; gap: 1rem;">
       <input type="search" placeholder="Authenticating, please wait..." id="searchInput" style="margin: 0;" disabled />
       <button id="searchButton" style="margin: 0;" disabled>Search</button>
+      <div id="usage-counter" style="font-size: 0.9rem; color: #666; white-space: nowrap;">
+        <span id="searches-remaining">10</span> searches left
+      </div>
     </div>
     
     <!-- Container for AI-generated answer -->
@@ -269,7 +402,37 @@
     <div id="video-players-container" style="margin-top: 2rem;"></div>
 
   </main>
-  
+
+  <!-- Footer Section -->
+  <footer class="footer">
+    <div class="footer-content">
+      <!-- Developer Contact Section -->
+      <div class="footer-section">
+        <h3>👨‍💻 Developer Contact</h3>
+        <ul class="contact-links">
+          <li>📧 <a href="mailto:vohoanvu96@gmail.com">vohoanvu96@gmail.com</a></li>
+          <li>🐙 <a href="https://github.com/vohoanvu" target="_blank">GitHub Profile</a></li>
+          <li>💼 <a href="https://www.linkedin.com/in/thevuture/" target="_blank">LinkedIn</a></li>
+        </ul>
+      </div>
+
+      <!-- Pricing Section -->
+      <div class="footer-section">
+        <div class="pricing-highlight">
+          <h3>⚡ Upgrade Your Search</h3>
+          <p>Free users: 10 searches per day<br>
+          Unlimited searches with Pro!</p>
+          <a href="/pricing.html" class="pricing-btn">View Pricing</a>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="footer-bottom">
+      <p>&copy; 2025 JRE Clipper. Built for educational purposes. Joe Rogan Experience content belongs to respective owners.</p>
+    </div>
+  </footer>
+
   <script>
     const searchInput = document.getElementById('searchInput');
     const searchButton = document.getElementById('searchButton');
@@ -286,8 +449,278 @@
     let currentSession = null;
     let currentQueryId = null;
     let players = {}; // Store YouTube player instances
+    let userSessionId = null; // For anonymous users
+
+    // Initialize session ID for anonymous users
+    function initializeSession() {
+      if (!userSessionId) {
+        userSessionId = 'session_' + Math.random().toString(36).substring(2) + Date.now().toString(36);
+      }
+    }
+
+    // Server-side rate limiting functions
+    async function checkServerRateLimit() {
+      try {
+        initializeSession();
+        
+        const checkLimit = firebase.functions().httpsCallable('checkSearchLimit');
+        const result = await checkLimit({ 
+          sessionId: userSessionId,
+          userId: null // For now, we're using anonymous sessions
+        });
+        
+        return result.data;
+      } catch (error) {
+        console.error('Error checking rate limit:', error);
+        // Fallback to client-side limit if server fails
+        return checkClientRateLimit();
+      }
+    }
+
+    async function recordServerSearch() {
+      try {
+        initializeSession();
+        
+        const recordSearch = firebase.functions().httpsCallable('recordSearch');
+        await recordSearch({ 
+          sessionId: userSessionId,
+          userId: null // For now, we're using anonymous sessions
+        });
+      } catch (error) {
+        console.error('Error recording search:', error);
+        // Fallback to client-side increment
+        incrementClientSearchCount();
+      }
+    }
+
+    // Fallback client-side rate limiting (kept for offline scenarios)
+    function checkClientRateLimit() {
+      const today = new Date().toDateString();
+      let searchCount = parseInt(localStorage.getItem('jre_search_count') || '0');
+      let lastReset = localStorage.getItem('jre_last_reset');
+      let userPlan = localStorage.getItem('jre_user_plan') || 'free';
+      
+      // Reset if new day
+      if (lastReset !== today) {
+        searchCount = 0;
+        localStorage.setItem('jre_search_count', '0');
+        localStorage.setItem('jre_last_reset', today);
+      }
+      
+      if (userPlan === 'pro') {
+        return {
+          allowed: true,
+          plan: userPlan,
+          remaining: null,
+          message: 'Unlimited searches available'
+        };
+      }
+      
+      const remaining = Math.max(0, 10 - searchCount);
+      return {
+        allowed: remaining > 0,
+        plan: userPlan,
+        remaining: remaining,
+        message: remaining > 0 ? `${remaining} searches remaining today` : 'Daily limit reached',
+        showWarning: remaining <= 3 && remaining > 0
+      };
+    }
+
+    function incrementClientSearchCount() {
+      let userPlan = localStorage.getItem('jre_user_plan') || 'free';
+      if (userPlan === 'free') {
+        let searchCount = parseInt(localStorage.getItem('jre_search_count') || '0');
+        localStorage.setItem('jre_search_count', (searchCount + 1).toString());
+      }
+    }
+
+    // Rate limiting variables
+    let userSearchCount = 0;
+    const DAILY_SEARCH_LIMIT = 10;
+    let lastResetDate = null;
+    let userPlan = 'free'; // 'free' or 'pro'
+
+    // Rate limiting functions
+    function initializeRateLimit() {
+      const today = new Date().toDateString();
+      
+      // Reset count if it's a new day
+      if (lastResetDate !== today) {
+        userSearchCount = 0;
+        lastResetDate = today;
+        localStorage.setItem('jre_search_count', '0');
+        localStorage.setItem('jre_last_reset', today);
+      } else {
+        // Load from localStorage
+        userSearchCount = parseInt(localStorage.getItem('jre_search_count') || '0');
+        lastResetDate = localStorage.getItem('jre_last_reset');
+      }
+      
+      // Load user plan (in real app, this would come from backend)
+      userPlan = localStorage.getItem('jre_user_plan') || 'free';
+      
+      updateUsageDisplay();
+    }
+
+    function checkAndUpdateSearchLimit() {
+      // Pro users have unlimited searches
+      if (userPlan === 'pro') {
+        return true;
+      }
+      
+      const today = new Date().toDateString();
+      
+      // Reset count if it's a new day
+      if (lastResetDate !== today) {
+        userSearchCount = 0;
+        lastResetDate = today;
+        localStorage.setItem('jre_search_count', '0');
+        localStorage.setItem('jre_last_reset', today);
+        updateUsageDisplay();
+      }
+      
+      return userSearchCount < DAILY_SEARCH_LIMIT;
+    }
+
+    function incrementSearchCount() {
+      if (userPlan === 'free') {
+        userSearchCount++;
+        localStorage.setItem('jre_search_count', userSearchCount.toString());
+        updateUsageDisplay();
+      }
+    }
+
+    function getRemainingSearches() {
+      if (userPlan === 'pro') {
+        return 'Unlimited';
+      }
+      return Math.max(0, DAILY_SEARCH_LIMIT - userSearchCount);
+    }
+
+    function updateUsageDisplay() {
+      const remaining = getRemainingSearches();
+      const counterElement = document.getElementById('searches-remaining');
+      
+      if (userPlan === 'pro') {
+        counterElement.textContent = '∞';
+        counterElement.parentElement.innerHTML = '<span style="color: #28a745;">⚡ Pro Plan - Unlimited</span>';
+      } else {
+        counterElement.textContent = remaining;
+        
+        // Change color based on remaining searches
+        if (remaining <= 2) {
+          counterElement.style.color = '#e74c3c';
+          counterElement.parentElement.style.background = '#ffe6e6';
+          counterElement.parentElement.style.padding = '0.5rem';
+          counterElement.parentElement.style.borderRadius = '4px';
+        } else if (remaining <= 5) {
+          counterElement.style.color = '#f39c12';
+        } else {
+          counterElement.style.color = '#28a745';
+        }
+      }
+    }
+
+    function showRateLimitWarning() {
+      if (userPlan === 'pro') return; // No warnings for pro users
+      
+      const remaining = getRemainingSearches();
+      
+      // Remove any existing warnings
+      const existingWarning = document.querySelector('.rate-limit-warning');
+      if (existingWarning) {
+        existingWarning.remove();
+      }
+      
+      if (remaining <= 3 && remaining > 0) {
+        const warningDiv = document.createElement('div');
+        warningDiv.className = 'rate-limit-warning';
+        warningDiv.innerHTML = `
+          <div style="background: #fff3cd; border: 1px solid #ffeaa7; padding: 1rem; border-radius: 4px; margin: 1rem 0; text-align: center;">
+            <strong>⚠️ Search Limit Warning</strong><br>
+            You have ${remaining} searches remaining today. <a href="/pricing.html" style="color: #0066cc; font-weight: bold;">Upgrade to Pro</a> for unlimited searches!
+          </div>
+        `;
+        document.querySelector('main.container').insertBefore(warningDiv, document.getElementById('answer-section'));
+        
+        // Auto-remove warning after 8 seconds
+        setTimeout(() => {
+          if (warningDiv.parentNode) {
+            warningDiv.remove();
+          }
+        }, 8000);
+      }
+    }
+
+    function showRateLimitExceeded() {
+      searchResultsContainer.innerHTML = `
+        <div style="background: #f8d7da; border: 1px solid #f5c6cb; padding: 2rem; border-radius: 8px; text-align: center; margin: 2rem 0;">
+          <h3 style="color: #721c24; margin-bottom: 1rem;">🚫 Daily Search Limit Reached</h3>
+          <p style="color: #721c24; margin-bottom: 1rem;">
+            You've used all ${DAILY_SEARCH_LIMIT} free searches for today.
+          </p>
+          <p style="color: #721c24; margin-bottom: 1.5rem;">
+            Your limit will reset at <strong>midnight UTC</strong> (${getTimeUntilReset()}).
+          </p>
+          <div style="margin-bottom: 1.5rem;">
+            <strong>Want unlimited searches right now?</strong>
+          </div>
+          <a href="/pricing.html" style="display: inline-block; background: #28a745; color: white; padding: 1rem 2rem; text-decoration: none; border-radius: 6px; font-weight: bold; margin-bottom: 1rem;">
+            ⚡ Upgrade to Pro - $9.99/month
+          </a>
+          <div style="margin-top: 1rem; font-size: 0.9rem; color: #6c757d;">
+            ✓ Unlimited searches &nbsp; ✓ Advanced AI insights &nbsp; ✓ Priority support &nbsp; ✓ Cancel anytime
+          </div>
+          <div style="margin-top: 1rem;">
+            <button onclick="simulateProUpgrade()" style="background: #007bff; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; font-size: 0.9rem; cursor: pointer;">
+              🧪 Try Pro Mode (Demo)
+            </button>
+          </div>
+        </div>
+      `;
+    }
+
+    function getTimeUntilReset() {
+      const now = new Date();
+      const tomorrow = new Date(now);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(0, 0, 0, 0);
+      
+      const timeDiff = tomorrow - now;
+      const hours = Math.floor(timeDiff / (1000 * 60 * 60));
+      const minutes = Math.floor((timeDiff % (1000 * 60 * 60)) / (1000 * 60));
+      
+      return `${hours}h ${minutes}m`;
+    }
+
+    // Demo function to simulate Pro upgrade
+    function simulateProUpgrade() {
+      userPlan = 'pro';
+      localStorage.setItem('jre_user_plan', 'pro');
+      updateUsageDisplay();
+      
+      // Clear rate limit message
+      searchResultsContainer.innerHTML = `
+        <div style="background: #d4edda; border: 1px solid #c3e6cb; padding: 2rem; border-radius: 8px; text-align: center; margin: 2rem 0;">
+          <h3 style="color: #155724; margin-bottom: 1rem;">🎉 Welcome to Pro!</h3>
+          <p style="color: #155724; margin-bottom: 1rem;">
+            You now have unlimited searches! Try searching again.
+          </p>
+          <p style="color: #155724; font-size: 0.9rem;">
+            <em>This is a demo mode. In production, this would require payment via Stripe.</em>
+          </p>
+        </div>
+      `;
+      
+      // Re-enable search
+      searchInput.disabled = false;
+      searchButton.disabled = false;
+    }
 
     // --- 1. AUTHENTICATION ---
+    // Initialize rate limiting first
+    initializeRateLimit();
+    
     fetch(tokenFunctionUrl)
       .then(response => {
         if (!response.ok) { 
@@ -327,10 +760,22 @@
     });
 
     // --- 3. PERFORM SEARCH ---
-    function performSearch(query) {
+    async function performSearch(query) {
       if (!accessToken) { 
         console.error("Cannot search: Not authenticated."); 
         return; 
+      }
+
+      // Check server-side rate limit before proceeding
+      const rateLimitCheck = await checkServerRateLimit();
+      if (!rateLimitCheck.allowed) {
+        showServerRateLimitExceeded(rateLimitCheck);
+        return;
+      }
+
+      // Show warning if near limit
+      if (rateLimitCheck.showWarning) {
+        showRateLimitWarning(rateLimitCheck.remaining);
       }
 
       searchInput.placeholder = "Searching...";
@@ -364,6 +809,9 @@
           return response.json();
         })
         .then(data => {
+          // Only increment search count on successful search
+          incrementSearchCount();
+          
           lastSearchResults = data.results || [];
           
           // Extract session and queryId from the API response
@@ -371,6 +819,9 @@
           currentQueryId = data.sessionInfo?.queryId || null;
           
           console.log('Search completed:', data);
+          
+          // Show rate limit warning if approaching limit
+          showRateLimitWarning();
           
           if (lastSearchResults.length > 0) {
             // Generate AI answer first

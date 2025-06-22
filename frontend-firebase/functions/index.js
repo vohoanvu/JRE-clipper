@@ -1,11 +1,15 @@
 import { onRequest, onCall, HttpsError } from "firebase-functions/v2/https";
 import { initializeApp } from "firebase-admin/app";
+import { getFirestore } from "firebase-admin/firestore";
 import cors from "cors";
 import { GoogleAuth } from "google-auth-library";
 import { logger } from "firebase-functions";
 import { google } from "googleapis";
+import Stripe from "stripe";
 
+// Initialize Firebase Admin
 initializeApp();
+const db = getFirestore();
 
 // Initialize CORS with proper configuration
 const corsHandler = cors({
@@ -14,15 +18,59 @@ const corsHandler = cors({
     allowedHeaders: ['Content-Type', 'Authorization']
 });
 
-// YouTube Data API v3 client with API key
+// Environment variables with better logging
 const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || 'your-api-key-here';
+const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || 'sk_test_your_stripe_secret_key';
+const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || 'whsec_your_webhook_secret';
+const DOMAIN = process.env.DOMAIN || 'https://your-domain.com';
+const STRIPE_PRICE_ID = process.env.STRIPE_PRICE_ID || 'price_1234567890'; // Your Pro plan price ID
+
+// Log configuration status (without exposing secrets)
+logger.info("Configuration status:", {
+    hasYouTubeKey: !!process.env.YOUTUBE_API_KEY,
+    hasStripeKey: !!process.env.STRIPE_SECRET_KEY,
+    hasWebhookSecret: !!process.env.STRIPE_WEBHOOK_SECRET,
+    hasPriceId: !!process.env.STRIPE_PRICE_ID,
+    domain: DOMAIN
+});
+
+// Initialize Stripe with error handling
+let stripe;
+try {
+    stripe = new Stripe(STRIPE_SECRET_KEY, {
+        apiVersion: '2023-10-16',
+    });
+    logger.info("Stripe initialized successfully");
+} catch (error) {
+    logger.error("Failed to initialize Stripe:", error);
+}
+
+// YouTube Data API v3 client
 const youtube = google.youtube({
     version: 'v3',
     auth: YOUTUBE_API_KEY
 });
 
+// Rate limiting configuration
+const RATE_LIMITS = {
+    free: {
+        daily: 10,
+        monthly: 300
+    },
+    pro: {
+        daily: null, // unlimited
+        monthly: null // unlimited
+    }
+};
+
 // Multi-purpose function: handles Vertex AI tokens
-export const getVertexAiToken = onRequest(async (req, res) => {
+// Optimized for cost: minimal memory, short timeout
+export const getVertexAiToken = onRequest({
+    memory: "256MiB", // Minimum memory for cost optimization
+    timeoutSeconds: 30, // Short timeout
+    maxInstances: 10, // Limit concurrent instances
+    minInstances: 0, // No warm instances to save cost
+}, async (req, res) => {
     corsHandler(req, res, async () => {
         try {
             logger.info("Attempting to get Vertex AI access token");
@@ -60,8 +108,13 @@ export const getVertexAiToken = onRequest(async (req, res) => {
     });
 });
 
+// YouTube video metadata function with cost optimization
 export const getVideoMetadata = onCall({
     enforceAppCheck: false,
+    memory: "512MiB", // Moderate memory for API calls
+    timeoutSeconds: 60, // Longer timeout for API calls
+    maxInstances: 5, // Lower max instances
+    minInstances: 0, // No warm instances
 }, async (request) => {
     logger.info("Received video metadata request");
     
@@ -131,3 +184,500 @@ export const getVideoMetadata = onCall({
         throw new HttpsError("internal", `YouTube API error: ${error.message}`);
     }
 });
+
+// Stripe checkout session creation with cost optimization
+export const createCheckoutSession = onCall({
+    enforceAppCheck: false,
+    memory: "256MiB", // Minimal memory for simple operations
+    timeoutSeconds: 30, // Short timeout
+    maxInstances: 5, // Lower max instances
+    minInstances: 0, // No warm instances
+}, async (request) => {
+    try {
+        logger.info("createCheckoutSession called with data:", request.data);
+        
+        const { userId, sessionId } = request.data || {};
+        
+        // Use sessionId as fallback for anonymous users
+        const identifier = userId || sessionId;
+        
+        if (!identifier) {
+            logger.error("No identifier provided");
+            throw new HttpsError("invalid-argument", "User ID or session ID is required");
+        }
+
+        // Check Stripe initialization
+        if (!stripe) {
+            logger.error("Stripe not initialized");
+            throw new HttpsError("failed-precondition", "Payment service not available");
+        }
+
+        // Check if user is already a pro subscriber (with Firestore error handling)
+        let userData = {};
+        try {
+            logger.info("Fetching user document for identifier:", identifier);
+            userData = await ensureUserDocument(identifier);
+            logger.info("User data retrieved:", { plan: userData.plan, hasSubscription: !!userData.stripeSubscriptionStatus });
+        } catch (firestoreError) {
+            logger.error("Firestore error when checking user status:", firestoreError);
+            // Continue with empty userData - we'll still allow checkout attempt
+            userData = { plan: 'free' };
+        }
+        
+        if (userData.plan === 'pro' && userData.stripeSubscriptionStatus === 'active') {
+            throw new HttpsError("failed-precondition", "User is already a Pro subscriber");
+        }
+
+        logger.info("Creating Stripe checkout session with price ID:", STRIPE_PRICE_ID);
+        
+        const session = await stripe.checkout.sessions.create({
+            mode: 'subscription',
+            payment_method_types: ['card'],
+            line_items: [
+                {
+                    price: STRIPE_PRICE_ID, // Use environment variable
+                    quantity: 1,
+                },
+            ],
+            success_url: `${DOMAIN}/success?session_id={CHECKOUT_SESSION_ID}`,
+            cancel_url: `${DOMAIN}/pricing.html`,
+            client_reference_id: identifier,
+            metadata: {
+                userId: identifier,
+                plan: 'pro'
+            },
+            // Add customer email if available
+            ...(userData.email && { customer_email: userData.email })
+        });
+
+        logger.info("Stripe checkout session created successfully:", session.id);
+        
+        // Store pending subscription info (with error handling)
+        try {
+            await db.collection('users').doc(identifier).set({
+                ...userData,
+                pendingSubscription: {
+                    sessionId: session.id,
+                    createdAt: new Date(),
+                    status: 'pending'
+                }
+            }, { merge: true });
+            logger.info("Pending subscription stored in database");
+        } catch (firestoreError) {
+            logger.error("Failed to store pending subscription, but continuing:", firestoreError);
+            // Don't fail the checkout if we can't store pending status
+        }
+        
+        return { sessionId: session.id };
+        
+    } catch (error) {
+        logger.error("Stripe checkout error:", error);
+        
+        // Provide more specific error messages
+        if (error instanceof HttpsError) {
+            throw error;
+        }
+        
+        if (error.type === 'StripeInvalidRequestError') {
+            throw new HttpsError("invalid-argument", `Stripe configuration error: ${error.message}`);
+        }
+        
+        throw new HttpsError("internal", `Payment service error: ${error.message}`);
+    }
+});
+
+// Stripe webhook handler with cost optimization and proper plan enforcement
+export const handleStripeWebhook = onRequest({
+    memory: "256MiB", // Minimal memory
+    timeoutSeconds: 30, // Short timeout
+    maxInstances: 3, // Very low max instances for webhooks
+    minInstances: 0, // No warm instances
+}, async (req, res) => {
+    const sig = req.headers['stripe-signature'];
+    let event;
+    
+    try {
+        event = stripe.webhooks.constructEvent(req.body, sig, STRIPE_WEBHOOK_SECRET);
+    } catch (err) {
+        logger.error(`Webhook signature verification failed: ${err.message}`);
+        res.status(400).send(`Webhook Error: ${err.message}`);
+        return;
+    }
+    
+    try {
+        switch (event.type) {
+            case 'checkout.session.completed': {
+                const session = event.data.object;
+                const userId = session.client_reference_id;
+                
+                if (userId) {
+                    // Upgrade user to pro plan
+                    await db.collection('users').doc(userId).set({
+                        plan: 'pro',
+                        stripeCustomerId: session.customer,
+                        stripeSubscriptionId: session.subscription,
+                        stripeSubscriptionStatus: 'active',
+                        upgradedAt: new Date(),
+                        pendingSubscription: null // Clear pending status
+                    }, { merge: true });
+                    
+                    logger.info(`User ${userId} upgraded to pro plan via checkout session ${session.id}`);
+                }
+                break;
+            }
+            
+            case 'invoice.payment_succeeded': {
+                const invoice = event.data.object;
+                const subscriptionId = invoice.subscription;
+                
+                // Update subscription status to active
+                const usersQuery = await db.collection('users')
+                    .where('stripeSubscriptionId', '==', subscriptionId)
+                    .limit(1)
+                    .get();
+                
+                if (!usersQuery.empty) {
+                    const userDoc = usersQuery.docs[0];
+                    await userDoc.ref.update({
+                        stripeSubscriptionStatus: 'active',
+                        lastPaymentAt: new Date()
+                    });
+                    logger.info(`Payment succeeded for subscription ${subscriptionId}`);
+                }
+                break;
+            }
+            
+            case 'invoice.payment_failed': {
+                const invoice = event.data.object;
+                const subscriptionId = invoice.subscription;
+                
+                // Update subscription status to past_due
+                const usersQuery = await db.collection('users')
+                    .where('stripeSubscriptionId', '==', subscriptionId)
+                    .limit(1)
+                    .get();
+                
+                if (!usersQuery.empty) {
+                    const userDoc = usersQuery.docs[0];
+                    await userDoc.ref.update({
+                        stripeSubscriptionStatus: 'past_due',
+                        paymentFailedAt: new Date()
+                    });
+                    logger.warn(`Payment failed for subscription ${subscriptionId}`);
+                }
+                break;
+            }
+            
+            case 'customer.subscription.deleted': {
+                const subscription = event.data.object;
+                
+                // Downgrade user to free plan
+                const usersQuery = await db.collection('users')
+                    .where('stripeSubscriptionId', '==', subscription.id)
+                    .limit(1)
+                    .get();
+                
+                if (!usersQuery.empty) {
+                    const userDoc = usersQuery.docs[0];
+                    await userDoc.ref.update({
+                        plan: 'free',
+                        stripeSubscriptionStatus: 'canceled',
+                        canceledAt: new Date()
+                    });
+                    logger.info(`User downgraded to free plan after subscription ${subscription.id} was canceled`);
+                }
+                break;
+            }
+            
+            default:
+                logger.info(`Unhandled event type: ${event.type}`);
+        }
+        
+        res.json({ received: true });
+        
+    } catch (error) {
+        logger.error("Error processing webhook:", error);
+        res.status(500).json({ error: "Webhook processing failed" });
+    }
+});
+
+// Server-side rate limiting function with proper plan enforcement
+export const checkSearchLimit = onCall({
+    enforceAppCheck: false,
+    memory: "256MiB", // Minimal memory for simple operations
+    timeoutSeconds: 10, // Very short timeout
+    maxInstances: 10, // Allow more instances for frequent calls
+    minInstances: 0, // No warm instances
+}, async (request) => {
+    try {
+        const { userId, sessionId } = request.data;
+        
+        // Use sessionId as fallback if no userId (for anonymous users)
+        const identifier = userId || sessionId;
+        
+        if (!identifier) {
+            throw new HttpsError("invalid-argument", "User ID or session ID required");
+        }
+        
+        // Get user's current plan and subscription status (create document if missing)
+        const userData = await ensureUserDocument(identifier);
+        
+        const userPlan = userData.plan || 'free';
+        const subscriptionStatus = userData.stripeSubscriptionStatus;
+        
+        // Check if pro user has valid subscription
+        if (userPlan === 'pro') {
+            if (subscriptionStatus === 'active') {
+                return {
+                    allowed: true,
+                    plan: userPlan,
+                    remaining: null,
+                    resetTime: null,
+                    message: 'Unlimited searches available',
+                    subscriptionStatus: 'active'
+                };
+            } else if (subscriptionStatus === 'past_due') {
+                // Allow limited searches for past_due pro users
+                return {
+                    allowed: false,
+                    plan: userPlan,
+                    remaining: 0,
+                    resetTime: null,
+                    message: 'Payment past due. Please update your payment method to restore unlimited searches.',
+                    subscriptionStatus: 'past_due',
+                    upgradeUrl: '/pricing.html'
+                };
+            } else {
+                // Pro plan but no active subscription - downgrade to free
+                await db.collection('users').doc(identifier).update({
+                    plan: 'free',
+                    stripeSubscriptionStatus: null
+                });
+                // Continue to free plan logic below
+            }
+        }
+        
+        // Free plan rate limiting logic
+        const limits = RATE_LIMITS.free;
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const todayKey = today.toISOString().substring(0, 10);
+        
+        const currentUsage = userData.usage || {};
+        const todayUsage = currentUsage[todayKey] || 0;
+        
+        if (todayUsage >= limits.daily) {
+            // Calculate reset time (midnight UTC)
+            const tomorrow = new Date(today);
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            
+            return {
+                allowed: false,
+                plan: 'free',
+                remaining: 0,
+                resetTime: tomorrow.toISOString(),
+                message: `Daily limit of ${limits.daily} searches reached. Limit resets at midnight UTC.`,
+                upgradeUrl: '/pricing.html',
+                subscriptionStatus: null
+            };
+        }
+        
+        const remaining = limits.daily - todayUsage;
+        
+        return {
+            allowed: true,
+            plan: 'free',
+            remaining: remaining,
+            resetTime: null,
+            message: `${remaining} searches remaining today`,
+            showWarning: remaining <= 3,
+            subscriptionStatus: null
+        };
+        
+    } catch (error) {
+        logger.error("Error checking search limit:", error);
+        throw new HttpsError("internal", "Error checking search limit");
+    }
+});
+
+// Function to increment search count with plan validation
+export const recordSearch = onCall({
+    enforceAppCheck: false,
+    memory: "256MiB", // Minimal memory
+    timeoutSeconds: 10, // Very short timeout
+    maxInstances: 10, // Allow more instances for frequent calls
+    minInstances: 0, // No warm instances
+}, async (request) => {
+    try {
+        const { userId, sessionId } = request.data;
+        
+        // Use sessionId as fallback if no userId (for anonymous users)
+        const identifier = userId || sessionId;
+        
+        if (!identifier) {
+            throw new HttpsError("invalid-argument", "User ID or session ID required");
+        }
+        
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const todayKey = today.toISOString().substring(0, 10);
+        
+        // Update user's usage count
+        const userRef = db.collection('users').doc(identifier);
+        
+        await db.runTransaction(async (transaction) => {
+            const userDoc = await transaction.get(userRef);
+            const userData = userDoc.exists ? userDoc.data() : { plan: 'free', createdAt: new Date() };
+            
+            // Validate subscription status for pro users
+            if (userData.plan === 'pro') {
+                if (userData.stripeSubscriptionStatus !== 'active') {
+                    // Pro user with inactive subscription - downgrade to free
+                    userData.plan = 'free';
+                    userData.stripeSubscriptionStatus = null;
+                }
+            }
+            
+            // Only increment for free users
+            if (userData.plan === 'free') {
+                const currentUsage = userData.usage || {};
+                const todayUsage = currentUsage[todayKey] || 0;
+                
+                // Double-check daily limit before incrementing
+                if (todayUsage >= RATE_LIMITS.free.daily) {
+                    throw new HttpsError("resource-exhausted", "Daily search limit exceeded");
+                }
+                
+                // Update usage
+                currentUsage[todayKey] = todayUsage + 1;
+                
+                // Clean up old usage data (keep last 30 days)
+                const cutoffDate = new Date();
+                cutoffDate.setDate(cutoffDate.getDate() - 30);
+                const cutoffKey = cutoffDate.toISOString().substring(0, 10);
+                
+                Object.keys(currentUsage).forEach(dateKey => {
+                    if (dateKey < cutoffKey) {
+                        delete currentUsage[dateKey];
+                    }
+                });
+                
+                transaction.set(userRef, {
+                    ...userData,
+                    usage: currentUsage,
+                    lastSearchAt: new Date()
+                }, { merge: true });
+            } else {
+                // Pro user - just update last search time
+                transaction.set(userRef, {
+                    ...userData,
+                    lastSearchAt: new Date()
+                }, { merge: true });
+            }
+        });
+        
+        return { success: true };
+        
+    } catch (error) {
+        logger.error("Error recording search:", error);
+        if (error instanceof HttpsError) {
+            throw error;
+        }
+        throw new HttpsError("internal", "Error recording search");
+    }
+});
+
+// Add utility function to get user subscription status
+export const getUserSubscriptionStatus = onCall({
+    enforceAppCheck: false,
+    memory: "256MiB",
+    timeoutSeconds: 10,
+    maxInstances: 5,
+    minInstances: 0,
+}, async (request) => {
+    try {
+        logger.info("getUserSubscriptionStatus called with data:", request.data);
+        
+        const { userId, sessionId } = request.data || {};
+        const identifier = userId || sessionId;
+        
+        if (!identifier) {
+            logger.error("No identifier provided");
+            throw new HttpsError("invalid-argument", "User ID or session ID required");
+        }
+
+        logger.info("Attempting to fetch user document for identifier:", identifier);
+        
+        // Try to get user document with proper error handling
+        let userData;
+        try {
+            userData = await ensureUserDocument(identifier);
+            logger.info("Successfully fetched user document, plan:", userData.plan);
+        } catch (firestoreError) {
+            logger.error("Firestore error when fetching user document:", firestoreError);
+            // Return default values if Firestore is unavailable
+            return {
+                plan: 'free',
+                subscriptionStatus: null,
+                subscriptionId: null,
+                upgradedAt: null,
+                canceledAt: null,
+                error: 'Database temporarily unavailable'
+            };
+        }
+        logger.info("User data retrieved:", { plan: userData.plan, hasSubscription: !!userData.stripeSubscriptionStatus });
+        
+        return {
+            plan: userData.plan || 'free',
+            subscriptionStatus: userData.stripeSubscriptionStatus || null,
+            subscriptionId: userData.stripeSubscriptionId || null,
+            upgradedAt: userData.upgradedAt || null,
+            canceledAt: userData.canceledAt || null
+        };
+        
+    } catch (error) {
+        logger.error("Error getting subscription status:", error);
+        // Return safe defaults instead of throwing
+        return {
+            plan: 'free',
+            subscriptionStatus: null,
+            subscriptionId: null,
+            upgradedAt: null,
+            canceledAt: null,
+            error: 'Service temporarily unavailable'
+        };
+    }
+});
+
+// Utility function to ensure user document exists with default values
+async function ensureUserDocument(identifier) {
+    try {
+        const userRef = db.collection('users').doc(identifier);
+        const userDoc = await userRef.get();
+        
+        if (!userDoc.exists) {
+            const defaultUserData = {
+                plan: 'free',
+                createdAt: new Date(),
+                usage: {},
+                stripeSubscriptionStatus: null,
+                stripeSubscriptionId: null,
+                stripeCustomerId: null
+            };
+            
+            await userRef.set(defaultUserData);
+            logger.info(`Created new user document for identifier: ${identifier}`);
+            return defaultUserData;
+        }
+        
+        return userDoc.data();
+    } catch (error) {
+        logger.error("Error ensuring user document:", error);
+        // Return safe defaults if database is unavailable
+        return {
+            plan: 'free',
+            createdAt: new Date(),
+            usage: {}
+        };
+    }
+}

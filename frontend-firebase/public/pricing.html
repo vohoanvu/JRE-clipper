@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pricing - JRE Clipper</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
+  <script src="https://js.stripe.com/v3/"></script>
+
+  <!-- Firebase SDK v9 - CDN approach -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-functions-compat.js"></script>
+
+  <style media="screen">
+    * {
+      box-sizing: border-box;
+    }
+    
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+    }
+    
+    body {
+      font-family: "Pico", sans-serif;
+      background: #f8f9fa; /* Light gray background like main page */
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .pricing-container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 2rem;
+    }
+
+    .pricing-header {
+      text-align: center;
+      color: #2c3e50; /* Dark blue-gray like main page */
+      margin-bottom: 3rem;
+      background: white;
+      padding: 2rem;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+
+    .pricing-header h1 {
+      font-size: 3rem;
+      margin-bottom: 1rem;
+      color: #2c3e50;
+    }
+
+    .pricing-header p {
+      font-size: 1.2rem;
+      color: #5a6c7d;
+    }
+
+    .pricing-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 2rem;
+      margin-bottom: 3rem;
+    }
+
+    @media (max-width: 768px) {
+      .pricing-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .pricing-card {
+      background: white;
+      border-radius: 12px;
+      padding: 2rem;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+      transition: transform 0.3s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .pricing-card:hover {
+      transform: translateY(-5px);
+    }
+
+    .pricing-card.featured {
+      border: 3px solid #0066cc; /* Blue like main page links */
+      transform: scale(1.05);
+    }
+
+    .pricing-card.featured::before {
+      content: "POPULAR";
+      position: absolute;
+      top: 0;
+      right: 0;
+      background: #0066cc; /* Blue instead of green */
+      color: white;
+      padding: 0.5rem 1rem;
+      font-size: 0.8rem;
+      font-weight: bold;
+      transform: rotate(45deg) translate(25%, -50%);
+      transform-origin: center;
+    }
+
+    .plan-name {
+      font-size: 1.5rem;
+      font-weight: bold;
+      color: #2c3e50;
+      margin-bottom: 0.5rem;
+    }
+
+    .plan-price {
+      font-size: 2.5rem;
+      font-weight: bold;
+      color: #0066cc; /* Blue like main page */
+      margin-bottom: 1rem;
+    }
+
+    .plan-price .period {
+      font-size: 1rem;
+      color: #7f8c8d;
+    }
+
+    .plan-button {
+      width: 100%;
+      padding: 1rem;
+      border: none;
+      border-radius: 6px;
+      font-size: 1.1rem;
+      font-weight: bold;
+      cursor: pointer;
+      transition: background 0.3s ease;
+    }
+
+    .plan-button.free {
+      background: #6c757d; /* Gray for free plan */
+      color: white;
+    }
+
+    .plan-button.free:hover {
+      background: #5a6268;
+    }
+
+    .plan-button.pro {
+      background: #0066cc; /* Blue like main page */
+      color: white;
+    }
+
+    .plan-button.pro:hover {
+      background: #0056b3; /* Darker blue on hover */
+    }
+
+    .rate-limit-info {
+      background: white; /* White background like main page */
+      border-radius: 8px; /* Consistent with main page */
+      padding: 2rem;
+      margin-bottom: 2rem;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1); /* Subtle shadow like main page */
+    }
+
+    .rate-limit-info h2 {
+      color: #2c3e50;
+      margin-bottom: 1rem;
+    }
+
+    .limit-bar {
+      background: #ecf0f1;
+      border-radius: 20px;
+      height: 20px;
+      margin: 1rem 0;
+      overflow: hidden;
+    }
+
+    .limit-fill {
+      background: linear-gradient(90deg, #0066cc, #0056b3); /* Blue gradient */
+      height: 100%;
+      transition: width 0.3s ease;
+      border-radius: 20px;
+    }
+
+    .back-link {
+      display: inline-block;
+      color: #0066cc; /* Blue like main page links */
+      text-decoration: none;
+      margin-bottom: 2rem;
+      font-size: 1.1rem;
+      background: white;
+      padding: 0.5rem 1rem;
+      border-radius: 4px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      transition: all 0.3s ease;
+    }
+
+    .back-link:hover {
+      color: #0056b3;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+    }
+
+    .faq-section {
+      background: white; /* White background */
+      border-radius: 8px; /* Consistent border radius */
+      padding: 2rem;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1); /* Subtle shadow */
+    }
+
+    .faq-item {
+      margin-bottom: 1.5rem;
+      padding-bottom: 1.5rem;
+      border-bottom: 1px solid #ecf0f1;
+    }
+
+    .faq-item:last-child {
+      border-bottom: none;
+    }
+
+    .faq-question {
+      font-weight: bold;
+      color: #2c3e50;
+      margin-bottom: 0.5rem;
+    }
+
+    .faq-answer {
+      color: #5a6c7d;
+      line-height: 1.6;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="pricing-container">
+    <a href="/" class="back-link">← Back to JRE Clipper</a>
+    
+    <div class="pricing-header">
+      <h1>🎙️ Choose Your Plan</h1>
+      <p>Get unlimited searches to explore thousands of Joe Rogan Experience episodes</p>
+    </div>
+
+    <!-- Rate Limit Status for Current User -->
+    <div class="rate-limit-info">
+      <h2>📊 Your Usage Today</h2>
+      <p>Track your search usage and upgrade when needed</p>
+      <div class="limit-bar">
+        <div class="limit-fill" style="width: 70%" id="usage-bar"></div>
+      </div>
+      <p><span id="searches-used">7</span> of <span id="searches-limit">10</span> searches used today</p>
+      <p><small>Resets daily at midnight UTC</small></p>
+    </div>
+
+    <!-- Pricing Plans -->
+    <div class="pricing-grid">
+      <!-- Free Plan -->
+      <div class="pricing-card">
+        <div class="plan-name">🆓 Free Plan</div>
+        <div class="plan-price">$0 <span class="period">/ month</span></div>
+        <div style="text-align: center; margin: 2rem 0;">
+          <div style="font-size: 2rem; margin-bottom: 0.5rem;">📊</div>
+          <div style="font-size: 1.2rem; font-weight: bold; color: #2c3e50;">10 searches per day</div>
+          <div style="font-size: 0.9rem; color: #7f8c8d; margin-top: 0.5rem;">Perfect for casual users</div>
+        </div>
+        <button class="plan-button free" onclick="selectFreePlan()">Current Plan</button>
+      </div>
+
+      <!-- Pro Plan -->
+      <div class="pricing-card featured">
+        <div class="plan-name">⚡ Pro Plan</div>
+        <div class="plan-price">$9.99 <span class="period">/ month</span></div>
+        <div style="text-align: center; margin: 2rem 0;">
+          <div style="font-size: 2rem; margin-bottom: 0.5rem;">🚀</div>
+          <div style="font-size: 1.2rem; font-weight: bold; color: #0066cc;">Unlimited searches</div>
+          <div style="font-size: 0.9rem; color: #7f8c8d; margin-top: 0.5rem;">Search as much as you want</div>
+        </div>
+        <button class="plan-button pro" onclick="subscribeToPro()">Upgrade Now</button>
+      </div>
+    </div>
+
+    <!-- FAQ Section -->
+    <div class="faq-section">
+      <h2 style="color: #2c3e50;">❓ Frequently Asked Questions</h2>
+      
+      <div class="faq-item">
+        <div class="faq-question">Why upgrade to Pro?</div>
+        <div class="faq-answer">
+          Pro removes the daily search limit, letting you explore as many JRE episodes as you want without waiting for the next day.
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <div class="faq-question">When do search limits reset?</div>
+        <div class="faq-answer">
+          Free plan limits reset daily at midnight UTC. Pro users never hit limits.
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <div class="faq-question">Can I cancel anytime?</div>
+        <div class="faq-answer">
+          Yes! Cancel your Pro subscription anytime. You'll keep Pro access until the end of your billing period.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Firebase configuration - Replace with your actual config
+    const firebaseConfig = {
+      apiKey: "AIzaSyDINU6PKYWJewuYqNLDI3NEYumStT4bIDk",
+      authDomain: "gen-lang-client-demo.firebaseapp.com",
+      projectId: "gen-lang-client-demo",
+      storageBucket: "gen-lang-client-demo.appspot.com",
+      messagingSenderId: "408323719521",
+      appId: "1:408323719521:web:your-app-id-here"
+    };
+
+    // Initialize Firebase
+    let app, functions;
+    try {
+      app = firebase.initializeApp(firebaseConfig);
+      functions = firebase.functions(app);
+      console.log('Firebase initialized successfully');
+    } catch (error) {
+      console.error('Firebase initialization error:', error);
+      // Continue without Firebase functionality
+    }
+
+    // Initialize Stripe
+    const stripe = Stripe('pk_test_51Rco8nR9HLu4Z6TSlSjCZypyASEmikaanI10fX2UA0tQSYJZy5A2rQU7eaMNB0jATz9NHNDTPO47cXBoLGsfAnuR00GC3QLQwi');
+    
+    // User session management (simplified for demo)
+    const sessionId = 'session_' + Math.random().toString(36).substr(2, 9);
+    let userSearches = 7; // Current usage (would come from backend)
+    const dailyLimit = 10;
+
+    // Initialize Firebase when DOM is ready
+    document.addEventListener('DOMContentLoaded', function() {
+      // Wait a bit for Firebase to be ready, then check user status
+      setTimeout(() => {
+        if (functions) {
+          checkUserStatus();
+        } else {
+          console.log('Firebase not available, using demo mode');
+          updateUsageDisplay();
+        }
+      }, 1000);
+    });
+
+    function updateUsageDisplay() {
+      const usagePercentage = (userSearches / dailyLimit) * 100;
+      const usageBar = document.getElementById('usage-bar');
+      const usedSpan = document.getElementById('searches-used');
+      const limitSpan = document.getElementById('searches-limit');
+      
+      if (usageBar && usedSpan && limitSpan) {
+        usageBar.style.width = `${usagePercentage}%`;
+        usedSpan.textContent = userSearches;
+        limitSpan.textContent = dailyLimit;
+        
+        // Change color based on usage
+        if (usagePercentage >= 90) {
+          usageBar.style.background = 'linear-gradient(90deg, #e74c3c, #c0392b)'; // Red for high usage
+        } else if (usagePercentage >= 70) {
+          usageBar.style.background = 'linear-gradient(90deg, #f39c12, #e67e22)'; // Orange for medium usage
+        } else {
+          usageBar.style.background = 'linear-gradient(90deg, #0066cc, #0056b3)'; // Blue for low usage
+        }
+      }
+    }
+
+    function selectFreePlan() {
+      alert('You are already on the Free Plan! Enjoy your 10 daily searches.');
+    }
+
+    async function subscribeToPro() {
+      try {
+        if (!functions) {
+          alert('Demo mode: Stripe checkout would open here. Please ensure Firebase is properly configured.');
+          return;
+        }
+
+        // Show loading state
+        const button = event.target;
+        const originalText = button.textContent;
+        button.textContent = 'Loading...';
+        button.disabled = true;
+
+        try {
+          // Call Firebase function to create checkout session
+          const createCheckoutSession = functions.httpsCallable('createCheckoutSession');
+          const result = await createCheckoutSession({
+            sessionId: sessionId,
+            userId: null // For anonymous users
+          });
+
+          // Check if we got a valid session ID
+          if (!result.data || !result.data.sessionId) {
+            throw new Error('No session ID returned from payment service');
+          }
+
+          // Redirect to Stripe Checkout
+          const { error } = await stripe.redirectToCheckout({
+            sessionId: result.data.sessionId
+          });
+
+          if (error) {
+            console.error('Stripe checkout error:', error);
+            alert('Payment service error. Please try again.');
+            button.textContent = originalText;
+            button.disabled = false;
+          }
+        } catch (fbError) {
+          console.error('Firebase function error:', fbError);
+          
+          // Provide more specific error messages
+          let errorMessage = 'Unable to connect to payment service. Please try again later.';
+          
+          if (fbError.message && fbError.message.includes('configuration')) {
+            errorMessage = 'Payment service configuration issue. Please contact support.';
+          } else if (fbError.message && fbError.message.includes('already a Pro subscriber')) {
+            errorMessage = 'You are already a Pro subscriber!';
+            // Update UI to reflect pro status
+            updateUIForProUser();
+          } else if (fbError.message && fbError.message.includes('temporarily unavailable')) {
+            errorMessage = 'Service temporarily unavailable. Please try again in a few minutes.';
+          }
+          
+          alert(errorMessage);
+          button.textContent = originalText;
+          button.disabled = false;
+        }
+
+      } catch (error) {
+        console.error('Error:', error);
+        const errorMessage = error.message || 'Something went wrong. Please try again.';
+        alert(errorMessage);
+        
+        // Reset button state
+        if (event && event.target) {
+          event.target.textContent = 'Upgrade Now';
+          event.target.disabled = false;
+        }
+      }
+    }
+
+    // Check user's current plan status
+    async function checkUserStatus() {
+      if (!functions) {
+        console.log('Firebase functions not available, using demo mode');
+        updateUsageDisplay();
+        return;
+      }
+      
+      try {
+        const getUserStatus = functions.httpsCallable('getUserSubscriptionStatus');
+        const result = await getUserStatus({
+          sessionId: sessionId,
+          userId: null
+        });
+        
+        const status = result.data;
+        
+        // Handle service errors gracefully
+        if (status.error) {
+          console.warn('Service temporarily unavailable:', status.error);
+          updateUsageDisplay(); // Show default free user UI
+          return;
+        }
+        
+        if (status.plan === 'pro' && status.subscriptionStatus === 'active') {
+          // Update UI for pro user
+          updateUIForProUser();
+        } else {
+          // Update usage display for free users
+          await updateUserUsage();
+        }
+        
+      } catch (error) {
+        console.error('Error checking user status:', error);
+        // Proceed with free user display as fallback
+        updateUsageDisplay();
+      }
+    }
+
+    function updateUIForProUser() {
+      const proButton = document.querySelector('.plan-button.pro');
+      const freeButton = document.querySelector('.plan-button.free');
+      const usageSection = document.querySelector('.rate-limit-info');
+      
+      if (proButton) {
+        proButton.textContent = 'Current Plan ✓';
+        proButton.style.background = '#28a745';
+        proButton.onclick = function() {
+          alert('You are already on the Pro plan with unlimited searches!');
+        };
+      }
+      
+      if (freeButton) {
+        freeButton.textContent = 'Downgrade';
+        freeButton.style.background = '#6c757d';
+        freeButton.onclick = function() {
+          alert('To cancel your subscription, please contact support or manage your subscription through Stripe.');
+        };
+      }
+      
+      // Update usage display to show unlimited
+      if (usageSection) {
+        usageSection.innerHTML = `
+          <h2>🚀 Pro User Status</h2>
+          <p>You have unlimited searches with your Pro subscription!</p>
+          <div class="limit-bar">
+            <div class="limit-fill" style="width: 100%; background: linear-gradient(90deg, #28a745, #20c997);"></div>
+          </div>
+          <p><strong>Unlimited searches available</strong></p>
+          <p><small>Thank you for supporting JRE Clipper!</small></p>
+        `;
+      }
+    }
+
+    async function updateUserUsage() {
+      if (!functions) {
+        updateUsageDisplay();
+        return;
+      }
+      
+      try {
+        const checkLimit = functions.httpsCallable('checkSearchLimit');
+        const result = await checkLimit({
+          sessionId: sessionId,
+          userId: null
+        });
+        
+        const usage = result.data;
+        if (usage.plan === 'free') {
+          userSearches = dailyLimit - (usage.remaining || 0);
+          updateUsageDisplay();
+        }
+        
+      } catch (error) {
+        console.error('Error updating user usage:', error);
+        updateUsageDisplay();
+      }
+    }
+
+    // Initialize display
+    updateUsageDisplay();
+  </script>
+</body>
+
+</html>
