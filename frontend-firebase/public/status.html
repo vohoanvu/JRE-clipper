@@ -155,6 +155,87 @@
       100% { transform: rotate(360deg); }
     }
 
+    /* Enhanced progress indicator for long tasks */
+    .progress-indicator {
+      display: flex;
+      align-items: center;
+      margin: 1rem 0;
+    }
+
+    .progress-bar {
+      flex: 1;
+      height: 6px;
+      background-color: #e0e0e0;
+      border-radius: 3px;
+      margin: 0 1rem;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #2196F3, #21CBF3);
+      border-radius: 3px;
+      animation: progressPulse 2s ease-in-out infinite;
+    }
+
+    @keyframes progressPulse {
+      0%, 100% { opacity: 0.7; }
+      50% { opacity: 1; }
+    }
+
+    .time-estimate {
+      background: #f0f8ff;
+      border: 1px solid #2196F3;
+      border-radius: 6px;
+      padding: 0.75rem;
+      margin: 0.5rem 0;
+      font-size: 0.85rem;
+    }
+
+    .time-estimate .icon {
+      color: #2196F3;
+      margin-right: 0.5rem;
+      font-weight: bold;
+    }
+
+    .helpful-tips {
+      background: #fff3cd;
+      border: 1px solid #ffc107;
+      border-radius: 6px;
+      padding: 1rem;
+      margin: 1rem 0;
+      font-size: 0.85rem;
+    }
+
+    .helpful-tips h4 {
+      margin: 0 0 0.5rem 0;
+      color: #856404;
+      font-size: 0.9rem;
+    }
+
+    .helpful-tips ul {
+      margin: 0.5rem 0 0 0;
+      padding-left: 1.2rem;
+    }
+
+    .helpful-tips li {
+      margin-bottom: 0.3rem;
+      color: #856404;
+    }
+
+    /* Animated dots for long loading */
+    .loading-dots::after {
+      content: '';
+      animation: dots 2s infinite;
+    }
+
+    @keyframes dots {
+      0%, 20% { content: ''; }
+      40% { content: '.'; }
+      60% { content: '..'; }
+      80%, 100% { content: '...'; }
+    }
+
     .job-info {
       background-color: #f8f9fa;
       padding: 1rem;
@@ -201,6 +282,44 @@
       margin-right: 0.5rem;
       margin-bottom: 0.5rem;
     }
+
+    /* Export button for downloaded videos */
+    .export-container {
+      margin-top: 1rem;
+      padding: 1rem;
+      background-color: #f0f8ff;
+      border: 1px solid #2196F3;
+      border-radius: 6px;
+    }
+
+    .export-button {
+      background-color: #2196F3;
+      color: white;
+      border: none;
+      padding: 0.75rem 1.5rem;
+      border-radius: 4px;
+      font-size: 0.9rem;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-block;
+      margin-top: 0.5rem;
+      transition: background-color 0.2s;
+    }
+
+    .export-button:hover {
+      background-color: #1976D2;
+    }
+
+    .export-button:disabled {
+      background-color: #ccc;
+      cursor: not-allowed;
+    }
+
+    .export-info {
+      font-size: 0.85rem;
+      color: #555;
+      margin-bottom: 0.5rem;
+    }
   </style>
 </head>
 
@@ -214,6 +333,10 @@
         <p><strong id="job-id-display">Job ID: Loading...</strong></p>
         <p><strong>Status:</strong> <span id="job-status">Initializing...</span></p>
         <p id="job-metrics"></p>
+        <div style="margin-top: 1rem; padding: 0.75rem; background: #e8f4fd; border-radius: 4px; border-left: 4px solid #2196F3;">
+          <strong>⏰ Expected Total Time:</strong> 25-45 minutes<br>
+          <small style="color: #666;">This page will automatically update as your job progresses. You can safely close this tab and return later.</small>
+        </div>
       </div>
 
       <!-- Vertical Stepper -->
@@ -230,12 +353,20 @@
           <div class="stepper-icon">2</div>
           <div class="stepper-content">
             <div class="stepper-title">Downloading Videos</div>
-            <div class="stepper-description">Downloading source videos from YouTube</div>
+            <div class="stepper-description">Downloading source videos from YouTube (This may take 20-30 minutes)</div>
+          </div>
+        </div>
+
+        <div class="stepper-step" id="step-downloaded">
+          <div class="stepper-icon">3</div>
+          <div class="stepper-content">
+            <div class="stepper-title">Videos Downloaded</div>
+            <div class="stepper-description">Full source videos are now available for export</div>
           </div>
         </div>
 
         <div class="stepper-step" id="step-processing">
-          <div class="stepper-icon">3</div>
+          <div class="stepper-icon">4</div>
           <div class="stepper-content">
             <div class="stepper-title">Processing Segments</div>
             <div class="stepper-description">Extracting and compiling selected video segments</div>
@@ -243,7 +374,7 @@
         </div>
 
         <div class="stepper-step" id="step-uploading">
-          <div class="stepper-icon">4</div>
+          <div class="stepper-icon">5</div>
           <div class="stepper-content">
             <div class="stepper-title">Uploading Result</div>
             <div class="stepper-description">Uploading final video to cloud storage</div>
@@ -254,7 +385,7 @@
           <div class="stepper-icon">✓</div>
           <div class="stepper-content">
             <div class="stepper-title">Complete</div>
-            <div class="stepper-description">Video is ready for download</div>
+            <div class="stepper-description">Video segments compilation is ready for download</div>
           </div>
         </div>
       </div>
@@ -279,9 +410,10 @@
       const downloadContainer = document.getElementById('download-container');
       const downloadButton = document.getElementById('download-button');
       
-      // Store current job data
+      // Store current job data and timing
       let currentJobData = null;
       let pollInterval = null;
+      let downloadStartTime = null;
 
       // 1. Get Job ID from URL
       const params = new URLSearchParams(window.location.search);
@@ -303,17 +435,32 @@
         // Initial check
         checkJobStatus(id);
 
-        // Poll every 3 seconds
+        // Start with frequent polling, then reduce frequency for long downloads
+        let pollFrequency = 3000; // 3 seconds initially
         pollInterval = setInterval(() => {
           checkJobStatus(id);
-        }, 3000);
+          
+          // If downloading for more than 5 minutes, reduce polling frequency
+          if (currentJobData && currentJobData.status === 'Downloading' && downloadStartTime) {
+            const downloadDuration = (Date.now() - downloadStartTime) / 1000 / 60;
+            if (downloadDuration > 5) {
+              // Reduce to polling every 10 seconds for long downloads
+              if (pollFrequency === 3000) {
+                clearInterval(pollInterval);
+                pollFrequency = 10000;
+                pollInterval = setInterval(() => checkJobStatus(id), pollFrequency);
+                console.log("Reduced polling frequency for long download");
+              }
+            }
+          }
+        }, pollFrequency);
       }
 
       function checkJobStatus(id) {
         console.log("Checking job status for:", id);
 
-        // Use Firebase Functions getJobStatus endpoint
-        fetch(`https://initiate-video-processing-job-py-408323719521.us-central1.run.app/getJobStatus?jobId=${id}`, {
+        // Use Python Cloud Run getJobStatus endpoint
+        fetch(`https://jre-video-processor-py-408323719521.us-central1.run.app/getJobStatus?jobId=${id}`, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
@@ -342,6 +489,9 @@
       function updateUI(jobData) {
         // Update basic info
         jobStatus.textContent = jobData.status || 'Unknown';
+        
+        // Update page title with status
+        document.title = `${jobData.status || 'Processing'} - Video Generation Status - JRE Clipper`;
         
         if (jobData.totalVideos || jobData.totalSegments) {
           jobMetrics.innerHTML = `
@@ -372,9 +522,42 @@
 
       function updateStepperUI(jobData) {
         const status = jobData.status || 'Unknown';
+        const progressMessage = jobData.progressMessage || '';
+        
+        // Detect cache optimization scenarios
+        const videosAlreadyAvailable = jobData.videosAlreadyAvailable || [];
+        const videosNeedingDownload = jobData.videosNeedingDownload || [];
+        const skipDownload = jobData.skipDownload || false;
+        const totalVideos = jobData.totalVideos || 0;
+        
+        // Special handling for different cache scenarios
+        let displayStatus = status;
+        let cacheOptimized = false;
+        
+        if (skipDownload && videosAlreadyAvailable.length > 0) {
+          // All videos were cached - processing started immediately
+          cacheOptimized = true;
+          if (status === 'Processing') {
+            displayStatus = 'CachedProcessing';
+          }
+        } else if (videosAlreadyAvailable.length > 0 && videosNeedingDownload.length > 0) {
+          // Partial cache - some videos cached, some downloading
+          cacheOptimized = true;
+          if (status === 'Downloading') {
+            displayStatus = 'PartialCacheDownloading';
+          }
+        } else if (status === 'Processing' && 
+                   (progressMessage.includes('download successful') || 
+                    progressMessage.includes('Download completed') ||
+                    progressMessage.includes('processing segments'))) {
+          // Traditional flow - show downloaded state
+          displayStatus = 'Downloaded';
+        }
+        
         const steps = {
           'step-initiated': document.getElementById('step-initiated'),
           'step-downloading': document.getElementById('step-downloading'),
+          'step-downloaded': document.getElementById('step-downloaded'),
           'step-processing': document.getElementById('step-processing'),
           'step-uploading': document.getElementById('step-uploading'),
           'step-complete': document.getElementById('step-complete')
@@ -388,46 +571,286 @@
         });
 
         // Update steps based on status
-        switch (status) {
+        switch (displayStatus) {
+          case 'CachedProcessing':
+            // All videos were cached - skip download phase entirely
+            steps['step-initiated'].className = 'stepper-step completed';
+            steps['step-downloading'].className = 'stepper-step completed';
+            steps['step-downloaded'].className = 'stepper-step completed';
+            steps['step-processing'].className = 'stepper-step active';
+            
+            addStepDetails(steps['step-downloading'], `
+              <div class="time-estimate">
+                <span class="icon">⚡</span>
+                <strong>Download skipped!</strong> All ${videosAlreadyAvailable.length} videos were already in storage
+              </div>
+              <div class="helpful-tips">
+                <h4>🚀 Cache Optimization Active</h4>
+                <ul>
+                  <li>Videos were previously downloaded and cached</li>
+                  <li>Skipping 20-30 minute download phase</li>
+                  <li>Processing segments immediately</li>
+                </ul>
+              </div>
+            `, 'completed');
+            
+            addStepDetails(steps['step-processing'], `
+              <div class="progress-indicator">
+                <div class="loading-spinner"></div>
+                <div class="progress-bar">
+                  <div class="progress-fill" style="width: 75%"></div>
+                </div>
+                <span>Processing</span>
+              </div>
+              <div class="time-estimate">
+                <span class="icon">⚡</span>
+                <strong>Fast processing!</strong> Extracting and compiling your selected segments
+              </div>
+              <p>${progressMessage || 'Processing cached video segments...'}</p>
+            `, 'active');
+            break;
+
+          case 'PartialCacheDownloading':
+            // Some videos cached, some downloading
+            steps['step-initiated'].className = 'stepper-step completed';
+            steps['step-downloading'].className = 'stepper-step active';
+            
+            // Track download start time
+            if (!downloadStartTime) {
+              downloadStartTime = Date.now();
+            }
+            
+            const partialDownloadDuration = Math.floor((Date.now() - downloadStartTime) / 1000 / 60); // minutes
+            const partialEstimatedTotal = Math.max(15, partialDownloadDuration + 10); // Reduced estimate due to partial cache
+            
+            addStepDetails(steps['step-downloading'], `
+              <div class="progress-indicator">
+                <div class="loading-spinner"></div>
+                <div class="progress-bar">
+                  <div class="progress-fill" style="width: ${Math.min(85, (partialDownloadDuration / partialEstimatedTotal) * 100)}%"></div>
+                </div>
+                <span>${partialDownloadDuration} min</span>
+              </div>
+              <div class="time-estimate">
+                <span class="icon">⚡</span>
+                <strong>Optimized download:</strong> ${videosNeedingDownload.length} of ${totalVideos} videos downloading
+                ${partialDownloadDuration > 0 ? ` | Running for ${partialDownloadDuration} minutes` : ''}
+              </div>
+              <div style="background: #e8f5e8; padding: 0.75rem; border-radius: 4px; margin: 0.5rem 0; border-left: 4px solid #4caf50;">
+                <strong>🚀 Cache Hit:</strong> ${videosAlreadyAvailable.length} videos already available, only downloading ${videosNeedingDownload.length} missing videos
+              </div>
+              <div class="helpful-tips">
+                <h4>💡 Why is this faster?</h4>
+                <ul>
+                  <li>Some videos were cached from previous requests</li>
+                  <li>Estimated time: 10-20 minutes (reduced from 20-30)</li>
+                  <li>Only downloading missing content</li>
+                </ul>
+              </div>
+              <p class="loading-dots"><strong>Downloading ${videosNeedingDownload.length} remaining videos</strong></p>
+            `, 'active');
+            break;
+
           case 'Downloading':
             steps['step-initiated'].className = 'stepper-step completed';
             steps['step-downloading'].className = 'stepper-step active';
-            addStepDetails(steps['step-downloading'], 
-              '<div class="loading-spinner"></div>Downloading videos from YouTube...', 
-              'active');
+            
+            // Track download start time
+            if (!downloadStartTime) {
+              downloadStartTime = Date.now();
+            }
+            
+            const regDownloadDuration = Math.floor((Date.now() - downloadStartTime) / 1000 / 60); // minutes
+            const regEstimatedTotal = Math.max(20, regDownloadDuration + 15); // At least 20 minutes estimate
+            const progressPercent = Math.min(85, (regDownloadDuration / regEstimatedTotal) * 100); // Cap at 85% until complete
+            
+            addStepDetails(steps['step-downloading'], `
+              <div class="progress-indicator">
+                <div class="loading-spinner"></div>
+                <div class="progress-bar">
+                  <div class="progress-fill" style="width: ${progressPercent}%"></div>
+                </div>
+                <span>${regDownloadDuration} min</span>
+              </div>
+              <div class="time-estimate">
+                <span class="icon">⏱️</span>
+                <strong>Estimated time:</strong> 20-30 minutes total
+                ${regDownloadDuration > 0 ? `| Running for ${regDownloadDuration} minutes` : ''}
+              </div>
+              <div class="helpful-tips">
+                <h4>💡 Why does this take so long?</h4>
+                <ul>
+                  <li>Downloading high-quality video files from YouTube</li>
+                  <li>Processing ${jobData.totalVideos || 'multiple'} videos simultaneously</li>
+                  <li>Your videos will be ready soon - feel free to close this tab and return later</li>
+                </ul>
+              </div>
+              <p class="loading-dots"><strong>Downloading videos</strong></p>
+            `, 'active');
+            break;
+
+          case 'Downloaded':
+            steps['step-initiated'].className = 'stepper-step completed';
+            steps['step-downloading'].className = 'stepper-step completed';
+            steps['step-downloaded'].className = 'stepper-step completed';
+            
+            addStepDetails(steps['step-downloaded'], `
+              <div class="time-estimate">
+                <span class="icon">✅</span>
+                <strong>Download complete!</strong> Full source videos are now available
+              </div>
+              <div class="export-info">
+                💡 You can now export the full source videos while segment processing continues in the background
+              </div>
+              <button id="export-source-videos-btn" class="export-button" onclick="exportSourceVideos()">
+                📁 Export Full Source Videos
+              </button>
+              <p style="margin-top: 0.5rem; font-size: 0.85rem; color: #666;">
+                Segment processing will continue automatically...
+              </p>
+            `, 'completed');
+            
+            // Also show step-processing as active if segments are being processed
+            if (jobData.progressMessage && jobData.progressMessage.includes('processing segments')) {
+              steps['step-processing'].className = 'stepper-step active';
+              addStepDetails(steps['step-processing'], `
+                <div class="progress-indicator">
+                  <div class="loading-spinner"></div>
+                  <div class="progress-bar">
+                    <div class="progress-fill" style="width: 40%"></div>
+                  </div>
+                  <span>Processing</span>
+                </div>
+                <div class="time-estimate">
+                  <span class="icon">⚡</span>
+                  <strong>Processing segments...</strong> Extracting your selected clips
+                </div>
+              `, 'active');
+            }
             break;
 
           case 'Processing':
             steps['step-initiated'].className = 'stepper-step completed';
             steps['step-downloading'].className = 'stepper-step completed';
+            steps['step-downloaded'].className = 'stepper-step completed';
             steps['step-processing'].className = 'stepper-step active';
-            addStepDetails(steps['step-processing'], 
-              '<div class="loading-spinner"></div>' + (jobData.progressMessage || 'Processing video segments...'), 
-              'active');
+            
+            addStepDetails(steps['step-processing'], `
+              <div class="progress-indicator">
+                <div class="loading-spinner"></div>
+                <div class="progress-bar">
+                  <div class="progress-fill" style="width: 60%"></div>
+                </div>
+                <span>Processing</span>
+              </div>
+              <div class="time-estimate">
+                <span class="icon">⚡</span>
+                <strong>Almost done!</strong> Extracting and compiling your selected segments
+              </div>
+              <p>${jobData.progressMessage || 'Processing video segments...'}</p>
+            `, 'active');
             break;
 
           case 'Uploading':
             steps['step-initiated'].className = 'stepper-step completed';
             steps['step-downloading'].className = 'stepper-step completed';
+            steps['step-downloaded'].className = 'stepper-step completed';
             steps['step-processing'].className = 'stepper-step completed';
             steps['step-uploading'].className = 'stepper-step active';
-            addStepDetails(steps['step-uploading'], 
-              '<div class="loading-spinner"></div>Uploading final video to cloud storage...', 
-              'active');
+            
+            addStepDetails(steps['step-uploading'], `
+              <div class="progress-indicator">
+                <div class="loading-spinner"></div>
+                <div class="progress-bar">
+                  <div class="progress-fill" style="width: 90%"></div>
+                </div>
+                <span>Uploading</span>
+              </div>
+              <div class="time-estimate">
+                <span class="icon">☁️</span>
+                <strong>Final step:</strong> Uploading your video to cloud storage
+              </div>
+              <p class="loading-dots">Uploading final video</p>
+            `, 'active');
             break;
 
           case 'Complete':
             Object.values(steps).forEach(step => {
               step.className = 'stepper-step completed';
             });
-            addStepDetails(steps['step-complete'], 
-              '✅ Video generation completed successfully!', 
-              'completed');
+            
+            // Create complete step content with final video URL
+            let completeContent = `
+              <div class="time-estimate">
+                <span class="icon">🎉</span>
+                <strong>Video generation completed successfully!</strong>
+              </div>
+            `;
+            
+            // Add final video download section if available
+            if (jobData.finalVideoUrl) {
+              completeContent += `
+                <div style="background: #e8f5e8; padding: 1rem; border-radius: 4px; border: 1px solid #4caf50; margin: 1rem 0;">
+                  <h4 style="margin: 0 0 0.5rem 0; color: #2e7d32;">🎬 Your Final Video is Ready!</h4>
+                  <a href="${jobData.finalVideoUrl}" target="_blank" 
+                     style="background: #4caf50; color: white; padding: 0.75rem 1.5rem; border-radius: 4px; text-decoration: none; display: inline-block; font-weight: bold; margin: 0.5rem 0;">
+                    📥 Download Final Video
+                  </a>
+                  <p style="margin: 0.5rem 0 0 0; font-size: 0.85rem; color: #666;">
+                    💡 Right-click and "Save As" to download to your device
+                  </p>
+                </div>
+              `;
+            } else {
+              completeContent += `
+                <div style="background: #fff3cd; padding: 1rem; border-radius: 4px; border: 1px solid #ffc107; margin: 1rem 0;">
+                  <p style="margin: 0; color: #856404;">
+                    ⏳ Final video URL is being prepared. Please refresh the page in a moment.
+                  </p>
+                </div>
+              `;
+            }
+            
+            // Add cache optimization summary if applicable
+            if (cacheOptimized) {
+              const totalCached = videosAlreadyAvailable.length;
+              const totalDownloaded = videosNeedingDownload.length;
+              
+              completeContent += `
+                <div style="background: #e3f2fd; padding: 1rem; border-radius: 4px; border: 1px solid #2196f3; margin: 1rem 0;">
+                  <h4 style="margin: 0 0 0.5rem 0; color: #1976d2;">⚡ Cache Optimization Summary</h4>
+                  <ul style="margin: 0.5rem 0; padding-left: 1.25rem;">
+                    ${totalCached > 0 ? `<li><strong>${totalCached} videos</strong> were already cached (saved ~${Math.floor(totalCached * 2.5)} minutes)</li>` : ''}
+                    ${totalDownloaded > 0 ? `<li><strong>${totalDownloaded} videos</strong> were downloaded fresh</li>` : ''}
+                    <li>Total processing time was significantly reduced</li>
+                  </ul>
+                </div>
+              `;
+            }
+            
+            // Add helpful next steps
+            completeContent += `
+              <div class="helpful-tips">
+                <h4>🎯 What's Next?</h4>
+                <ul>
+                  <li>Your personalized JRE compilation video is ready to download</li>
+                  <li>Share it with friends or save it for later viewing</li>
+                  <li>Create more compilations by searching for different topics</li>
+                </ul>
+              </div>
+              <div style="text-align: center; margin-top: 1rem;">
+                <button onclick="goBackToSelection()" style="background: #2196f3; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 4px; cursor: pointer; font-weight: bold;">
+                  🔍 Create Another Compilation
+                </button>
+              </div>
+            `;
+            
+            addStepDetails(steps['step-complete'], completeContent, 'completed');
             break;
 
           case 'Failed':
           case 'Error':
-            // Mark current step as failed based on progress
+            // Mark current step as failed based on progress (use original status for error detection)
             let failedStep = steps['step-initiated'];
             if (status.includes('download') || jobData.error?.includes('download')) {
               failedStep = steps['step-downloading'];
@@ -436,10 +859,12 @@
               failedStep = steps['step-processing'];
               steps['step-initiated'].className = 'stepper-step completed';
               steps['step-downloading'].className = 'stepper-step completed';
+              steps['step-downloaded'].className = 'stepper-step completed';
             } else if (status.includes('upload') || jobData.error?.includes('upload')) {
               failedStep = steps['step-uploading'];
               steps['step-initiated'].className = 'stepper-step completed';
               steps['step-downloading'].className = 'stepper-step completed';
+              steps['step-downloaded'].className = 'stepper-step completed';
               steps['step-processing'].className = 'stepper-step completed';
             }
             
@@ -452,9 +877,29 @@
 
           default: // Queued, Unknown, etc.
             steps['step-initiated'].className = 'stepper-step active';
-            addStepDetails(steps['step-initiated'], 
-              '<div class="loading-spinner"></div>Job queued, waiting to start...', 
-              'active');
+            addStepDetails(steps['step-initiated'], `
+              <div class="progress-indicator">
+                <div class="loading-spinner"></div>
+                <div class="progress-bar">
+                  <div class="progress-fill" style="width: 10%"></div>
+                </div>
+                <span>Starting</span>
+              </div>
+              <div class="time-estimate">
+                <span class="icon">🚀</span>
+                <strong>Getting ready...</strong> Your job is queued and will start shortly
+              </div>
+              <div class="helpful-tips">
+                <h4>📋 What happens next:</h4>
+                <ul>
+                  <li><strong>Step 1:</strong> Download videos from YouTube (20-30 min)</li>
+                  <li><strong>Step 2:</strong> Videos ready - export option available</li>
+                  <li><strong>Step 3:</strong> Extract your selected segments (5-10 min)</li>
+                  <li><strong>Step 4:</strong> Upload final video (2-5 min)</li>
+                </ul>
+              </div>
+              <p class="loading-dots">Initializing job</p>
+            `, 'active');
         }
       }
 
@@ -516,6 +961,89 @@
       window.goBackToSelection = function() {
         const searchQuery = localStorage.getItem('lastSearchQuery') || '';
         window.location.href = `index.html?showSelection=true&query=${encodeURIComponent(searchQuery)}`;
+      };
+
+      // Global function to export source videos
+      window.exportSourceVideos = function() {
+        // Get jobId from URL
+        const params = new URLSearchParams(window.location.search);
+        const jobId = params.get('jobId');
+        
+        if (!jobId) {
+          alert('No job ID found');
+          return;
+        }
+        
+        const button = event.target;
+        const originalText = button.textContent;
+        
+        // Disable button and show loading state
+        button.disabled = true;
+        button.textContent = '🔄 Preparing Export...';
+        
+        console.log('Requesting source video export for job:', jobId);
+        
+        // Call the backend endpoint to get source video URLs
+        fetch(`https://jre-video-processor-py-408323719521.us-central1.run.app/getSourceVideos?jobId=${jobId}`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          }
+        })
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`Failed to get source videos: ${response.status}`);
+          }
+          return response.json();
+        })
+        .then(data => {
+          console.log('Source videos response:', data);
+          
+          if (data.sourceVideos && data.sourceVideos.length > 0) {
+            // Create download links for each video
+            const downloadContainer = document.createElement('div');
+            downloadContainer.style.marginTop = '1rem';
+            downloadContainer.innerHTML = `
+              <div style="background: #e8f5e8; padding: 1rem; border-radius: 4px; border: 1px solid #4caf50;">
+                <h4 style="margin: 0 0 0.5rem 0; color: #2e7d32;">📁 Full Source Videos Available:</h4>
+                ${data.sourceVideos.map((video, index) => `
+                  <div style="margin: 0.5rem 0;">
+                    <a href="${video.url}" target="_blank" 
+                       style="background: #4caf50; color: white; padding: 0.5rem 1rem; border-radius: 4px; text-decoration: none; display: inline-block; margin-right: 0.5rem;">
+                      📥 Download Video ${index + 1} (${video.title || video.videoId})
+                    </a>
+                  </div>
+                `).join('')}
+                <p style="margin: 0.5rem 0 0 0; font-size: 0.8rem; color: #666;">
+                  💡 Right-click and "Save As" to download to your device
+                </p>
+              </div>
+            `;
+            
+            // Replace the export button with download links
+            button.parentNode.replaceChild(downloadContainer, button);
+            
+            // Show success message
+            console.log('Source video export prepared successfully');
+            
+          } else {
+            throw new Error('No source videos available for export');
+          }
+        })
+        .catch(error => {
+          console.error('Error exporting source videos:', error);
+          
+          // Re-enable button and show error
+          button.disabled = false;
+          button.textContent = originalText;
+          button.style.backgroundColor = '#f44336';
+          button.textContent = '❌ Export Failed';
+          
+          setTimeout(() => {
+            button.style.backgroundColor = '#2196F3';
+            button.textContent = originalText;
+          }, 3000);
+        });
       };
 
       // Cleanup on page unload

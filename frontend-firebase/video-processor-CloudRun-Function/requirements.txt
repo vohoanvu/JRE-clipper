@@ -7,3 +7,4 @@ google-cloud-pubsub==2.*
 google-auth==2.*
 yt-dlp==2025.*
 ffmpeg-python==0.2.*
+apify-client
