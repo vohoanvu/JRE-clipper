@@ -10,7 +10,7 @@
   <style media="screen">
     main {
       padding: 2rem;
-      max-width: 800px;
+      max-width: 900px;
       margin: auto;
     }
 
@@ -20,52 +20,186 @@
       border-radius: 8px;
     }
 
-    .progress-bar {
-      width: 100%;
-      background-color: #e0e0e0;
-      border-radius: 4px;
-      overflow: hidden;
+    /* Vertical Stepper Styles */
+    .stepper {
+      position: relative;
+      padding: 0;
+      margin: 2rem 0;
     }
 
-    .progress-bar-inner {
-      height: 20px;
-      width: 0%;
-      /* Starts at 0% */
-      background-color: #4caf50;
-      text-align: center;
-      line-height: 20px;
+    .stepper-step {
+      position: relative;
+      padding: 1.5rem 0 1.5rem 4rem;
+      border-left: 3px solid #e0e0e0;
+      margin-left: 1.5rem;
+    }
+
+    .stepper-step:last-child {
+      border-left-color: transparent;
+    }
+
+    .stepper-step.active {
+      border-left-color: #2196F3;
+    }
+
+    .stepper-step.completed {
+      border-left-color: #4CAF50;
+    }
+
+    .stepper-step.failed {
+      border-left-color: #F44336;
+    }
+
+    .stepper-icon {
+      position: absolute;
+      left: -3rem;
+      top: 1.5rem;
+      width: 2.5rem;
+      height: 2.5rem;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background-color: #e0e0e0;
+      color: #757575;
+      font-weight: bold;
+      font-size: 1rem;
+      border: 3px solid #e0e0e0;
+    }
+
+    .stepper-step.active .stepper-icon {
+      background-color: #2196F3;
+      border-color: #2196F3;
+      color: white;
+      animation: pulse 2s infinite;
+    }
+
+    .stepper-step.completed .stepper-icon {
+      background-color: #4CAF50;
+      border-color: #4CAF50;
       color: white;
     }
 
-    .error-container {
-      background-color: #ffebee;
-      border: 1px solid #f44336;
-      padding: 1rem;
-      border-radius: 4px;
-      margin-top: 1rem;
-      display: none;
+    .stepper-step.failed .stepper-icon {
+      background-color: #F44336;
+      border-color: #F44336;
+      color: white;
     }
 
-    .retry-container {
-      background-color: #fff3cd;
-      border: 1px solid #ffeaa7;
-      padding: 1rem;
-      border-radius: 4px;
-      margin-top: 1rem;
-      display: none;
+    @keyframes pulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.1); }
+      100% { transform: scale(1); }
     }
 
-    .suggestions-container {
-      background-color: #e8f5e8;
-      border: 1px solid #4caf50;
+    .stepper-content {
+      margin-left: 0.5rem;
+    }
+
+    .stepper-title {
+      font-size: 1.1rem;
+      font-weight: 600;
+      margin: 0 0 0.5rem 0;
+      color: #333;
+    }
+
+    .stepper-step.active .stepper-title {
+      color: #2196F3;
+    }
+
+    .stepper-step.completed .stepper-title {
+      color: #4CAF50;
+    }
+
+    .stepper-step.failed .stepper-title {
+      color: #F44336;
+    }
+
+    .stepper-description {
+      color: #666;
+      margin: 0 0 0.5rem 0;
+      font-size: 0.9rem;
+    }
+
+    .stepper-details {
+      background-color: #f8f9fa;
       padding: 1rem;
       border-radius: 4px;
       margin-top: 0.5rem;
+      font-size: 0.85rem;
+    }
+
+    .stepper-step.failed .stepper-details {
+      background-color: #ffebee;
+      border: 1px solid #f44336;
+    }
+
+    .stepper-step.active .stepper-details {
+      background-color: #e3f2fd;
+      border: 1px solid #2196F3;
+    }
+
+    .loading-spinner {
+      display: inline-block;
+      width: 1rem;
+      height: 1rem;
+      border: 2px solid #f3f3f3;
+      border-top: 2px solid #2196F3;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-right: 0.5rem;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .job-info {
+      background-color: #f8f9fa;
+      padding: 1rem;
+      border-radius: 4px;
+      margin-bottom: 2rem;
+    }
+
+    .job-info strong {
+      color: #333;
     }
 
     .download-container {
       margin-top: 2rem;
+      padding: 1.5rem;
+      background-color: #e8f5e8;
+      border: 1px solid #4caf50;
+      border-radius: 8px;
+      text-align: center;
       display: none;
+    }
+
+    .download-button {
+      background-color: #4caf50;
+      color: white;
+      border: none;
+      padding: 1rem 2rem;
+      border-radius: 4px;
+      font-size: 1rem;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-block;
+      margin-top: 1rem;
+    }
+
+    .download-button:hover {
+      background-color: #45a049;
+    }
+
+    .error-actions {
+      margin-top: 1rem;
+    }
+
+    .error-actions button {
+      margin-right: 0.5rem;
+      margin-bottom: 0.5rem;
     }
   </style>
 </head>
@@ -76,68 +210,78 @@
     <h1>Video Generation Status</h1>
 
     <div id="status-container">
-      <p><strong id="job-id-display">Job ID: Loading...</strong></p>
-      <p><strong>Status:</strong> <span id="job-status">Initializing...</span></p>
-      <p><strong>Video Title:</strong> <span id="job-title-text">Loading...</span></p>
-
-      <!-- Progress Bar -->
-      <div id="progress-container" style="display: none;">
-        <p><strong>Progress:</strong></p>
-        <div class="progress-bar">
-          <div class="progress-bar-inner" id="progress-bar-inner">0%</div>
-        </div>
-        <p id="progress-message">Preparing...</p>
+      <div class="job-info">
+        <p><strong id="job-id-display">Job ID: Loading...</strong></p>
+        <p><strong>Status:</strong> <span id="job-status">Initializing...</span></p>
+        <p id="job-metrics"></p>
       </div>
 
-      <!-- Error Container -->
-      <div class="error-container" id="error-container">
-        <h3>❌ Processing Failed</h3>
-        <p id="error-message"></p>
-      </div>
-
-      <!-- Retry Container (for bot detection errors) -->
-      <div class="retry-container" id="retry-container">
-        <h3>⚠️ YouTube Rate Limiting Detected</h3>
-        <p id="retry-message"></p>
-        <div class="suggestions-container" id="suggestions-container">
-          <p><strong>💡 Suggestion:</strong> <span id="suggestions-text"></span></p>
+      <!-- Vertical Stepper -->
+      <div class="stepper" id="stepper">
+        <div class="stepper-step" id="step-initiated">
+          <div class="stepper-icon">1</div>
+          <div class="stepper-content">
+            <div class="stepper-title">Job Initiated</div>
+            <div class="stepper-description">Video processing job created and queued</div>
+          </div>
         </div>
-        <div style="margin-top: 1rem;">
-          <button id="try-fewer-videos-btn" onclick="goBackToSelection()">
-            🔄 Try with Fewer Videos
-          </button>
-          <button id="wait-and-retry-btn" onclick="retryCurrentJob()" style="margin-left: 0.5rem;">
-            ⏳ Wait & Retry Same Videos
-          </button>
+
+        <div class="stepper-step" id="step-downloading">
+          <div class="stepper-icon">2</div>
+          <div class="stepper-content">
+            <div class="stepper-title">Downloading Videos</div>
+            <div class="stepper-description">Downloading source videos from YouTube</div>
+          </div>
+        </div>
+
+        <div class="stepper-step" id="step-processing">
+          <div class="stepper-icon">3</div>
+          <div class="stepper-content">
+            <div class="stepper-title">Processing Segments</div>
+            <div class="stepper-description">Extracting and compiling selected video segments</div>
+          </div>
+        </div>
+
+        <div class="stepper-step" id="step-uploading">
+          <div class="stepper-icon">4</div>
+          <div class="stepper-content">
+            <div class="stepper-title">Uploading Result</div>
+            <div class="stepper-description">Uploading final video to cloud storage</div>
+          </div>
+        </div>
+
+        <div class="stepper-step" id="step-complete">
+          <div class="stepper-icon">✓</div>
+          <div class="stepper-content">
+            <div class="stepper-title">Complete</div>
+            <div class="stepper-description">Video is ready for download</div>
+          </div>
         </div>
       </div>
 
       <!-- Download Container -->
       <div class="download-container" id="download-container">
-        <h3>Video Ready!</h3>
-        <button id="download-button" onclick="downloadVideo()">Download Video</button>
+        <h3>🎉 Your Video is Ready!</h3>
+        <p>Your custom JRE compilation has been generated successfully.</p>
+        <a id="download-button" class="download-button" href="#" target="_blank">
+          📥 Download Video
+        </a>
       </div>
     </div>
 
   </main>
+  
   <script>
     document.addEventListener('DOMContentLoaded', () => {
       const jobIdDisplay = document.getElementById('job-id-display');
       const jobStatus = document.getElementById('job-status');
-      const jobTitleText = document.getElementById('job-title-text');
-      const progressContainer = document.getElementById('progress-container');
-      const progressBarInner = document.getElementById('progress-bar-inner');
-      const progressMessage = document.getElementById('progress-message');
-      const errorContainer = document.getElementById('error-container');
-      const errorMessage = document.getElementById('error-message');
-      const retryContainer = document.getElementById('retry-container');
-      const retryMessage = document.getElementById('retry-message');
-      const suggestionsContainer = document.getElementById('suggestions-container');
-      const suggestionsText = document.getElementById('suggestions-text');
+      const jobMetrics = document.getElementById('job-metrics');
       const downloadContainer = document.getElementById('download-container');
-
-      // Store current job data for retry functionality
+      const downloadButton = document.getElementById('download-button');
+      
+      // Store current job data
       let currentJobData = null;
+      let pollInterval = null;
 
       // 1. Get Job ID from URL
       const params = new URLSearchParams(window.location.search);
@@ -145,21 +289,22 @@
 
       if (jobId) {
         jobIdDisplay.textContent = `Job ID: ${jobId}`;
-        listenForStatusChanges(jobId);
+        startStatusPolling(jobId);
       } else {
         jobStatus.textContent = 'No Job ID provided in the URL.';
         jobIdDisplay.textContent = 'Job ID: Not Found';
+        updateStepperUI({ status: 'Error', error: 'No job ID provided' });
       }
 
-      // 2. Poll for status updates using the existing Cloud Function
-      function listenForStatusChanges(id) {
-        console.log("Setting up status polling for job:", id);
+      // 2. Start polling for status updates
+      function startStatusPolling(id) {
+        console.log("Starting status polling for job:", id);
 
         // Initial check
         checkJobStatus(id);
 
         // Poll every 3 seconds
-        window.pollInterval = setInterval(() => {
+        pollInterval = setInterval(() => {
           checkJobStatus(id);
         }, 3000);
       }
@@ -167,148 +312,218 @@
       function checkJobStatus(id) {
         console.log("Checking job status for:", id);
 
-        // Use the dedicated getJobStatus function endpoint
-        fetch('https://us-central1-gen-lang-client-demo.cloudfunctions.net/getJobStatus', {
-          method: 'POST',
+        // Use Firebase Functions getJobStatus endpoint
+        fetch(`https://initiate-video-processing-job-py-408323719521.us-central1.run.app/getJobStatus?jobId=${id}`, {
+          method: 'GET',
           headers: {
             'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ jobId: id })
+          }
         })
-          .then(response => {
-            if (!response.ok) {
-              return response.json().then(err => {
-                throw new Error(err.error || `HTTP ${response.status}`);
-              });
-            }
-            return response.json();
-          })
-          .then(data => {
-            console.log("Job status received:", data.jobData);
-            updateUI(data.jobData);
-
-            // Stop polling if job is complete or failed
-            if (data.jobData.status === 'Complete' || data.jobData.status === 'Failed') {
-              if (window.pollInterval) {
-                clearInterval(window.pollInterval);
-                window.pollInterval = null;
-              }
-            }
-          })
-          .catch(error => {
-            console.error("Error getting job status:", error);
-            jobStatus.textContent = 'Error';
-            
-            if (error.message.includes('Job not found')) {
-              errorMessage.textContent = `Job with ID ${id} not found.`;
-            } else {
-              errorMessage.textContent = `Could not connect to status updates: ${error.message}`;
-            }
-            
-            errorContainer.style.display = 'block';
-
-            // Stop polling on error
-            if (window.pollInterval) {
-              clearInterval(window.pollInterval);
-              window.pollInterval = null;
-            }
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          }
+          return response.json();
+        })
+        .then(data => {
+          console.log("Job status response:", data);
+          currentJobData = data;
+          updateUI(data);
+        })
+        .catch(error => {
+          console.error("Error checking job status:", error);
+          updateUI({
+            status: 'Error',
+            error: `Failed to check job status: ${error.message}`
           });
+        });
       }
 
       function updateUI(jobData) {
-        currentJobData = jobData; // Store for retry functionality
+        // Update basic info
         jobStatus.textContent = jobData.status || 'Unknown';
-        jobTitleText.textContent = jobData.videoTitle || 'Unknown';
+        
+        if (jobData.totalVideos || jobData.totalSegments) {
+          jobMetrics.innerHTML = `
+            <strong>Videos:</strong> ${jobData.totalVideos || 'N/A'} | 
+            <strong>Segments:</strong> ${jobData.totalSegments || 'N/A'}
+          `;
+        }
 
-        // Hide all containers first
-        progressContainer.style.display = 'none';
-        errorContainer.style.display = 'none';
-        retryContainer.style.display = 'none';
-        downloadContainer.style.display = 'none';
+        // Update stepper UI
+        updateStepperUI(jobData);
 
-        // Handle different statuses
-        if (jobData.status === 'Queued') {
-          progressContainer.style.display = 'block';
-          progressBarInner.style.width = '10%';
-          progressBarInner.textContent = '10%';
-          progressMessage.textContent = 'Job queued, waiting to start...';
-        } else if (jobData.status === 'Processing') {
-          progressContainer.style.display = 'block';
-          const progress = jobData.progress || 50;
-          progressBarInner.style.width = progress + '%';
-          progressBarInner.textContent = progress + '%';
-          progressMessage.textContent = jobData.progressMessage || 'Processing video segments...';
-        } else if (jobData.status === 'Complete') {
-          progressContainer.style.display = 'block';
-          progressBarInner.style.width = '100%';
-          progressBarInner.textContent = '100%';
-          progressMessage.textContent = 'Video generation complete!';
+        // Handle download link
+        if (jobData.status === 'Complete' && jobData.finalVideoUrl) {
+          downloadContainer.style.display = 'block';
+          downloadButton.href = jobData.finalVideoUrl;
+        }
 
-          if (jobData.finalVideoUrl) {
-            downloadContainer.style.display = 'block';
-          }
-        } else if (jobData.status === 'Failed - Retry Recommended') {
-          // Special handling for bot detection/rate limiting
-          retryContainer.style.display = 'block';
-          retryMessage.textContent = jobData.error || 'YouTube is restricting video content scraping right now.';
-          
-          if (jobData.suggestions) {
-            suggestionsText.textContent = jobData.suggestions;
-          } else {
-            suggestionsText.textContent = 'Try selecting fewer videos from your search results to avoid detection.';
-          }
-        } else if (jobData.status && jobData.status.startsWith('Failed')) {
-          // Handle other failure types
-          errorContainer.style.display = 'block';
-          
-          if (jobData.status === 'Failed - Video Unavailable') {
-            errorMessage.textContent = `📹 ${jobData.error || 'The video is no longer available on YouTube.'}`;
-          } else if (jobData.status === 'Failed - Age Restricted') {
-            errorMessage.textContent = `🔞 ${jobData.error || 'The video has age restrictions that prevent processing.'}`;
-          } else if (jobData.status === 'Failed - Technical Issue') {
-            errorMessage.textContent = `⚙️ ${jobData.error || 'A technical issue occurred during processing.'}`;
-          } else {
-            errorMessage.textContent = jobData.error || 'An unknown error occurred.';
+        // Stop polling if job is complete or permanently failed
+        if (jobData.status === 'Complete' || 
+            (jobData.status && jobData.status.startsWith('Failed') && !jobData.status.includes('Retry'))) {
+          if (pollInterval) {
+            clearInterval(pollInterval);
+            pollInterval = null;
+            console.log("Stopped polling - job finished");
           }
         }
       }
 
-      // Make functions globally accessible
-      window.downloadVideo = function () {
-        if (currentJobData && currentJobData.finalVideoUrl) {
-          window.open(currentJobData.finalVideoUrl, '_blank');
-        } else {
-          alert('Video URL not available yet.');
-        }
-      };
+      function updateStepperUI(jobData) {
+        const status = jobData.status || 'Unknown';
+        const steps = {
+          'step-initiated': document.getElementById('step-initiated'),
+          'step-downloading': document.getElementById('step-downloading'),
+          'step-processing': document.getElementById('step-processing'),
+          'step-uploading': document.getElementById('step-uploading'),
+          'step-complete': document.getElementById('step-complete')
+        };
 
-      window.goBackToSelection = function () {
-        // Store the current search query if available
-        const searchQuery = localStorage.getItem('lastSearchQuery') || '';
+        // Reset all steps
+        Object.values(steps).forEach(step => {
+          step.className = 'stepper-step';
+          const details = step.querySelector('.stepper-details');
+          if (details) details.remove();
+        });
+
+        // Update steps based on status
+        switch (status) {
+          case 'Downloading':
+            steps['step-initiated'].className = 'stepper-step completed';
+            steps['step-downloading'].className = 'stepper-step active';
+            addStepDetails(steps['step-downloading'], 
+              '<div class="loading-spinner"></div>Downloading videos from YouTube...', 
+              'active');
+            break;
+
+          case 'Processing':
+            steps['step-initiated'].className = 'stepper-step completed';
+            steps['step-downloading'].className = 'stepper-step completed';
+            steps['step-processing'].className = 'stepper-step active';
+            addStepDetails(steps['step-processing'], 
+              '<div class="loading-spinner"></div>' + (jobData.progressMessage || 'Processing video segments...'), 
+              'active');
+            break;
+
+          case 'Uploading':
+            steps['step-initiated'].className = 'stepper-step completed';
+            steps['step-downloading'].className = 'stepper-step completed';
+            steps['step-processing'].className = 'stepper-step completed';
+            steps['step-uploading'].className = 'stepper-step active';
+            addStepDetails(steps['step-uploading'], 
+              '<div class="loading-spinner"></div>Uploading final video to cloud storage...', 
+              'active');
+            break;
+
+          case 'Complete':
+            Object.values(steps).forEach(step => {
+              step.className = 'stepper-step completed';
+            });
+            addStepDetails(steps['step-complete'], 
+              '✅ Video generation completed successfully!', 
+              'completed');
+            break;
+
+          case 'Failed':
+          case 'Error':
+            // Mark current step as failed based on progress
+            let failedStep = steps['step-initiated'];
+            if (status.includes('download') || jobData.error?.includes('download')) {
+              failedStep = steps['step-downloading'];
+              steps['step-initiated'].className = 'stepper-step completed';
+            } else if (status.includes('process') || jobData.error?.includes('process')) {
+              failedStep = steps['step-processing'];
+              steps['step-initiated'].className = 'stepper-step completed';
+              steps['step-downloading'].className = 'stepper-step completed';
+            } else if (status.includes('upload') || jobData.error?.includes('upload')) {
+              failedStep = steps['step-uploading'];
+              steps['step-initiated'].className = 'stepper-step completed';
+              steps['step-downloading'].className = 'stepper-step completed';
+              steps['step-processing'].className = 'stepper-step completed';
+            }
+            
+            failedStep.className = 'stepper-step failed';
+            const errorMsg = jobData.error || 'An unknown error occurred';
+            addStepDetails(failedStep, 
+              `❌ ${errorMsg}${getErrorSuggestions(errorMsg)}`, 
+              'failed');
+            break;
+
+          default: // Queued, Unknown, etc.
+            steps['step-initiated'].className = 'stepper-step active';
+            addStepDetails(steps['step-initiated'], 
+              '<div class="loading-spinner"></div>Job queued, waiting to start...', 
+              'active');
+        }
+      }
+
+      function addStepDetails(stepElement, content, type) {
+        const existingDetails = stepElement.querySelector('.stepper-details');
+        if (existingDetails) existingDetails.remove();
         
-        // Redirect back to index with a flag to show video selection
+        const details = document.createElement('div');
+        details.className = 'stepper-details';
+        details.innerHTML = content;
+        stepElement.querySelector('.stepper-content').appendChild(details);
+      }
+
+      function getErrorSuggestions(errorMsg) {
+        if (errorMsg.includes('bot') || errorMsg.includes('rate limit')) {
+          return `
+            <div class="error-actions">
+              <p><strong>💡 Suggestions:</strong></p>
+              <ul>
+                <li>Try selecting fewer video segments</li>
+                <li>Wait 10-15 minutes before retrying</li>
+                <li>YouTube may be blocking automated requests</li>
+              </ul>
+              <button onclick="goBackToSelection()" style="background: #2196F3; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer;">
+                ← Select Different Segments
+              </button>
+            </div>
+          `;
+        } else if (errorMsg.includes('private') || errorMsg.includes('unavailable')) {
+          return `
+            <div class="error-actions">
+              <p><strong>💡 Suggestions:</strong></p>
+              <ul>
+                <li>One or more videos may be private or deleted</li>
+                <li>Try searching for different content</li>
+                <li>Check if the original videos are still available</li>
+              </ul>
+              <button onclick="goBackToSelection()" style="background: #2196F3; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer;">
+                ← Try Different Videos
+              </button>
+            </div>
+          `;
+        } else {
+          return `
+            <div class="error-actions">
+              <p><strong>💡 You can:</strong></p>
+              <button onclick="location.reload()" style="background: #ff9800; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; margin-right: 0.5rem;">
+                🔄 Retry Job
+              </button>
+              <button onclick="goBackToSelection()" style="background: #2196F3; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer;">
+                ← Start New Job
+              </button>
+            </div>
+          `;
+        }
+      }
+
+      // Global function to go back to selection
+      window.goBackToSelection = function() {
+        const searchQuery = localStorage.getItem('lastSearchQuery') || '';
         window.location.href = `index.html?showSelection=true&query=${encodeURIComponent(searchQuery)}`;
       };
 
-      window.retryCurrentJob = function () {
-        if (!currentJobData) {
-          alert('No job data available for retry.');
-          return;
+      // Cleanup on page unload
+      window.addEventListener('beforeunload', () => {
+        if (pollInterval) {
+          clearInterval(pollInterval);
         }
-
-        const confirmRetry = confirm(
-          'This will retry the same video selection after a delay. ' +
-          'YouTube might still block the request. Are you sure you want to continue?'
-        );
-
-        if (confirmRetry) {
-          // Add a delay before retry to respect rate limiting
-          setTimeout(() => {
-            alert('Retry functionality would be implemented here. For now, please go back and select fewer videos.');
-            goBackToSelection();
-          }, 2000);
-        }
-      };
+      });
     });
   </script>
 </body>
