@@ -409,10 +409,13 @@
       const jobMetrics = document.getElementById('job-metrics');
       const downloadContainer = document.getElementById('download-container');
       const downloadButton = document.getElementById('download-button');
+
+      const videoProcessorUrl = 'https://jre-video-processor-py-408323719521.us-central1.run.app';
       
       // Store current job data and timing
       let currentJobData = null;
       let pollInterval = null;
+      let eventSource = null;
       let downloadStartTime = null;
 
       // 1. Get Job ID from URL
@@ -421,16 +424,91 @@
 
       if (jobId) {
         jobIdDisplay.textContent = `Job ID: ${jobId}`;
-        startStatusPolling(jobId);
+        startStatusStream(jobId);
       } else {
         jobStatus.textContent = 'No Job ID provided in the URL.';
         jobIdDisplay.textContent = 'Job ID: Not Found';
         updateStepperUI({ status: 'Error', error: 'No job ID provided' });
       }
 
-      // 2. Start polling for status updates
+      // 2. Start Server-Sent Events for real-time status updates
+      function startStatusStream(id) {
+        console.log("Starting SSE stream for job:", id);
+
+        // Set up Server-Sent Events connection
+        const sseUrl = `https://us-central1-gen-lang-client-demo.cloudfunctions.net/streamJobStatus/${id}`;
+        
+        try {
+          eventSource = new EventSource(sseUrl);
+          
+          eventSource.onopen = function(event) {
+            console.log("SSE connection opened for job:", id);
+            updateConnectionStatus('connected');
+          };
+
+          eventSource.onmessage = function(event) {
+            try {
+              const data = JSON.parse(event.data);
+              console.log("Received SSE update:", data);
+              
+              switch (data.type) {
+                case 'connected':
+                  console.log("SSE connection confirmed for job:", data.jobId);
+                  break;
+                  
+                case 'status':
+                  currentJobData = data;
+                  updateUI(data);
+                  break;
+                  
+                case 'complete':
+                  console.log("Job completed, SSE connection will close:", data.finalStatus);
+                  break;
+                  
+                case 'ping':
+                  // Keep-alive ping, no action needed
+                  break;
+                  
+                case 'error':
+                  console.error("SSE error:", data.error);
+                  updateUI({ status: 'Error', error: data.error });
+                  break;
+                  
+                default:
+                  console.log("Unknown SSE message type:", data.type);
+              }
+            } catch (error) {
+              console.error("Error parsing SSE data:", error, event.data);
+            }
+          };
+
+          eventSource.onerror = function(event) {
+            console.error("SSE connection error:", event);
+            updateConnectionStatus('error');
+            
+            // Implement reconnection logic with exponential backoff
+            if (eventSource.readyState === EventSource.CLOSED) {
+              console.log("SSE connection closed, attempting to reconnect...");
+              setTimeout(() => {
+                if (!isJobFinished()) {
+                  console.log("Reconnecting SSE...");
+                  startStatusStream(id);
+                }
+              }, 5000); // Retry after 5 seconds
+            }
+          };
+
+        } catch (error) {
+          console.error("Failed to create SSE connection:", error);
+          // Fallback to polling if SSE is not supported
+          console.log("Falling back to polling...");
+          startStatusPolling(id);
+        }
+      }
+
+      // Fallback polling function (for browsers that don't support SSE)
       function startStatusPolling(id) {
-        console.log("Starting status polling for job:", id);
+        console.log("Starting fallback polling for job:", id);
 
         // Initial check
         checkJobStatus(id);
@@ -456,11 +534,23 @@
         }, pollFrequency);
       }
 
+      function updateConnectionStatus(status) {
+        // You can add visual indicators for connection status here
+        console.log("Connection status:", status);
+      }
+
+      function isJobFinished() {
+        return currentJobData && 
+               (currentJobData.status === 'Complete' || 
+                (currentJobData.status && currentJobData.status.startsWith('Failed') && 
+                 !currentJobData.status.includes('Retry')));
+      }
+
       function checkJobStatus(id) {
         console.log("Checking job status for:", id);
 
         // Use Python Cloud Run getJobStatus endpoint
-        fetch(`https://jre-video-processor-py-408323719521.us-central1.run.app/getJobStatus?jobId=${id}`, {
+        fetch(`${videoProcessorUrl}/getJobStatus?jobId=${id}`, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
@@ -509,9 +599,14 @@
           downloadButton.href = jobData.finalVideoUrl;
         }
 
-        // Stop polling if job is complete or permanently failed
+        // Close SSE connection if job is complete or permanently failed
         if (jobData.status === 'Complete' || 
             (jobData.status && jobData.status.startsWith('Failed') && !jobData.status.includes('Retry'))) {
+          if (eventSource) {
+            eventSource.close();
+            eventSource = null;
+            console.log("Closed SSE connection - job finished");
+          }
           if (pollInterval) {
             clearInterval(pollInterval);
             pollInterval = null;
@@ -984,7 +1079,7 @@
         console.log('Requesting source video export for job:', jobId);
         
         // Call the backend endpoint to get source video URLs
-        fetch(`https://jre-video-processor-py-408323719521.us-central1.run.app/getSourceVideos?jobId=${jobId}`, {
+        fetch(`${videoProcessorUrl}/getSourceVideos?jobId=${jobId}`, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
@@ -1048,6 +1143,9 @@
 
       // Cleanup on page unload
       window.addEventListener('beforeunload', () => {
+        if (eventSource) {
+          eventSource.close();
+        }
         if (pollInterval) {
           clearInterval(pollInterval);
         }

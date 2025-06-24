@@ -7,25 +7,22 @@ import { logger } from "firebase-functions";
 import { google } from "googleapis";
 import Stripe from "stripe";
 
-// Initialize Firebase Admin
 initializeApp();
-const db = getFirestore();
+const db = getFirestore('jre-clipper-db');
 
-// Initialize CORS with proper configuration
 const corsHandler = cors({
     origin: true,
     methods: ['GET', 'POST', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
 });
 
-// Environment variables with better logging
 const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || 'your-api-key-here';
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || 'sk_test_your_stripe_secret_key';
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || 'whsec_your_webhook_secret';
 const DOMAIN = process.env.DOMAIN || 'https://your-domain.com';
-const STRIPE_PRICE_ID = process.env.STRIPE_PRICE_ID || 'price_1234567890'; // Your Pro plan price ID
+const STRIPE_PRICE_ID = process.env.STRIPE_PRICE_ID || 'price_1234567890';
 
-// Log configuration status (without exposing secrets)
+
 logger.info("Configuration status:", {
     hasYouTubeKey: !!process.env.YOUTUBE_API_KEY,
     hasStripeKey: !!process.env.STRIPE_SECRET_KEY,
@@ -34,7 +31,6 @@ logger.info("Configuration status:", {
     domain: DOMAIN
 });
 
-// Initialize Stripe with error handling
 let stripe;
 try {
     stripe = new Stripe(STRIPE_SECRET_KEY, {
@@ -648,6 +644,403 @@ export const getUserSubscriptionStatus = onCall({
         };
     }
 });
+
+// Video processing job status checker with cost optimization
+// export const getJobStatus = onRequest({
+//     memory: "256MiB", // Minimal memory for simple operations
+//     timeoutSeconds: 30, // Short timeout
+//     maxInstances: 10, // Allow multiple concurrent requests
+//     minInstances: 0, // No warm instances
+// }, async (req, res) => {
+//     corsHandler(req, res, async () => {
+//         try {
+//             // Only allow GET requests
+//             if (req.method !== 'GET') {
+//                 res.status(405).json({ error: "Method not allowed. Use GET." });
+//                 return;
+//             }
+
+//             // Get job ID from query parameters
+//             const jobId = req.query.jobId;
+//             if (!jobId) {
+//                 res.status(400).json({ error: "jobId query parameter is required" });
+//                 return;
+//             }
+
+//             logger.info(`Checking job status for: ${jobId}`);
+
+//             // Get job document from Firestore
+//             const jobRef = db.collection("videoJobs").doc(jobId);
+//             const jobDoc = await jobRef.get();
+
+//             if (!jobDoc.exists) {
+//                 res.status(404).json({ error: "Job not found" });
+//                 return;
+//             }
+
+//             const jobData = jobDoc.data();
+            
+//             // Return job status with all relevant fields
+//             const response = {
+//                 jobId: jobId,
+//                 status: jobData.status || 'Unknown',
+//                 progress: jobData.progress,
+//                 progressMessage: jobData.progressMessage,
+//                 totalVideos: jobData.totalVideos,
+//                 totalSegments: jobData.segmentCount,
+//                 createdAt: jobData.createdAt?.toISOString() || null,
+//                 updatedAt: jobData.updatedAt?.toISOString() || null,
+//             };
+
+//             // Include additional fields based on status
+//             if (jobData.error) {
+//                 response.error = jobData.error;
+//             }
+//             if (jobData.suggestions) {
+//                 response.suggestions = jobData.suggestions;
+//             }
+//             if (jobData.finalVideoUrl) {
+//                 response.finalVideoUrl = jobData.finalVideoUrl;
+//             }
+
+//             logger.info(`Job status retrieved successfully for: ${jobId}`);
+//             res.status(200).json(response);
+
+//         } catch (error) {
+//             logger.error(`Error getting job status: ${error}`);
+//             res.status(500).json({ error: "Internal server error" });
+//         }
+//     });
+// });
+
+// Video download success webhook handler with cost optimization
+// export const handleVideoDownloadSuccess = onRequest({
+//     memory: "256MiB", // Minimal memory
+//     timeoutSeconds: 30, // Short timeout
+//     maxInstances: 5, // Lower max instances for webhooks
+//     minInstances: 0, // No warm instances
+// }, async (req, res) => {
+//     corsHandler(req, res, async () => {
+//         try {
+//             // Only allow POST requests
+//             if (req.method !== 'POST') {
+//                 res.status(405).json({ error: "Method not allowed. Use POST." });
+//                 return;
+//             }
+
+//             const { runId, runStatus, isScraperRunDone } = req.body;
+
+//             if (!runId) {
+//                 res.status(400).json({ error: "runId is required" });
+//                 return;
+//             }
+
+//             logger.info(`Received download success webhook for job: ${runId}`);
+
+//             // Check if job exists
+//             const jobRef = db.collection("videoJobs").doc(runId);
+//             const jobDoc = await jobRef.get();
+
+//             if (!jobDoc.exists) {
+//                 logger.error(`Job ${runId} not found in database`);
+//                 res.status(404).json({ error: "Job not found" });
+//                 return;
+//             }
+
+//             const jobData = jobDoc.data();
+//             const currentStatus = jobData.status || 'Unknown';
+
+//             // Only update if job is still in expected state
+//             if (!['Queued', 'Downloading'].includes(currentStatus)) {
+//                 logger.warning(`Job ${runId} is already in status: ${currentStatus}`);
+//                 res.status(200).json({
+//                     message: "Job status already updated",
+//                     currentStatus: currentStatus
+//                 });
+//                 return;
+//             }
+
+//             // Update job status to indicate successful download
+//             await jobRef.update({
+//                 status: 'Processing',
+//                 progress: 50,
+//                 progressMessage: 'Full Videos download successful, processing segments...',
+//                 updatedAt: new Date()
+//             });
+
+//             logger.info(`Successfully updated job ${runId} to Processing status`);
+
+//             res.status(200).json({
+//                 message: "Job status updated successfully",
+//                 jobId: runId,
+//                 newStatus: "Processing"
+//             });
+
+//         } catch (error) {
+//             logger.error(`Error handling video download success webhook: ${error}`);
+//             res.status(500).json({ error: "Internal server error" });
+//         }
+//     });
+// });
+
+// Server-Sent Events endpoint for real-time job status updates
+export const streamJobStatus = onRequest({
+    region: 'us-central1',
+    cors: true,
+    timeoutSeconds: 3600, // 1 hour timeout for long-running connections
+    memory: '256MiB'
+}, async (req, res) => {
+    try {
+        // Extract jobId from URL path: /streamJobStatus/{jobId}
+        const jobId = req.path.split('/').pop();
+        
+        if (!jobId) {
+            res.status(400).json({ error: 'Job ID is required in URL path' });
+            return;
+        }
+
+        logger.info(`Starting SSE stream for job: ${jobId}`);
+
+        // Set up Server-Sent Events headers
+        res.writeHead(200, {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Headers': 'Cache-Control'
+        });
+
+        // Send initial connection confirmation
+        res.write(`data: ${JSON.stringify({ 
+            type: 'connected', 
+            jobId: jobId, 
+            timestamp: new Date().toISOString() 
+        })}\n\n`);
+
+        // Get initial job status
+        const jobRef = db.collection('videoJobs').doc(jobId);
+        
+        try {
+            logger.info(`Fetching job from Firestore: videoJobs/${jobId}`);
+            const initialDoc = await jobRef.get();
+            
+            if (initialDoc.exists) {
+                const jobData = initialDoc.data();
+                logger.info(`Found job data for ${jobId}:`, {
+                    status: jobData.status,
+                    totalVideos: jobData.totalVideos,
+                    createdAt: jobData.createdAt?.toDate?.()?.toISOString()
+                });
+                
+                const statusUpdate = {
+                    type: 'status',
+                    jobId: jobId,
+                    status: jobData.status || 'Unknown',
+                    progress: jobData.progress,
+                    progressMessage: jobData.progressMessage,
+                    totalVideos: jobData.totalVideos,
+                    totalSegments: jobData.segmentCount,
+                    videosAlreadyAvailable: jobData.videosAlreadyAvailable,
+                    videosNeedingDownload: jobData.videosNeedingDownload,
+                    skipDownload: jobData.skipDownload,
+                    finalVideoUrl: jobData.finalVideoUrl,
+                    error: jobData.error,
+                    suggestions: jobData.suggestions,
+                    createdAt: jobData.createdAt?.toDate?.()?.toISOString(),
+                    updatedAt: jobData.updatedAt?.toDate?.()?.toISOString(),
+                    timestamp: new Date().toISOString()
+                };
+                
+                res.write(`data: ${JSON.stringify(statusUpdate)}\n\n`);
+                logger.info(`Sent initial status for job ${jobId}: ${jobData.status}`);
+            } else {
+                logger.warn(`Job not found in Firestore: ${jobId}`);
+                res.write(`data: ${JSON.stringify({ 
+                    type: 'error', 
+                    jobId: jobId, 
+                    error: 'Job not found',
+                    timestamp: new Date().toISOString() 
+                })}\n\n`);
+                res.end();
+                return;
+            }
+        } catch (error) {
+            logger.error(`Error fetching initial job status for ${jobId}:`, {
+                error: error.message,
+                stack: error.stack,
+                code: error.code
+            });
+            res.write(`data: ${JSON.stringify({ 
+                type: 'error', 
+                jobId: jobId, 
+                error: `Failed to fetch job status: ${error.message}`,
+                timestamp: new Date().toISOString() 
+            })}\n\n`);
+        }
+
+        // Set up Firestore real-time listener
+        const unsubscribe = jobRef.onSnapshot((doc) => {
+            try {
+                if (!doc.exists) {
+                    res.write(`data: ${JSON.stringify({ 
+                        type: 'error', 
+                        jobId: jobId, 
+                        error: 'Job no longer exists',
+                        timestamp: new Date().toISOString() 
+                    })}\n\n`);
+                    res.end();
+                    return;
+                }
+
+                const jobData = doc.data();
+                const statusUpdate = {
+                    type: 'status',
+                    jobId: jobId,
+                    status: jobData.status || 'Unknown',
+                    progress: jobData.progress,
+                    progressMessage: jobData.progressMessage,
+                    totalVideos: jobData.totalVideos,
+                    totalSegments: jobData.segmentCount,
+                    videosAlreadyAvailable: jobData.videosAlreadyAvailable,
+                    videosNeedingDownload: jobData.videosNeedingDownload,
+                    skipDownload: jobData.skipDownload,
+                    finalVideoUrl: jobData.finalVideoUrl,
+                    error: jobData.error,
+                    suggestions: jobData.suggestions,
+                    createdAt: jobData.createdAt?.toDate?.()?.toISOString(),
+                    updatedAt: jobData.updatedAt?.toDate?.()?.toISOString(),
+                    timestamp: new Date().toISOString()
+                };
+
+                res.write(`data: ${JSON.stringify(statusUpdate)}\n\n`);
+                logger.info(`Streamed status update for job ${jobId}: ${jobData.status}`);
+
+                // Close connection if job is complete or permanently failed
+                if (jobData.status === 'Complete' || 
+                    (jobData.status && jobData.status.startsWith('Failed') && !jobData.status.includes('Retry'))) {
+                    logger.info(`Job ${jobId} finished with status: ${jobData.status}. Closing SSE connection.`);
+                    res.write(`data: ${JSON.stringify({ 
+                        type: 'complete', 
+                        jobId: jobId, 
+                        finalStatus: jobData.status,
+                        timestamp: new Date().toISOString() 
+                    })}\n\n`);
+                    res.end();
+                }
+            } catch (error) {
+                logger.error(`Error in Firestore listener for job ${jobId}:`, error);
+                res.write(`data: ${JSON.stringify({ 
+                    type: 'error', 
+                    jobId: jobId, 
+                    error: 'Failed to process status update',
+                    timestamp: new Date().toISOString() 
+                })}\n\n`);
+            }
+        }, (error) => {
+            logger.error(`Firestore listener error for job ${jobId}:`, error);
+            res.write(`data: ${JSON.stringify({ 
+                type: 'error', 
+                jobId: jobId, 
+                error: 'Database connection lost',
+                timestamp: new Date().toISOString() 
+            })}\n\n`);
+            res.end();
+        });
+
+        // Handle client disconnect
+        req.on('close', () => {
+            logger.info(`SSE connection closed for job: ${jobId}`);
+            unsubscribe();
+        });
+
+        req.on('error', (error) => {
+            logger.error(`SSE connection error for job ${jobId}:`, error);
+            unsubscribe();
+        });
+
+        // Keep-alive ping every 30 seconds
+        const keepAlive = setInterval(() => {
+            try {
+                res.write(`data: ${JSON.stringify({ 
+                    type: 'ping', 
+                    timestamp: new Date().toISOString() 
+                })}\n\n`);
+            } catch (error) {
+                logger.error(`Keep-alive error for job ${jobId}:`, error);
+                clearInterval(keepAlive);
+                unsubscribe();
+            }
+        }, 30000);
+
+        // Clean up keep-alive on connection close
+        req.on('close', () => {
+            clearInterval(keepAlive);
+        });
+
+    } catch (error) {
+        logger.error('Error in streamJobStatus:', error);
+        if (!res.headersSent) {
+            res.status(500).json({ error: 'Failed to start status stream' });
+        }
+    }
+});
+
+// Debug endpoint to check job status directly
+// export const debugJobStatus = onRequest({
+//     region: 'us-central1',
+//     cors: true
+// }, async (req, res) => {
+//     try {
+//         const jobId = req.query.jobId;
+        
+//         if (!jobId) {
+//             res.status(400).json({ error: 'jobId query parameter is required' });
+//             return;
+//         }
+
+//         logger.info(`Debug: Checking job ${jobId} in jre-clipper-db database`);
+        
+//         const jobRef = db.collection('videoJobs').doc(jobId);
+//         const doc = await jobRef.get();
+        
+//         if (doc.exists) {
+//             const jobData = doc.data();
+//             res.json({
+//                 found: true,
+//                 jobId: jobId,
+//                 status: jobData.status,
+//                 createdAt: jobData.createdAt?.toDate?.()?.toISOString(),
+//                 updatedAt: jobData.updatedAt?.toDate?.()?.toISOString(),
+//                 totalVideos: jobData.totalVideos,
+//                 segmentCount: jobData.segmentCount,
+//                 fullData: jobData
+//             });
+//         } else {
+//             // Try to list some jobs to see if the collection exists
+//             const snapshot = await db.collection('videoJobs').limit(5).get();
+//             res.json({
+//                 found: false,
+//                 jobId: jobId,
+//                 database: 'jre-clipper-db',
+//                 collection: 'videoJobs',
+//                 otherJobsCount: snapshot.size,
+//                 otherJobs: snapshot.docs.map(doc => ({
+//                     id: doc.id,
+//                     status: doc.data().status,
+//                     createdAt: doc.data().createdAt?.toDate?.()?.toISOString()
+//                 }))
+//             });
+//         }
+        
+//     } catch (error) {
+//         logger.error('Debug endpoint error:', error);
+//         res.status(500).json({
+//             error: error.message,
+//             code: error.code,
+//             stack: error.stack
+//         });
+//     }
+// });
 
 // Utility function to ensure user document exists with default values
 async function ensureUserDocument(identifier) {
