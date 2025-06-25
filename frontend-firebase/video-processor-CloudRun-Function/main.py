@@ -233,15 +233,8 @@ def process_video_segments(video_path, segments, temp_dir, job_id):
         logger.info("Starting FFmpeg processing via python library...")
         try:
             # Execute the ffmpeg command through the library
-            ffmpeg.run(
-                output, 
-                overwrite_output=True, 
-                capture_stdout=True, 
-                capture_stderr=True,
-                quiet=False  # Set to True to suppress ffmpeg output
-            )
+            ffmpeg.run(output)
             logger.info("FFmpeg processing completed successfully")
-            
         except ffmpeg.Error as e:
             # Handle ffmpeg-python specific errors
             stderr_output = ""
@@ -264,7 +257,6 @@ def process_video_segments(video_path, segments, temp_dir, job_id):
                 raise Exception(f"Permission error during FFmpeg processing: {stderr_output}")
             else:
                 raise Exception(f"FFmpeg processing failed: {stderr_output or 'Unknown error'}")
-                
         except Exception as e:
             logger.error(f"Unexpected error during FFmpeg processing: {str(e)}")
             raise Exception(f"Video processing failed: {str(e)}")
