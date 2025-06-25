@@ -135,7 +135,7 @@ if not storage_client:
 
 def process_video_segments(video_path, segments, temp_dir, job_id):
     """
-    Process video segments using ffmpeg-python
+    Process video segments using ffmpeg-python library
     Enhanced version with better error handling and progress tracking
     """
     # Create unique output filename for this video
@@ -167,6 +167,15 @@ def process_video_segments(video_path, segments, temp_dir, job_id):
         # Verify input video exists
         if not os.path.exists(video_path):
             raise FileNotFoundError(f"Input video file not found: {video_path}")
+
+        # Test ffmpeg-python library availability
+        try:
+            # Simple test to ensure ffmpeg-python can create a basic input
+            test_input = ffmpeg.input(video_path)
+            logger.info("FFmpeg-python library is working correctly")
+        except Exception as e:
+            logger.error(f"FFmpeg-python library test failed: {e}")
+            raise Exception(f"FFmpeg-python library is not working: {str(e)}")
 
         # Update job status
         update_job_status(job_id, "Processing", 60, f"Processing {len(valid_segments)} video segments...")
@@ -220,32 +229,54 @@ def process_video_segments(video_path, segments, temp_dir, job_id):
             **{"profile:v": "main", "level": "3.1"}  # Ensure compatibility
         )
 
-        # Run ffmpeg with better error handling
-        logger.info("Starting FFmpeg processing...")
+        # Run ffmpeg using the python library (NOT subprocess)
+        logger.info("Starting FFmpeg processing via python library...")
         try:
-            # Check if ffmpeg is available
-            import subprocess  # Explicit import to ensure availability
-            try:
-                subprocess.run(['ffmpeg', '-version'], capture_output=True, check=True)
-            except (subprocess.CalledProcessError, FileNotFoundError):
-                raise Exception("FFmpeg is not installed or not accessible. Please ensure FFmpeg is available in the environment.")
+            # Execute the ffmpeg command through the library
+            ffmpeg.run(
+                output, 
+                overwrite_output=True, 
+                capture_stdout=True, 
+                capture_stderr=True,
+                quiet=False  # Set to True to suppress ffmpeg output
+            )
+            logger.info("FFmpeg processing completed successfully")
             
-            ffmpeg.run(output, overwrite_output=True, capture_stdout=True, capture_stderr=True)
         except ffmpeg.Error as e:
-            stderr = e.stderr.decode('utf-8') if e.stderr else "Unknown ffmpeg error"
-            logger.error(f"FFmpeg failed: {stderr}")
-            raise Exception(f"FFmpeg processing failed: {stderr}")
-        except Exception as e:
-            if "ffmpeg" in str(e).lower():
-                raise Exception(f"FFmpeg not available: {str(e)}")
+            # Handle ffmpeg-python specific errors
+            stderr_output = ""
+            stdout_output = ""
+            
+            if e.stderr:
+                stderr_output = e.stderr.decode('utf-8')
+                logger.error(f"FFmpeg stderr: {stderr_output}")
+            
+            if e.stdout:
+                stdout_output = e.stdout.decode('utf-8')
+                logger.error(f"FFmpeg stdout: {stdout_output}")
+            
+            # Provide more specific error messages
+            if "No such file or directory" in stderr_output:
+                raise Exception("FFmpeg binary not found in container. Please ensure FFmpeg is installed.")
+            elif "Invalid argument" in stderr_output:
+                raise Exception(f"Invalid FFmpeg arguments: {stderr_output}")
+            elif "Permission denied" in stderr_output:
+                raise Exception(f"Permission error during FFmpeg processing: {stderr_output}")
             else:
-                raise
+                raise Exception(f"FFmpeg processing failed: {stderr_output or 'Unknown error'}")
+                
+        except Exception as e:
+            logger.error(f"Unexpected error during FFmpeg processing: {str(e)}")
+            raise Exception(f"Video processing failed: {str(e)}")
 
         # Verify output file
         if not os.path.exists(output_path):
             raise Exception("FFmpeg processing failed - no output file created")
 
         file_size = os.path.getsize(output_path)
+        if file_size == 0:
+            raise Exception("FFmpeg processing failed - output file is empty")
+            
         logger.info(f"Video processing completed: {output_path} ({file_size / 1024 / 1024:.2f} MB)")
 
         return output_path
@@ -261,6 +292,10 @@ def process_video_segments(video_path, segments, temp_dir, job_id):
             suggestions.append("Try selecting shorter segments or fewer videos")
         elif "invalid" in error_msg.lower():
             suggestions.append("Invalid segment timestamps detected")
+        elif "permission" in error_msg.lower():
+            suggestions.append("File permission error - check container permissions")
+        elif "no such file" in error_msg.lower():
+            suggestions.append("FFmpeg binary not found - ensure FFmpeg is installed in container")
         else:
             suggestions.append("Video processing encountered an unexpected error")
             
