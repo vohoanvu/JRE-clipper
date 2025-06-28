@@ -14,7 +14,7 @@
   <script defer src="/__/firebase/init.js"></script> -->
   <script defer src="https://www.gstatic.com/firebasejs/11.9.1/firebase-app-compat.js"></script>
   <script defer src="https://www.gstatic.com/firebasejs/11.9.1/firebase-functions-compat.js"></script>
-  <script defer> firebase.initializeApp();</script>
+  <script defer src="/__/firebase/init.js"></script>
   <style media="screen">
     * {
       box-sizing: border-box;
@@ -1454,19 +1454,19 @@
       updateGenerateVideoButton();
     }
 
-    // Update the Generate Video button state
+    // Update the Generate Compilation Video button state
     function updateGenerateVideoButton() {
       const button = document.getElementById('generateVideoBtn');
       if (!button) return;
       
       const count = selectedSegments.length;
-      button.textContent = `📹 Generate Video (${count} segment${count !== 1 ? 's' : ''} selected)`;
+      button.textContent = `📹 Generate Compilation Video (${count} segment${count !== 1 ? 's' : ''} selected)`;
       button.disabled = count === 0;
       
       if (count === 0) {
-        button.title = 'Select at least one segment to generate video';
+        button.title = 'Select at least one segment to generate compilation video';
       } else {
-        button.title = `Generate video from ${count} selected segment${count !== 1 ? 's' : ''}`;
+        button.title = `Generate Compilation video from ${count} selected segment${count !== 1 ? 's' : ''}`;
       }
     }
 
@@ -1532,7 +1532,7 @@
     // Main function to initiate video generation
     async function initiateVideoGeneration() {
       if (selectedSegments.length === 0) {
-        alert('Please select at least one segment to generate video.');
+        alert('Please select at least one segment to generate compilation video.');
         return;
       }
 
