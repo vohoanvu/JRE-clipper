@@ -985,12 +985,12 @@
           'Content-Type': 'application/json' 
         },
         body: JSON.stringify({ 
-          query: query, 
+          query: query.toLowerCase(), 
           pageSize: 20, 
           queryExpansionSpec: { condition: "AUTO" }, 
           spellCorrectionSpec: { mode: "AUTO" }, 
           languageCode: "en-US",
-          userInfo: { timeZone: "Asia/Saigon" },
+          userInfo: { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
           session: "projects/408323719521/locations/us/collections/default_collection/engines/jreclipper_1750261043616/sessions/-"
         })
       })
@@ -1615,8 +1615,6 @@
         button.textContent = originalText;
       }
     }
-
-    // ...existing code...
   </script>
 </body>
 
