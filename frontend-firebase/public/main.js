@@ -44,14 +44,17 @@ document.addEventListener('DOMContentLoaded', function () {
 
 // ===== APPLICATION INITIALIZATION =====
 function initializeApp() {
-  // Initialize rate limiting
-  initializeRateLimit();
+  // Initialize Firebase Auth (optional - app works without it)
+  initializeAuth();
 
   // Set up event listeners
   setupEventListeners();
 
-  // Initialize authentication
-  initializeAuth();
+  // Initialize rate limiting
+  initializeRateLimit();
+
+  // Initialize the app for non-authenticated users
+  fetchAccessToken();
 }
 
 function setupEventListeners() {
@@ -75,6 +78,54 @@ function setupEventListeners() {
 
 // ===== AUTHENTICATION =====
 function initializeAuth() {
+  // Listen for auth state changes
+  firebase.auth().onAuthStateChanged(user => {
+    const authButtonsContainer = document.getElementById('auth-buttons');
+    const userInfoContainer = document.getElementById('user-info');
+
+    if (user) {
+      // User is signed in
+      if (authButtonsContainer) authButtonsContainer.style.display = 'none';
+      if (userInfoContainer) userInfoContainer.style.display = 'flex';
+
+      const userPhoto = document.getElementById('user-photo');
+      const userEmail = document.getElementById('user-email');
+      
+      if (userPhoto) userPhoto.src = user.photoURL || 'https://via.placeholder.com/40';
+      if (userEmail) userEmail.textContent = user.email;
+
+      // Set up sign-out functionality
+      const signOutBtn = document.getElementById('sign-out');
+      if (signOutBtn) {
+        signOutBtn.addEventListener('click', () => {
+          firebase.auth().signOut().then(() => {
+            // Signed out successfully
+            console.log('User signed out');
+            // Refresh the page to reset the app state
+            window.location.reload();
+          });
+        });
+      }
+
+      // Set user as pro (authenticated users get pro features)
+      userPlan = 'pro';
+      localStorage.setItem('jre_user_plan', 'pro');
+      updateUsageDisplay();
+
+    } else {
+      // User is signed out - show sign-in button
+      if (authButtonsContainer) authButtonsContainer.style.display = 'block';
+      if (userInfoContainer) userInfoContainer.style.display = 'none';
+
+      // Set user as free
+      userPlan = 'free';
+      localStorage.setItem('jre_user_plan', 'free');
+      updateUsageDisplay();
+    }
+  });
+}
+
+function fetchAccessToken() {
   fetch(tokenFunctionUrl)
     .then(response => {
       if (!response.ok) {

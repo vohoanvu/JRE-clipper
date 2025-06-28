@@ -946,6 +946,42 @@ def check_existing_videos_in_gcs(video_ids, source_bucket="jre-all-episodes"):
         # Return empty dict to indicate no existing videos found (safe fallback)
         return {video_id: None for video_id in video_ids}
 
+def serialize_job_data_for_pubsub(job_data):
+    """
+    Convert Firestore DatetimeWithNanoseconds objects to JSON-serializable format
+    """
+    try:
+        serialized_data = {}
+        
+        for key, value in job_data.items():
+            if hasattr(value, 'isoformat'):  # Check if it's a datetime object
+                # Convert datetime to ISO format string
+                serialized_data[key] = value.isoformat()
+            elif isinstance(value, list):
+                # Handle lists that might contain datetime objects
+                serialized_list = []
+                for item in value:
+                    if isinstance(item, dict):
+                        # Recursively handle dictionaries in lists
+                        serialized_item = {}
+                        for sub_key, sub_value in item.items():
+                            if hasattr(sub_value, 'isoformat'):
+                                serialized_item[sub_key] = sub_value.isoformat()
+                            else:
+                                serialized_item[sub_key] = sub_value
+                        serialized_list.append(serialized_item)
+                    else:
+                        serialized_list.append(item)
+                serialized_data[key] = serialized_list
+            else:
+                serialized_data[key] = value
+                
+        return serialized_data
+        
+    except Exception as e:
+        logger.error(f"Error serializing job data: {e}")
+        raise
+
 def publish_video_processing_job(job_id, job_data):
     """
     Publish a video processing job to the Pub/Sub topic for background processing
@@ -957,8 +993,11 @@ def publish_video_processing_job(job_id, job_data):
         # Define the topic path
         topic_path = pubsub_publisher.topic_path(project_id, "video-editing-job")
         
+        # Serialize job data to handle Firestore datetime objects
+        serialized_job_data = serialize_job_data_for_pubsub(job_data)
+        
         # Prepare message data
-        message_data = json.dumps(job_data).encode("utf-8")
+        message_data = json.dumps(serialized_job_data).encode("utf-8")
         
         # Prepare message attributes
         message_attributes = {

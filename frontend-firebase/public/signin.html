@@ -4,16 +4,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>What would Joe Rogan say? - JRE Clipper</title>
+  <title>Sign In - JRE Clipper</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
   <link type="text/css" rel="stylesheet" href="https://www.gstatic.com/firebasejs/ui/4.8.1/firebase-ui-auth.css" />
   <link rel="stylesheet" href="main.css">
-  <script src="https://cloud.google.com/ai/gen-app-builder/client?hl=en_US"></script>
 
   <!-- Firebase SDK via CDN (Manual Integration) -->
   <script src="https://www.gstatic.com/firebasejs/11.9.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/11.9.1/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/11.9.1/firebase-functions-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/ui/4.8.1/firebase-ui-auth.js"></script>
   
   <!-- Firebase Configuration -->
   <script>
@@ -32,7 +32,8 @@
     firebase.initializeApp(firebaseConfig);
   </script>
   
-  <script type="module" src="main.js"></script>
+  <script defer src="debug-firebase.js"></script>
+  <script defer src="auth.js"></script>
 </head>
 
 <body>
@@ -40,67 +41,39 @@
     <div class="container">
       <div class="header-content">
         <div class="logo">
-          <h2>🎙️ JRE Clipper</h2>
+          <a href="index.html" style="text-decoration: none; color: inherit;">
+            <h2>🎙️ JRE Clipper</h2>
+          </a>
         </div>
         <div class="auth-section">
-          <div id="auth-buttons" class="auth-buttons">
-            <a href="signin.html" class="signin-btn">Sign In</a>
-          </div>
-          <div id="user-info" class="user-info" style="display: none;">
-            <img id="user-photo" src="" alt="User Photo" class="user-photo">
-            <span id="user-email" class="user-email"></span>
-            <button id="sign-out" class="sign-out-btn">Sign Out</button>
-          </div>
+          <a href="index.html" class="back-btn">← Back to App</a>
         </div>
       </div>
     </div>
   </header>
 
   <main class="container">
-    <h1>What would Joe Rogan say about...?</h1>
-    <p>Enter a topic to find relevant segments from Joe Rogan Experience episodes with embedded video players and
-      clickable timestamps.</p>
-
-    <div class="main-search-container">
-      <div class="usage-display">
-        <span id="searches-remaining">10</span> searches left today
-      </div>
-      <div class="primary-search-section">
-        <input type="search" placeholder="Authenticating, please wait..." id="searchInput" disabled />
-        <div class="search-buttons">
-          <button id="instructionToggleBtn" class="instruction-toggle-btn" title="Custom Instructions">
-            ⚙️
-          </button>
-          <button id="searchButton" class="primary-search-btn" disabled>Search</button>
-        </div>
+    <div class="signin-page">
+      <div class="signin-header">
+        <h1>Sign In to JRE Clipper</h1>
+        <p>Access your account to continue</p>
       </div>
 
-      <div id="instruction-container" class="search-instruction-container hidden">
-        <label for="instructionInput" class="instruction-label">
-          Custom Instructions
-        </label>
-        <input type="text" id="instructionInput" class="instruction-input"
-          placeholder="e.g., Prioritize results from specific JRE guests that you know..." />
-        <div class="instruction-help">
-          Customize how Joe responds. Leave empty for default Joe Rogan style.
+      <div class="signin-container">
+        <div class="signin-box">
+          <div id="firebaseui-auth-container"></div>
+          <div class="signin-footer">
+            <p>By signing in, you agree to our <a href="#">Terms of Service</a> and <a href="#">Privacy Policy</a>.</p>
+            <p><small>Continue as guest on the <a href="index.html">main page</a> with limited features.</small></p>
+          </div>
         </div>
       </div>
     </div>
-
-    <!-- Container for AI-generated answer -->
-    <div id="answer-section" style="margin-top: 2rem;"></div>
-
-    <!-- Container for search results -->
-    <div id="search-results" style="margin-top: 2rem;"></div>
-
-    <!-- Container for video players -->
-    <div id="video-players-container" style="margin-top: 2rem;"></div>
-
   </main>
 
   <!-- Footer Section -->
   <footer class="footer">
-    <div class="footer-content">
+    <!-- <div class="footer-content">
       <div class="footer-section">
         <h3>👨‍💻 Developer Contact</h3>
         <ul class="contact-links">
@@ -109,7 +82,6 @@
           <li>💼 <a href="https://www.linkedin.com/in/thevuture/" target="_blank">LinkedIn</a></li>
         </ul>
       </div>
-
       <div class="footer-section">
         <div class="pricing-highlight">
           <h3>⚡ Upgrade Your Search</h3>
@@ -118,7 +90,7 @@
           <a href="/pricing.html" class="pricing-btn">View Pricing</a>
         </div>
       </div>
-    </div>
+    </div> -->
 
     <div class="footer-bottom">
       <p>&copy; 2025 JRE Clipper. Built for educational purposes. Joe Rogan Experience content belongs to respective
