@@ -176,11 +176,23 @@
       background: linear-gradient(90deg, #2196F3, #21CBF3);
       border-radius: 3px;
       animation: progressPulse 2s ease-in-out infinite;
+      transition: width 0.5s ease;
     }
 
     @keyframes progressPulse {
       0%, 100% { opacity: 0.7; }
       50% { opacity: 1; }
+    }
+
+    /* Enhanced progress indicator for real-time updates */
+    .progress-indicator.realtime .progress-fill {
+      background: linear-gradient(90deg, #4CAF50, #81C784);
+      animation: realtimePulse 1.5s ease-in-out infinite;
+    }
+
+    @keyframes realtimePulse {
+      0%, 100% { opacity: 0.8; box-shadow: 0 0 0 rgba(76, 175, 80, 0.4); }
+      50% { opacity: 1; box-shadow: 0 0 10px rgba(76, 175, 80, 0.6); }
     }
 
     .time-estimate {
@@ -417,6 +429,8 @@
       let pollInterval = null;
       let eventSource = null;
       let downloadStartTime = null;
+      let apifyProgressInterval = null;
+      let lastApifyProgress = null;
 
       // 1. Get Job ID from URL
       const params = new URLSearchParams(window.location.search);
@@ -539,6 +553,115 @@
         console.log("Connection status:", status);
       }
 
+      // Function to poll Apify download progress
+      function startApifyProgressPolling(jobId) {
+        console.log("Starting Apify progress polling for job:", jobId);
+        
+        // Poll every 3 seconds during download phase
+        apifyProgressInterval = setInterval(() => {
+          pollApifyProgress(jobId);
+        }, 3000);
+        
+        // Initial check
+        pollApifyProgress(jobId);
+      }
+
+      function stopApifyProgressPolling() {
+        if (apifyProgressInterval) {
+          clearInterval(apifyProgressInterval);
+          apifyProgressInterval = null;
+          console.log("Stopped Apify progress polling");
+        }
+      }
+
+      function pollApifyProgress(jobId) {
+        fetch(`${videoProcessorUrl}/getApifyProgress?jobId=${jobId}`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          }
+        })
+        .then(response => {
+          if (!response.ok) {
+            // If endpoint returns 400, job might not have Apify run or be past download phase
+            if (response.status === 400) {
+              console.log("Job doesn't have Apify progress or is past download phase");
+              stopApifyProgressPolling();
+              return null;
+            }
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          }
+          return response.json();
+        })
+        .then(data => {
+          if (data) {
+            console.log("Apify progress response:", data);
+            lastApifyProgress = data;
+            
+            // Update download progress in UI
+            updateDownloadProgress(data);
+            
+            // Stop polling if download is complete
+            if (data.isDownloadComplete) {
+              stopApifyProgressPolling();
+            }
+          }
+        })
+        .catch(error => {
+          console.error("Error fetching Apify progress:", error);
+          // Don't stop polling on temporary errors, but log them
+        });
+      }
+
+      function updateDownloadProgress(progressData) {
+        const downloadStep = document.getElementById('step-downloading');
+        if (!downloadStep) return;
+        
+        // Only update if we're in downloading phase
+        if (!currentJobData || currentJobData.status !== 'Downloading') return;
+        
+        // Find existing details or create new ones
+        let details = downloadStep.querySelector('.stepper-details');
+        if (!details) {
+          details = document.createElement('div');
+          details.className = 'stepper-details';
+          downloadStep.querySelector('.stepper-content').appendChild(details);
+        }
+        
+        const progress = progressData.downloadProgress || 0;
+        const totalVideos = progressData.totalVideos || 1;
+        
+        // Create enhanced progress display
+        details.innerHTML = `
+          <div class="progress-indicator">
+            <span style="min-width: 50px; font-weight: bold; color: #2196F3;">${progress.toFixed(1)}%</span>
+            <div class="progress-bar">
+              <div class="progress-fill" style="width: ${progress}%; transition: width 0.5s ease;"></div>
+            </div>
+            <span style="min-width: 80px; text-align: right; font-size: 0.85rem; color: #666;">
+              ${totalVideos} video${totalVideos !== 1 ? 's' : ''}
+            </span>
+          </div>
+          <div class="time-estimate">
+            <span class="icon">📊</span>
+            <strong>Download Progress:</strong> ${progress.toFixed(1)}% complete
+            ${progress > 0 && progress < 100 ? `<br><small>Processing ${totalVideos} video${totalVideos !== 1 ? 's' : ''} from YouTube...</small>` : ''}
+          </div>
+          ${progress > 0 ? `
+            <div style="background: #e8f5e8; padding: 0.75rem; border-radius: 4px; margin: 0.5rem 0; border-left: 4px solid #4caf50;">
+              <small><strong>✅ Real-time Progress:</strong> ${progressData.message || 'Downloading in progress...'}</small>
+            </div>
+          ` : ''}
+          <p class="loading-dots"><strong>Downloading videos from YouTube</strong></p>
+          ${progressData.apifyDetails ? `
+            <div style="font-size: 0.8rem; color: #666; margin-top: 0.5rem;">
+              <strong>Apify Status:</strong> ${progressData.apifyDetails.status || 'Running'}
+              ${progressData.apifyDetails.runStartedAt ? `<br><strong>Started:</strong> ${new Date(progressData.apifyDetails.runStartedAt).toLocaleTimeString()}` : ''}
+            </div>
+          ` : ''}
+        `;
+      }
+
       function isJobFinished() {
         return currentJobData && 
                (currentJobData.status === 'Complete' || 
@@ -590,6 +713,20 @@
           `;
         }
 
+        // Start Apify progress polling if we're in downloading phase
+        if (jobData.status === 'Downloading' && !apifyProgressInterval) {
+          const params = new URLSearchParams(window.location.search);
+          const jobId = params.get('jobId');
+          if (jobId) {
+            startApifyProgressPolling(jobId);
+          }
+        }
+        
+        // Stop Apify progress polling if we're no longer downloading
+        if (jobData.status !== 'Downloading' && apifyProgressInterval) {
+          stopApifyProgressPolling();
+        }
+
         // Update stepper UI
         updateStepperUI(jobData);
 
@@ -612,6 +749,8 @@
             pollInterval = null;
             console.log("Stopped polling - job finished");
           }
+          // Also stop Apify polling
+          stopApifyProgressPolling();
         }
       }
 
@@ -718,32 +857,66 @@
             const partialDownloadDuration = Math.floor((Date.now() - downloadStartTime) / 1000 / 60); // minutes
             const partialEstimatedTotal = Math.max(15, partialDownloadDuration + 10); // Reduced estimate due to partial cache
             
-            addStepDetails(steps['step-downloading'], `
-              <div class="progress-indicator">
-                <div class="loading-spinner"></div>
-                <div class="progress-bar">
-                  <div class="progress-fill" style="width: ${Math.min(85, (partialDownloadDuration / partialEstimatedTotal) * 100)}%"></div>
+            // Use Apify progress data if available for partial downloads too
+            let partialDownloadContent = '';
+            if (lastApifyProgress && lastApifyProgress.downloadProgress !== undefined) {
+              const apifyProgress = lastApifyProgress.downloadProgress;
+              partialDownloadContent = `
+                <div class="progress-indicator">
+                  <span style="min-width: 50px; font-weight: bold; color: #2196F3;">${apifyProgress.toFixed(1)}%</span>
+                  <div class="progress-bar">
+                    <div class="progress-fill" style="width: ${apifyProgress}%; transition: width 0.5s ease;"></div>
+                  </div>
+                  <span style="min-width: 80px; text-align: right; font-size: 0.85rem; color: #666;">
+                    ${videosNeedingDownload.length}/${totalVideos} videos
+                  </span>
                 </div>
-                <span>${partialDownloadDuration} min</span>
-              </div>
-              <div class="time-estimate">
-                <span class="icon">⚡</span>
-                <strong>Optimized download:</strong> ${videosNeedingDownload.length} of ${totalVideos} videos downloading
-                ${partialDownloadDuration > 0 ? ` | Running for ${partialDownloadDuration} minutes` : ''}
-              </div>
-              <div style="background: #e8f5e8; padding: 0.75rem; border-radius: 4px; margin: 0.5rem 0; border-left: 4px solid #4caf50;">
-                <strong>🚀 Cache Hit:</strong> ${videosAlreadyAvailable.length} videos already available, only downloading ${videosNeedingDownload.length} missing videos
-              </div>
-              <div class="helpful-tips">
-                <h4>💡 Why is this faster?</h4>
-                <ul>
-                  <li>Some videos were cached from previous requests</li>
-                  <li>Estimated time: 10-20 minutes (reduced from 20-30)</li>
-                  <li>Only downloading missing content</li>
-                </ul>
-              </div>
-              <p class="loading-dots"><strong>Downloading ${videosNeedingDownload.length} remaining videos</strong></p>
-            `, 'active');
+                <div class="time-estimate">
+                  <span class="icon">⚡</span>
+                  <strong>Smart Download:</strong> ${apifyProgress.toFixed(1)}% complete
+                  <br><small>Downloading ${videosNeedingDownload.length} of ${totalVideos} videos (${videosAlreadyAvailable.length} cached)</small>
+                </div>
+                <div style="background: #e8f5e8; padding: 0.75rem; border-radius: 4px; margin: 0.5rem 0; border-left: 4px solid #4caf50;">
+                  <strong>🚀 Cache Optimization:</strong> ${videosAlreadyAvailable.length} videos already available, downloading ${videosNeedingDownload.length} remaining
+                </div>
+                ${lastApifyProgress.message ? `
+                  <div style="background: #e3f2fd; padding: 0.75rem; border-radius: 4px; margin: 0.5rem 0; border-left: 4px solid #2196F3;">
+                    <small><strong>📊 Status:</strong> ${lastApifyProgress.message}</small>
+                  </div>
+                ` : ''}
+                <p class="loading-dots"><strong>Downloading ${videosNeedingDownload.length} remaining videos</strong></p>
+              `;
+            } else {
+              // Fallback content
+              partialDownloadContent = `
+                <div class="progress-indicator">
+                  <div class="loading-spinner"></div>
+                  <div class="progress-bar">
+                    <div class="progress-fill" style="width: ${Math.min(85, (partialDownloadDuration / partialEstimatedTotal) * 100)}%"></div>
+                  </div>
+                  <span>${partialDownloadDuration} min</span>
+                </div>
+                <div class="time-estimate">
+                  <span class="icon">⚡</span>
+                  <strong>Optimized download:</strong> ${videosNeedingDownload.length} of ${totalVideos} videos downloading
+                  ${partialDownloadDuration > 0 ? ` | Running for ${partialDownloadDuration} minutes` : ''}
+                </div>
+                <div style="background: #e8f5e8; padding: 0.75rem; border-radius: 4px; margin: 0.5rem 0; border-left: 4px solid #4caf50;">
+                  <strong>🚀 Cache Hit:</strong> ${videosAlreadyAvailable.length} videos already available, only downloading ${videosNeedingDownload.length} missing videos
+                </div>
+                <div class="helpful-tips">
+                  <h4>💡 Why is this faster?</h4>
+                  <ul>
+                    <li>Some videos were cached from previous requests</li>
+                    <li>Estimated time: 10-20 minutes (reduced from 20-30)</li>
+                    <li>Only downloading missing content</li>
+                  </ul>
+                </div>
+                <p class="loading-dots"><strong>Downloading ${videosNeedingDownload.length} remaining videos</strong></p>
+              `;
+            }
+            
+            addStepDetails(steps['step-downloading'], partialDownloadContent, 'active');
             break;
 
           case 'Downloading':
@@ -757,31 +930,79 @@
             
             const regDownloadDuration = Math.floor((Date.now() - downloadStartTime) / 1000 / 60); // minutes
             const regEstimatedTotal = Math.max(20, regDownloadDuration + 15); // At least 20 minutes estimate
-            const progressPercent = Math.min(85, (regDownloadDuration / regEstimatedTotal) * 100); // Cap at 85% until complete
             
-            addStepDetails(steps['step-downloading'], `
-              <div class="progress-indicator">
-                <div class="loading-spinner"></div>
-                <div class="progress-bar">
-                  <div class="progress-fill" style="width: ${progressPercent}%"></div>
+            // Use Apify progress data if available, otherwise fall back to time-based estimation
+            let downloadContent = '';
+            if (lastApifyProgress && lastApifyProgress.downloadProgress !== undefined) {
+              const apifyProgress = lastApifyProgress.downloadProgress;
+              downloadContent = `
+                <div class="progress-indicator">
+                  <span style="min-width: 50px; font-weight: bold; color: #2196F3;">${apifyProgress.toFixed(1)}%</span>
+                  <div class="progress-bar">
+                    <div class="progress-fill" style="width: ${apifyProgress}%; transition: width 0.5s ease;"></div>
+                  </div>
+                  <span style="min-width: 80px; text-align: right; font-size: 0.85rem; color: #666;">
+                    ${lastApifyProgress.totalVideos || 'N/A'} video${(lastApifyProgress.totalVideos || 1) !== 1 ? 's' : ''}
+                  </span>
                 </div>
-                <span>${regDownloadDuration} min</span>
-              </div>
-              <div class="time-estimate">
-                <span class="icon">⏱️</span>
-                <strong>Estimated time:</strong> 20-30 minutes total
-                ${regDownloadDuration > 0 ? `| Running for ${regDownloadDuration} minutes` : ''}
-              </div>
-              <div class="helpful-tips">
-                <h4>💡 Why does this take so long?</h4>
-                <ul>
-                  <li>Downloading high-quality video files from YouTube</li>
-                  <li>Processing ${jobData.totalVideos || 'multiple'} videos simultaneously</li>
-                  <li>Your videos will be ready soon - feel free to close this tab and return later</li>
-                </ul>
-              </div>
-              <p class="loading-dots"><strong>Downloading videos</strong></p>
-            `, 'active');
+                <div class="time-estimate">
+                  <span class="icon">📊</span>
+                  <strong>Real-time Progress:</strong> ${apifyProgress.toFixed(1)}% complete
+                  ${apifyProgress > 0 && apifyProgress < 100 ? `<br><small>Downloading ${lastApifyProgress.totalVideos || 'multiple'} video${(lastApifyProgress.totalVideos || 1) !== 1 ? 's' : ''} from YouTube...</small>` : ''}
+                </div>
+                ${lastApifyProgress.message ? `
+                  <div style="background: #e8f5e8; padding: 0.75rem; border-radius: 4px; margin: 0.5rem 0; border-left: 4px solid #4caf50;">
+                    <small><strong>✅ Status:</strong> ${lastApifyProgress.message}</small>
+                  </div>
+                ` : ''}
+                <div class="helpful-tips">
+                  <h4>💡 Live Download Progress:</h4>
+                  <ul>
+                    <li>Real-time progress from YouTube download engine</li>
+                    <li>High-quality video files being processed</li>
+                    <li>You can close this tab and return later - progress is saved</li>
+                  </ul>
+                </div>
+                <p class="loading-dots"><strong>Downloading videos from YouTube</strong></p>
+                ${lastApifyProgress.apifyDetails ? `
+                  <div style="font-size: 0.8rem; color: #666; margin-top: 0.5rem; padding: 0.5rem; background: #f8f9fa; border-radius: 4px;">
+                    <strong>Download Engine:</strong> ${lastApifyProgress.apifyDetails.status || 'Running'}
+                    ${lastApifyProgress.apifyDetails.runStartedAt ? `<br><strong>Started:</strong> ${new Date(lastApifyProgress.apifyDetails.runStartedAt).toLocaleTimeString()}` : ''}
+                  </div>
+                ` : ''}
+              `;
+            } else {
+              // Fallback to time-based progress estimation
+              const progressPercent = Math.min(85, (regDownloadDuration / regEstimatedTotal) * 100); // Cap at 85% until complete
+              downloadContent = `
+                <div class="progress-indicator">
+                  <div class="loading-spinner"></div>
+                  <div class="progress-bar">
+                    <div class="progress-fill" style="width: ${progressPercent}%"></div>
+                  </div>
+                  <span>${regDownloadDuration} min</span>
+                </div>
+                <div class="time-estimate">
+                  <span class="icon">⏱️</span>
+                  <strong>Estimated time:</strong> 20-30 minutes total
+                  ${regDownloadDuration > 0 ? `| Running for ${regDownloadDuration} minutes` : ''}
+                </div>
+                <div class="helpful-tips">
+                  <h4>💡 Why does this take so long?</h4>
+                  <ul>
+                    <li>Downloading high-quality video files from YouTube</li>
+                    <li>Processing ${jobData.totalVideos || 'multiple'} videos simultaneously</li>
+                    <li>Your videos will be ready soon - feel free to close this tab and return later</li>
+                  </ul>
+                </div>
+                <p class="loading-dots"><strong>Downloading videos</strong></p>
+                <div style="background: #fff3cd; padding: 0.75rem; border-radius: 4px; margin: 0.5rem 0; border-left: 4px solid #ffc107;">
+                  <small><strong>💡 Getting detailed progress...</strong> Connecting to download engine for real-time updates.</small>
+                </div>
+              `;
+            }
+            
+            addStepDetails(steps['step-downloading'], downloadContent, 'active');
             break;
 
           case 'Downloaded':
@@ -1148,6 +1369,9 @@
         }
         if (pollInterval) {
           clearInterval(pollInterval);
+        }
+        if (apifyProgressInterval) {
+          clearInterval(apifyProgressInterval);
         }
       });
     });

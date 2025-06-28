@@ -9,11 +9,12 @@
   <script src="https://cloud.google.com/ai/gen-app-builder/client?hl=en_US"></script>
 
   <!-- Firebase App is required and must be listed first -->
-  <script defer src="/__/firebase/11.9.1/firebase-app-compat.js"></script>
+  <!-- <script defer src="/__/firebase/11.9.1/firebase-app-compat.js"></script>
   <script defer src="/__/firebase/11.9.1/firebase-functions-compat.js"></script>
-
-  <script defer src="/__/firebase/init.js"></script>
-
+  <script defer src="/__/firebase/init.js"></script> -->
+  <script defer src="https://www.gstatic.com/firebasejs/11.9.1/firebase-app-compat.js"></script>
+  <script defer src="https://www.gstatic.com/firebasejs/11.9.1/firebase-functions-compat.js"></script>
+  <script defer> firebase.initializeApp();</script>
   <style media="screen">
     * {
       box-sizing: border-box;
@@ -1280,7 +1281,7 @@
           <p>Select segments below to generate a custom video compilation:</p>
           <div class="generation-buttons">
             <button id="generateVideoBtn" class="generate-video-btn" onclick="initiateVideoGeneration()" disabled>
-              📹 Generate Video (0 segments selected)
+              📹 Generate Compilation Video (0 segments selected)
             </button>
             <button class="select-all-btn" onclick="selectAllSegments()">
               ☑️ Select All Segments
