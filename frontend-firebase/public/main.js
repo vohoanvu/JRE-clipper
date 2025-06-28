@@ -177,21 +177,62 @@ function initializeSession() {
 }
 
 // ===== RATE LIMITING =====
-async function checkServerRateLimit() {
+async function checkUserStatus() {
   try {
     initializeSession();
 
-    const checkLimit = firebase.functions().httpsCallable('checkSearchLimit');
-    const result = await checkLimit({
+    const getSubscriptionStatus = firebase.functions().httpsCallable('getUserSubscriptionStatus');
+    const result = await getSubscriptionStatus({
       sessionId: userSessionId,
       userId: null // For now, we're using anonymous sessions
     });
 
+    const data = result.data;
+    
+    // Transform the response to match the expected format
+    return {
+      allowed: true, // All users have unlimited searches now
+      plan: data.plan || 'free',
+      canGenerateVideos: data.plan === 'pro' && data.subscriptionStatus === 'active',
+      message: 'Unlimited searches available. Upgrade to Pro for video generation.',
+      subscriptionStatus: data.subscriptionStatus,
+      subscriptionId: data.subscriptionId,
+      upgradedAt: data.upgradedAt,
+      canceledAt: data.canceledAt
+    };
+  } catch (error) {
+    console.error('Error checking user status:', error);
+    // Fallback to free user status
+    return {
+      allowed: true,
+      plan: 'free',
+      canGenerateVideos: false,
+      message: 'Unlimited searches available. Upgrade to Pro for video generation.'
+    };
+  }
+}
+
+async function checkVideoGenerationPermission() {
+  try {
+    initializeSession();
+
+    const checkVideoPermission = firebase.functions().httpsCallable('checkVideoGenerationPermission');
+    const result = await checkVideoPermission({
+      sessionId: userSessionId,
+      userId: null // Will be automatically filled by Firebase Auth if user is signed in
+    });
+
     return result.data;
   } catch (error) {
-    console.error('Error checking rate limit:', error);
-    // Fallback to client-side limit if server fails
-    return checkClientRateLimit();
+    console.error('Error checking video generation permission:', error);
+    // Fallback to require sign in
+    return {
+      allowed: false,
+      requiresAuth: true,
+      message: 'Please sign in to access video generation features.',
+      signInUrl: '/signin.html',
+      hasManualOption: true
+    };
   }
 }
 
@@ -314,24 +355,9 @@ function updateUsageDisplay() {
 
   if (!counterElement) return; // Element might not exist on all pages
 
-  if (userPlan === 'pro') {
-    counterElement.textContent = '∞';
-    counterElement.parentElement.innerHTML = '<span style="color: #28a745;">⚡ Pro Plan - Unlimited</span>';
-  } else {
-    counterElement.textContent = remaining;
-
-    // Change color based on remaining searches
-    if (remaining <= 2) {
-      counterElement.style.color = '#e74c3c';
-      counterElement.parentElement.style.background = '#ffe6e6';
-      counterElement.parentElement.style.padding = '0.5rem';
-      counterElement.parentElement.style.borderRadius = '4px';
-    } else if (remaining <= 5) {
-      counterElement.style.color = '#f39c12';
-    } else {
-      counterElement.style.color = '#28a745';
-    }
-  }
+  // All users now have unlimited searches
+  counterElement.textContent = '∞';
+  counterElement.parentElement.innerHTML = '<span id="searches-remaining">∞</span> unlimited searches';
 }
 
 function showRateLimitWarning(remaining = null) {
@@ -437,18 +463,6 @@ async function performSearch(query) {
     return;
   }
 
-  // Check server-side rate limit before proceeding
-  const rateLimitCheck = await checkServerRateLimit();
-  if (!rateLimitCheck.allowed) {
-    showServerRateLimitExceeded(rateLimitCheck);
-    return;
-  }
-
-  // Show warning if near limit
-  if (rateLimitCheck.showWarning) {
-    showRateLimitWarning(rateLimitCheck.remaining);
-  }
-
   searchInput.placeholder = "Searching...";
   searchButton.setAttribute('aria-busy', 'true');
   searchResultsContainer.innerHTML = '';
@@ -479,8 +493,8 @@ async function performSearch(query) {
       return response.json();
     })
     .then(data => {
-      // Only increment search count on successful search
-      incrementSearchCount();
+      // Record search for analytics (no limits enforced)
+      recordServerSearch();
 
       lastSearchResults = data.results || [];
 
@@ -489,9 +503,6 @@ async function performSearch(query) {
       currentQueryId = data.sessionInfo?.queryId || null;
 
       console.log('Search completed:', data);
-
-      // Show rate limit warning if approaching limit
-      showRateLimitWarning();
 
       if (lastSearchResults.length > 0) {
         // Generate AI answer first
@@ -894,14 +905,32 @@ function updateGenerateVideoButton() {
   if (!button) return;
 
   const count = selectedSegments.length;
-  button.textContent = `📹 Generate Compilation Video (${count} segment${count !== 1 ? 's' : ''} selected)`;
-  button.disabled = count === 0;
-
-  if (count === 0) {
-    button.title = 'Select at least one segment to generate compilation video';
-  } else {
-    button.title = `Generate Compilation video from ${count} selected segment${count !== 1 ? 's' : ''}`;
-  }
+  
+  // Check user status to update button text appropriately
+  checkUserStatus().then(userStatus => {
+    if (userStatus.plan === 'pro' && userStatus.subscriptionStatus === 'active') {
+      // Pro user - normal functionality
+      button.textContent = `📹 Generate Compilation Video (${count} segment${count !== 1 ? 's' : ''} selected)`;
+      button.disabled = count === 0;
+      button.title = count === 0 
+        ? 'Select at least one segment to generate compilation video'
+        : `Generate Compilation video from ${count} selected segment${count !== 1 ? 's' : ''}`;
+    } else {
+      // Free user - show upgrade messaging
+      button.textContent = `🔒 Generate Compilation Video (Premium Only) - ${count} segment${count !== 1 ? 's' : ''} selected`;
+      button.disabled = count === 0;
+      button.title = count === 0 
+        ? 'Select segments and upgrade to Pro to generate compilation videos'
+        : `Upgrade to Pro to generate compilation video from ${count} selected segment${count !== 1 ? 's' : ''}`;
+      button.style.background = 'linear-gradient(135deg, #ffa500, #ff6b35)';
+      button.style.border = '2px solid #ff6b35';
+    }
+  }).catch(error => {
+    console.error('Error checking user status for button update:', error);
+    // Fallback to free user display
+    button.textContent = `🔒 Generate Compilation Video (Premium Only) - ${count} segment${count !== 1 ? 's' : ''} selected`;
+    button.disabled = count === 0;
+  });
 }
 
 function selectAllSegments() {
@@ -964,6 +993,28 @@ async function initiateVideoGeneration() {
     return;
   }
 
+  // Check video generation permission
+  const permission = await checkVideoGenerationPermission();
+  
+  if (permission.requiresAuth) {
+    // User is not authenticated - show sign in option with manual request
+    showAuthRequiredModal(permission);
+    return;
+  }
+  
+  if (permission.requiresUpgrade) {
+    // User is authenticated but needs to upgrade
+    showUpgradeRequiredModal(permission);
+    return;
+  }
+  
+  if (!permission.allowed) {
+    // Other restriction
+    showVideoGenerationRestricted(permission);
+    return;
+  }
+
+  // User is premium - proceed with video generation
   const button = document.getElementById('generateVideoBtn');
   const originalText = button.textContent;
 
@@ -1117,3 +1168,442 @@ window.toggleVideoSelection = toggleVideoSelection;
 window.hideGenerationStatus = hideGenerationStatus;
 window.initiateVideoGeneration = initiateVideoGeneration;
 window.seekToTime = seekToTime;
+
+// Show modal for non-authenticated users
+function showAuthRequiredModal(permission) {
+  const modal = document.createElement('div');
+  modal.className = 'auth-modal';
+  modal.innerHTML = `
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>🔐 Sign In Required</h2>
+        <button class="close-modal" onclick="this.parentElement.parentElement.parentElement.remove()">×</button>
+      </div>
+      <div class="modal-body">
+        <p><strong>${permission.message}</strong></p>
+        <div class="options-container">
+          <div class="option-card premium-option">
+            <h3>🚀 Premium Option</h3>
+            <p>Sign in and upgrade to Pro for instant video generation</p>
+            <ul>
+              <li>✅ Instant video generation</li>
+              <li>✅ HD quality exports</li>
+              <li>✅ Priority processing</li>
+              <li>✅ Advanced editing features</li>
+            </ul>
+            <button class="btn-primary" onclick="window.location.href='/signin.html'">
+              Sign In & Upgrade
+            </button>
+          </div>
+          <div class="option-card manual-option">
+            <h3>📧 Free Manual Option</h3>
+            <p>Get your video manually created within 24-48 hours</p>
+            <ul>
+              <li>✅ Free service</li>
+              <li>✅ Manual editing by developer</li>
+              <li>✅ Email delivery</li>
+              <li>⏱️ 24-48 hour delivery</li>
+            </ul>
+            <button class="btn-secondary" onclick="showManualRequestForm()">
+              Request Manual Video
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="this.parentElement.parentElement.parentElement.remove()">
+          Maybe Later
+        </button>
+      </div>
+    </div>
+  `;
+  
+  addModalStyles();
+  document.body.appendChild(modal);
+}
+
+// Show modal for authenticated users who need to upgrade
+function showUpgradeRequiredModal(permission) {
+  const modal = document.createElement('div');
+  modal.className = 'auth-modal';
+  modal.innerHTML = `
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>⚡ Upgrade to Pro</h2>
+        <button class="close-modal" onclick="this.parentElement.parentElement.parentElement.remove()">×</button>
+      </div>
+      <div class="modal-body">
+        <p>Hi <strong>${permission.userEmail}</strong>!</p>
+        <p><strong>${permission.message}</strong></p>
+        <div class="options-container">
+          <div class="option-card premium-option">
+            <h3>🚀 Upgrade to Pro</h3>
+            <p>Get instant video generation for $9.99/month</p>
+            <ul>
+              <li>✅ Instant video generation</li>
+              <li>✅ Unlimited videos</li>
+              <li>✅ HD quality exports</li>
+              <li>✅ Priority processing</li>
+              <li>✅ Cancel anytime</li>
+            </ul>
+            <button class="btn-primary" onclick="initiateProUpgrade()">
+              Upgrade Now - $9.99/month
+            </button>
+          </div>
+          <div class="option-card manual-option">
+            <h3>📧 Free Manual Option</h3>
+            <p>Or get your video manually created (24-48 hours)</p>
+            <ul>
+              <li>✅ Free service</li>
+              <li>✅ Manual editing</li>
+              <li>✅ Email delivery</li>
+              <li>⏱️ 24-48 hour delivery</li>
+            </ul>
+            <button class="btn-secondary" onclick="showManualRequestForm()">
+              Request Manual Video
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="this.parentElement.parentElement.parentElement.remove()">
+          Maybe Later
+        </button>
+      </div>
+    </div>
+  `;
+  
+  addModalStyles();
+  document.body.appendChild(modal);
+}
+
+// Show manual video request form
+function showManualRequestForm() {
+  // Close any existing modals
+  document.querySelectorAll('.auth-modal, .upgrade-modal').forEach(modal => modal.remove());
+  
+  const modal = document.createElement('div');
+  modal.className = 'manual-request-modal';
+  modal.innerHTML = `
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>📧 Manual Video Request</h2>
+        <button class="close-modal" onclick="this.parentElement.parentElement.parentElement.remove()">×</button>
+      </div>
+      <div class="modal-body">
+        <p>We'll manually create your compilation video and email it to you within 24-48 hours!</p>
+        <form id="manual-request-form">
+          <div class="form-group">
+            <label for="request-email">Your Email Address *</label>
+            <input type="email" id="request-email" required placeholder="your.email@example.com">
+          </div>
+          <div class="form-group">
+            <label for="request-name">Your Name (Optional)</label>
+            <input type="text" id="request-name" placeholder="Your name">
+          </div>
+          <div class="form-group">
+            <label>Selected Segments</label>
+            <div class="segments-summary">
+              <p><strong>${selectedSegments.length} segments</strong> selected from your search results</p>
+              <p class="search-query"><strong>Search:</strong> "${searchInput.value || 'Not specified'}"</p>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>
+              <input type="checkbox" id="agree-terms" required>
+              I understand this is a free service with 24-48 hour delivery
+            </label>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="this.parentElement.parentElement.parentElement.remove()">
+          Cancel
+        </button>
+        <button class="btn-primary" onclick="submitManualRequest()">
+          Submit Request
+        </button>
+      </div>
+    </div>
+  `;
+  
+  addModalStyles();
+  document.body.appendChild(modal);
+}
+
+// Submit manual video request
+async function submitManualRequest() {
+  const email = document.getElementById('request-email').value;
+  const name = document.getElementById('request-name').value;
+  const agreeTerms = document.getElementById('agree-terms').checked;
+  
+  if (!email || !agreeTerms) {
+    alert('Please fill in your email and agree to the terms.');
+    return;
+  }
+  
+  if (selectedSegments.length === 0) {
+    alert('No segments selected. Please select some segments first.');
+    return;
+  }
+  
+  try {
+    // Show loading state
+    const submitBtn = document.querySelector('.manual-request-modal .btn-primary');
+    const originalText = submitBtn.textContent;
+    submitBtn.textContent = 'Submitting...';
+    submitBtn.disabled = true;
+    
+    const requestManual = firebase.functions().httpsCallable('requestManualVideoGeneration');
+    const result = await requestManual({
+      userEmail: email,
+      userName: name,
+      segments: selectedSegments,
+      searchQuery: searchInput.value || '',
+      sessionId: userSessionId
+    });
+    
+    // Show success message
+    document.querySelector('.manual-request-modal').remove();
+    showSuccessModal(result.data);
+    
+  } catch (error) {
+    console.error('Error submitting manual request:', error);
+    alert('Error submitting request. Please try again.');
+    
+    // Reset button
+    const submitBtn = document.querySelector('.manual-request-modal .btn-primary');
+    if (submitBtn) {
+      submitBtn.textContent = 'Submit Request';
+      submitBtn.disabled = false;
+    }
+  }
+}
+
+// Show success modal after manual request
+function showSuccessModal(data) {
+  const modal = document.createElement('div');
+  modal.className = 'success-modal';
+  modal.innerHTML = `
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>✅ Request Submitted!</h2>
+      </div>
+      <div class="modal-body">
+        <p><strong>${data.message}</strong></p>
+        <div class="request-details">
+          <p><strong>Request ID:</strong> ${data.requestId}</p>
+          <p><strong>Estimated Delivery:</strong> ${data.estimatedDelivery}</p>
+        </div>
+        <p>Save your Request ID for reference. We'll email you when your video is ready!</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-primary" onclick="this.parentElement.parentElement.parentElement.remove()">
+          Great, Thanks!
+        </button>
+      </div>
+    </div>
+  `;
+  
+  addModalStyles();
+  document.body.appendChild(modal);
+}
+
+// Initiate Pro upgrade for authenticated users
+async function initiateProUpgrade() {
+  try {
+    const user = firebase.auth().currentUser;
+    if (!user) {
+      alert('Please sign in first');
+      window.location.href = '/signin.html';
+      return;
+    }
+    
+    const createCheckout = firebase.functions().httpsCallable('createCheckoutSessionAuth');
+    const result = await createCheckout();
+    
+    // Redirect to Stripe checkout
+    const stripe = Stripe('your-stripe-publishable-key'); // You'll need to add this
+    await stripe.redirectToCheckout({
+      sessionId: result.data.sessionId
+    });
+    
+  } catch (error) {
+    console.error('Error creating checkout session:', error);
+    alert('Error starting checkout. Please try again.');
+  }
+}
+
+// Add modal styles
+function addModalStyles() {
+  if (document.getElementById('modal-styles')) return;
+  
+  const style = document.createElement('style');
+  style.id = 'modal-styles';
+  style.textContent = `
+    .auth-modal, .manual-request-modal, .success-modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.8);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 10000;
+    }
+    .modal-content {
+      background: #1a1a1a;
+      border-radius: 12px;
+      max-width: 700px;
+      width: 90%;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+      border: 1px solid #333;
+    }
+    .modal-header {
+      padding: 20px;
+      border-bottom: 1px solid #333;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .modal-header h2 {
+      margin: 0;
+      color: #ff6b35;
+    }
+    .close-modal {
+      background: none;
+      border: none;
+      color: #ccc;
+      font-size: 24px;
+      cursor: pointer;
+      padding: 0;
+      width: 30px;
+      height: 30px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .close-modal:hover {
+      color: #fff;
+    }
+    .modal-body {
+      padding: 20px;
+      color: #ccc;
+    }
+    .options-container {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      margin: 20px 0;
+    }
+    .option-card {
+      background: #2a2a2a;
+      padding: 20px;
+      border-radius: 8px;
+      border: 2px solid #444;
+    }
+    .premium-option {
+      border-color: #ff6b35;
+    }
+    .manual-option {
+      border-color: #28a745;
+    }
+    .option-card h3 {
+      margin: 0 0 10px 0;
+      color: #fff;
+    }
+    .option-card ul {
+      margin: 15px 0;
+      padding-left: 20px;
+    }
+    .option-card li {
+      margin: 8px 0;
+    }
+    .form-group {
+      margin: 15px 0;
+    }
+    .form-group label {
+      display: block;
+      margin-bottom: 5px;
+      color: #ccc;
+      font-weight: 500;
+    }
+    .form-group input {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #555;
+      border-radius: 4px;
+      background: #333;
+      color: #fff;
+    }
+    .segments-summary {
+      background: #2a2a2a;
+      padding: 15px;
+      border-radius: 6px;
+      border: 1px solid #444;
+    }
+    .search-query {
+      font-style: italic;
+      color: #aaa;
+    }
+    .request-details {
+      background: #2a2a2a;
+      padding: 15px;
+      border-radius: 6px;
+      margin: 15px 0;
+    }
+    .modal-footer {
+      padding: 20px;
+      border-top: 1px solid #333;
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+    }
+    .btn-primary, .btn-secondary {
+      padding: 12px 24px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #ff6b35, #ffa500);
+      color: white;
+    }
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(255, 107, 53, 0.4);
+    }
+    .btn-secondary {
+      background: #333;
+      color: #ccc;
+      border: 1px solid #555;
+    }
+    .btn-secondary:hover {
+      background: #444;
+      color: #fff;
+    }
+    @media (max-width: 768px) {
+      .options-container {
+        grid-template-columns: 1fr;
+      }
+      .modal-content {
+        width: 95%;
+        margin: 20px;
+      }
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+// Add functions to global scope
+window.showAuthRequiredModal = showAuthRequiredModal;
+window.showUpgradeRequiredModal = showUpgradeRequiredModal;
+window.showManualRequestForm = showManualRequestForm;
+window.submitManualRequest = submitManualRequest;
+window.initiateProUpgrade = initiateProUpgrade;

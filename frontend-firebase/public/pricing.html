@@ -528,15 +528,15 @@
       }
       
       try {
-        const checkLimit = functions.httpsCallable('checkSearchLimit');
-        const result = await checkLimit({
+        const getSubscriptionStatus = functions.httpsCallable('getUserSubscriptionStatus');
+        const result = await getSubscriptionStatus({
           sessionId: sessionId,
           userId: null
         });
         
-        const usage = result.data;
-        if (usage.plan === 'free') {
-          userSearches = dailyLimit - (usage.remaining || 0);
+        const status = result.data;
+        if (status.plan === 'free') {
+          userSearches = 0; // All users have unlimited searches now
           updateUsageDisplay();
         }
         

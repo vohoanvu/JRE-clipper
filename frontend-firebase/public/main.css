@@ -754,7 +754,6 @@ h1 {
 
 .auth-buttons {
   display: flex;
-  gap: 0.5rem;
 }
 
 .signin-btn, .back-btn {

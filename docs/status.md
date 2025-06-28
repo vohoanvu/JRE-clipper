@@ -1,11 +1,52 @@
 # Project Status: "What would Joe Rogan say?" - Web App
 
 **Date:** 2025-06-28
-**Overall Status:** `ENHANCED - Firebase Authentication Integration + Separate Sign-In Page`
+**Overall Status:** `ENHANCED - Premium Feature Gating with Firebase Auth + Unlimited Searches`
 
 ---
 
-## Latest Update (2025-06-28): Firebase Authentication with Separate Sign-In Page ✅
+## Latest Update (2025-06-28): Premium Feature Gating Refactoring ✅
+
+**PREMIUM FEATURE GATING IMPLEMENTED**: Refactored app to use premium subscription model with Firebase Auth requirements:
+
+### New Premium Model Completed:
+- ✅ **Unlimited Searches for All Users**: Removed all search rate limiting 
+- ✅ **Premium Video Generation**: Video compilation requires Firebase Auth + Stripe subscription
+- ✅ **Manual Request System**: Free/non-auth users can request manual video compilation via email
+- ✅ **Auth-Required Stripe**: All Stripe payment workflows require Firebase authentication
+- ✅ **Function Refactoring**: Updated from `checkSearchLimit` to `getUserSubscriptionStatus`
+
+### Technical Implementation:
+
+#### 🔐 **Premium Feature Architecture**:
+- ✅ **Unlimited Searches**: All users (auth and non-auth) have unlimited search access
+- ✅ **Video Generation Gating**: Only premium subscribers can generate compilation videos
+- ✅ **Manual Request Flow**: Free users get email-based manual video request option
+- ✅ **Auth-Required Payments**: Stripe checkout sessions require Firebase authentication
+- ✅ **Function Cleanup**: Removed deprecated `checkSearchLimit` function
+
+#### 🎯 **User Experience Flows**:
+- ✅ **Free/Non-Auth Users**: Unlimited searches + manual video request option
+- ✅ **Authenticated Free Users**: Unlimited searches + Stripe upgrade option + manual request
+- ✅ **Premium Subscribers**: Unlimited searches + instant video generation
+- ✅ **Modal System**: Dynamic modals for auth, upgrade, and manual request flows
+
+#### 🛠 **Backend Refactoring**:
+- ✅ **getUserSubscriptionStatus**: New function for checking subscription status
+- ✅ **checkVideoGenerationPermission**: Auth + subscription validation for video features
+- ✅ **requestManualVideoGeneration**: Email-based manual video request system
+- ✅ **createCheckoutSessionAuth**: Auth-required Stripe payment processing
+- ✅ **recordSearch**: Simplified to analytics-only (no rate limiting)
+
+#### 💼 **Business Model Changes**:
+- ✅ **Freemium Approach**: Free unlimited searches to drive engagement
+- ✅ **Premium Video Features**: Monetize through instant video generation
+- ✅ **Manual Service Option**: Maintain service for users who can't/won't pay
+- ✅ **Auth Incentivization**: Encourage sign-up for payment convenience
+
+---
+
+## Previous Update (2025-06-28): Firebase Authentication with Separate Sign-In Page ✅
 
 **AUTHENTICATION SYSTEM IMPLEMENTED**: Added Firebase Authentication using FirebaseUI with a dedicated sign-in page:
 
@@ -600,7 +641,7 @@ This fix ensures the video processing pipeline works correctly with modern GCS s
 ### GCS Video Cache Optimization:
 - ✅ **Pre-Download Check**: Automatically checks for existing videos in GCS before starting downloads
 - ✅ **Pattern Matching**: Uses regex to find videos matching `{videoId}_*.mp4.mp4` pattern
-- ✅ **Smart Routing**: Skips Apify downloads entirely if all videos are already available
+- ✅ **Smart Routing**: Skips Apify downloads entirely if all videos are already cached
 - ✅ **Partial Downloads**: Only downloads missing videos when some are already cached
 - ✅ **Immediate Processing**: Processes segments immediately for fully-cached requests
 - ✅ **Enhanced Tracking**: Tracks which videos were skipped vs downloaded in job status

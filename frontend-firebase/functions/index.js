@@ -1,14 +1,37 @@
 import { onRequest, onCall, HttpsError } from "firebase-functions/v2/https";
 import { initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
+import { getAuth } from "firebase-admin/auth";
 import cors from "cors";
 import { GoogleAuth } from "google-auth-library";
 import { logger } from "firebase-functions";
 import { google } from "googleapis";
 import Stripe from "stripe";
+import nodemailer from "nodemailer";
 
 initializeApp();
 const db = getFirestore('jre-clipper-db');
+const auth = getAuth();
+
+// Email configuration
+const EMAIL_CONFIG = {
+    service: 'gmail',
+    auth: {
+        user: process.env.EMAIL_USER || 'vohoanvu96@gmail.com',
+        pass: process.env.EMAIL_APP_PASSWORD || 'your-app-password'
+    }
+};
+
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'vohoanvu96@gmail.com';
+
+// Create nodemailer transporter
+let emailTransporter;
+try {
+    emailTransporter = nodemailer.createTransporter(EMAIL_CONFIG);
+    logger.info("Email transporter initialized successfully");
+} catch (error) {
+    logger.error("Failed to initialize email transporter:", error);
+}
 
 const corsHandler = cors({
     origin: true,
@@ -47,15 +70,15 @@ const youtube = google.youtube({
     auth: YOUTUBE_API_KEY
 });
 
-// Rate limiting configuration
+// Rate limiting configuration - Updated for new model
 const RATE_LIMITS = {
     free: {
-        daily: 10,
-        monthly: 300
+        searches: null, // unlimited searches for free users
+        videoGeneration: 0 // no video generation for free users
     },
     pro: {
-        daily: null, // unlimited
-        monthly: null // unlimited
+        searches: null, // unlimited searches for pro users
+        videoGeneration: null // unlimited video generation for pro users
     }
 };
 
@@ -397,105 +420,6 @@ export const handleStripeWebhook = onRequest({
     }
 });
 
-// Server-side rate limiting function with proper plan enforcement
-export const checkSearchLimit = onCall({
-    enforceAppCheck: false,
-    memory: "256MiB", // Minimal memory for simple operations
-    timeoutSeconds: 10, // Very short timeout
-    maxInstances: 10, // Allow more instances for frequent calls
-    minInstances: 0, // No warm instances
-}, async (request) => {
-    try {
-        const { userId, sessionId } = request.data;
-        
-        // Use sessionId as fallback if no userId (for anonymous users)
-        const identifier = userId || sessionId;
-        
-        if (!identifier) {
-            throw new HttpsError("invalid-argument", "User ID or session ID required");
-        }
-        
-        // Get user's current plan and subscription status (create document if missing)
-        const userData = await ensureUserDocument(identifier);
-        
-        const userPlan = userData.plan || 'free';
-        const subscriptionStatus = userData.stripeSubscriptionStatus;
-        
-        // Check if pro user has valid subscription
-        if (userPlan === 'pro') {
-            if (subscriptionStatus === 'active') {
-                return {
-                    allowed: true,
-                    plan: userPlan,
-                    remaining: null,
-                    resetTime: null,
-                    message: 'Unlimited searches available',
-                    subscriptionStatus: 'active'
-                };
-            } else if (subscriptionStatus === 'past_due') {
-                // Allow limited searches for past_due pro users
-                return {
-                    allowed: false,
-                    plan: userPlan,
-                    remaining: 0,
-                    resetTime: null,
-                    message: 'Payment past due. Please update your payment method to restore unlimited searches.',
-                    subscriptionStatus: 'past_due',
-                    upgradeUrl: '/pricing.html'
-                };
-            } else {
-                // Pro plan but no active subscription - downgrade to free
-                await db.collection('users').doc(identifier).update({
-                    plan: 'free',
-                    stripeSubscriptionStatus: null
-                });
-                // Continue to free plan logic below
-            }
-        }
-        
-        // Free plan rate limiting logic
-        const limits = RATE_LIMITS.free;
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const todayKey = today.toISOString().substring(0, 10);
-        
-        const currentUsage = userData.usage || {};
-        const todayUsage = currentUsage[todayKey] || 0;
-        
-        if (todayUsage >= limits.daily) {
-            // Calculate reset time (midnight UTC)
-            const tomorrow = new Date(today);
-            tomorrow.setDate(tomorrow.getDate() + 1);
-            
-            return {
-                allowed: false,
-                plan: 'free',
-                remaining: 0,
-                resetTime: tomorrow.toISOString(),
-                message: `Daily limit of ${limits.daily} searches reached. Limit resets at midnight UTC.`,
-                upgradeUrl: '/pricing.html',
-                subscriptionStatus: null
-            };
-        }
-        
-        const remaining = limits.daily - todayUsage;
-        
-        return {
-            allowed: true,
-            plan: 'free',
-            remaining: remaining,
-            resetTime: null,
-            message: `${remaining} searches remaining today`,
-            showWarning: remaining <= 3,
-            subscriptionStatus: null
-        };
-        
-    } catch (error) {
-        logger.error("Error checking search limit:", error);
-        throw new HttpsError("internal", "Error checking search limit");
-    }
-});
-
 // Function to increment search count with plan validation
 export const recordSearch = onCall({
     enforceAppCheck: false,
@@ -514,63 +438,12 @@ export const recordSearch = onCall({
             throw new HttpsError("invalid-argument", "User ID or session ID required");
         }
         
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const todayKey = today.toISOString().substring(0, 10);
-        
-        // Update user's usage count
+        // Update user's last search time for analytics
         const userRef = db.collection('users').doc(identifier);
         
-        await db.runTransaction(async (transaction) => {
-            const userDoc = await transaction.get(userRef);
-            const userData = userDoc.exists ? userDoc.data() : { plan: 'free', createdAt: new Date() };
-            
-            // Validate subscription status for pro users
-            if (userData.plan === 'pro') {
-                if (userData.stripeSubscriptionStatus !== 'active') {
-                    // Pro user with inactive subscription - downgrade to free
-                    userData.plan = 'free';
-                    userData.stripeSubscriptionStatus = null;
-                }
-            }
-            
-            // Only increment for free users
-            if (userData.plan === 'free') {
-                const currentUsage = userData.usage || {};
-                const todayUsage = currentUsage[todayKey] || 0;
-                
-                // Double-check daily limit before incrementing
-                if (todayUsage >= RATE_LIMITS.free.daily) {
-                    throw new HttpsError("resource-exhausted", "Daily search limit exceeded");
-                }
-                
-                // Update usage
-                currentUsage[todayKey] = todayUsage + 1;
-                
-                // Clean up old usage data (keep last 30 days)
-                const cutoffDate = new Date();
-                cutoffDate.setDate(cutoffDate.getDate() - 30);
-                const cutoffKey = cutoffDate.toISOString().substring(0, 10);
-                
-                Object.keys(currentUsage).forEach(dateKey => {
-                    if (dateKey < cutoffKey) {
-                        delete currentUsage[dateKey];
-                    }
-                });
-                
-                transaction.set(userRef, {
-                    ...userData,
-                    usage: currentUsage,
-                    lastSearchAt: new Date()
-                }, { merge: true });
-            } else {
-                // Pro user - just update last search time
-                transaction.set(userRef, {
-                    ...userData,
-                    lastSearchAt: new Date()
-                }, { merge: true });
-            }
-        });
+        await userRef.set({
+            lastSearchAt: new Date()
+        }, { merge: true });
         
         return { success: true };
         
@@ -644,144 +517,6 @@ export const getUserSubscriptionStatus = onCall({
         };
     }
 });
-
-// Video processing job status checker with cost optimization
-// export const getJobStatus = onRequest({
-//     memory: "256MiB", // Minimal memory for simple operations
-//     timeoutSeconds: 30, // Short timeout
-//     maxInstances: 10, // Allow multiple concurrent requests
-//     minInstances: 0, // No warm instances
-// }, async (req, res) => {
-//     corsHandler(req, res, async () => {
-//         try {
-//             // Only allow GET requests
-//             if (req.method !== 'GET') {
-//                 res.status(405).json({ error: "Method not allowed. Use GET." });
-//                 return;
-//             }
-
-//             // Get job ID from query parameters
-//             const jobId = req.query.jobId;
-//             if (!jobId) {
-//                 res.status(400).json({ error: "jobId query parameter is required" });
-//                 return;
-//             }
-
-//             logger.info(`Checking job status for: ${jobId}`);
-
-//             // Get job document from Firestore
-//             const jobRef = db.collection("videoJobs").doc(jobId);
-//             const jobDoc = await jobRef.get();
-
-//             if (!jobDoc.exists) {
-//                 res.status(404).json({ error: "Job not found" });
-//                 return;
-//             }
-
-//             const jobData = jobDoc.data();
-            
-//             // Return job status with all relevant fields
-//             const response = {
-//                 jobId: jobId,
-//                 status: jobData.status || 'Unknown',
-//                 progress: jobData.progress,
-//                 progressMessage: jobData.progressMessage,
-//                 totalVideos: jobData.totalVideos,
-//                 totalSegments: jobData.segmentCount,
-//                 createdAt: jobData.createdAt?.toISOString() || null,
-//                 updatedAt: jobData.updatedAt?.toISOString() || null,
-//             };
-
-//             // Include additional fields based on status
-//             if (jobData.error) {
-//                 response.error = jobData.error;
-//             }
-//             if (jobData.suggestions) {
-//                 response.suggestions = jobData.suggestions;
-//             }
-//             if (jobData.finalVideoUrl) {
-//                 response.finalVideoUrl = jobData.finalVideoUrl;
-//             }
-
-//             logger.info(`Job status retrieved successfully for: ${jobId}`);
-//             res.status(200).json(response);
-
-//         } catch (error) {
-//             logger.error(`Error getting job status: ${error}`);
-//             res.status(500).json({ error: "Internal server error" });
-//         }
-//     });
-// });
-
-// Video download success webhook handler with cost optimization
-// export const handleVideoDownloadSuccess = onRequest({
-//     memory: "256MiB", // Minimal memory
-//     timeoutSeconds: 30, // Short timeout
-//     maxInstances: 5, // Lower max instances for webhooks
-//     minInstances: 0, // No warm instances
-// }, async (req, res) => {
-//     corsHandler(req, res, async () => {
-//         try {
-//             // Only allow POST requests
-//             if (req.method !== 'POST') {
-//                 res.status(405).json({ error: "Method not allowed. Use POST." });
-//                 return;
-//             }
-
-//             const { runId, runStatus, isScraperRunDone } = req.body;
-
-//             if (!runId) {
-//                 res.status(400).json({ error: "runId is required" });
-//                 return;
-//             }
-
-//             logger.info(`Received download success webhook for job: ${runId}`);
-
-//             // Check if job exists
-//             const jobRef = db.collection("videoJobs").doc(runId);
-//             const jobDoc = await jobRef.get();
-
-//             if (!jobDoc.exists) {
-//                 logger.error(`Job ${runId} not found in database`);
-//                 res.status(404).json({ error: "Job not found" });
-//                 return;
-//             }
-
-//             const jobData = jobDoc.data();
-//             const currentStatus = jobData.status || 'Unknown';
-
-//             // Only update if job is still in expected state
-//             if (!['Queued', 'Downloading'].includes(currentStatus)) {
-//                 logger.warning(`Job ${runId} is already in status: ${currentStatus}`);
-//                 res.status(200).json({
-//                     message: "Job status already updated",
-//                     currentStatus: currentStatus
-//                 });
-//                 return;
-//             }
-
-//             // Update job status to indicate successful download
-//             await jobRef.update({
-//                 status: 'Processing',
-//                 progress: 50,
-//                 progressMessage: 'Full Videos download successful, processing segments...',
-//                 updatedAt: new Date()
-//             });
-
-//             logger.info(`Successfully updated job ${runId} to Processing status`);
-
-//             res.status(200).json({
-//                 message: "Job status updated successfully",
-//                 jobId: runId,
-//                 newStatus: "Processing"
-//             });
-
-//         } catch (error) {
-//             logger.error(`Error handling video download success webhook: ${error}`);
-//             res.status(500).json({ error: "Internal server error" });
-//         }
-//     });
-// });
 
 // Server-Sent Events endpoint for real-time job status updates
 export const streamJobStatus = onRequest({
@@ -985,63 +720,6 @@ export const streamJobStatus = onRequest({
     }
 });
 
-// Debug endpoint to check job status directly
-// export const debugJobStatus = onRequest({
-//     region: 'us-central1',
-//     cors: true
-// }, async (req, res) => {
-//     try {
-//         const jobId = req.query.jobId;
-        
-//         if (!jobId) {
-//             res.status(400).json({ error: 'jobId query parameter is required' });
-//             return;
-//         }
-
-//         logger.info(`Debug: Checking job ${jobId} in jre-clipper-db database`);
-        
-//         const jobRef = db.collection('videoJobs').doc(jobId);
-//         const doc = await jobRef.get();
-        
-//         if (doc.exists) {
-//             const jobData = doc.data();
-//             res.json({
-//                 found: true,
-//                 jobId: jobId,
-//                 status: jobData.status,
-//                 createdAt: jobData.createdAt?.toDate?.()?.toISOString(),
-//                 updatedAt: jobData.updatedAt?.toDate?.()?.toISOString(),
-//                 totalVideos: jobData.totalVideos,
-//                 segmentCount: jobData.segmentCount,
-//                 fullData: jobData
-//             });
-//         } else {
-//             // Try to list some jobs to see if the collection exists
-//             const snapshot = await db.collection('videoJobs').limit(5).get();
-//             res.json({
-//                 found: false,
-//                 jobId: jobId,
-//                 database: 'jre-clipper-db',
-//                 collection: 'videoJobs',
-//                 otherJobsCount: snapshot.size,
-//                 otherJobs: snapshot.docs.map(doc => ({
-//                     id: doc.id,
-//                     status: doc.data().status,
-//                     createdAt: doc.data().createdAt?.toDate?.()?.toISOString()
-//                 }))
-//             });
-//         }
-        
-//     } catch (error) {
-//         logger.error('Debug endpoint error:', error);
-//         res.status(500).json({
-//             error: error.message,
-//             code: error.code,
-//             stack: error.stack
-//         });
-//     }
-// });
-
 // Utility function to ensure user document exists with default values
 async function ensureUserDocument(identifier) {
     try {
@@ -1074,3 +752,274 @@ async function ensureUserDocument(identifier) {
         };
     }
 }
+
+// Check video generation permission - requires authentication for premium features
+export const checkVideoGenerationPermission = onCall({
+    enforceAppCheck: false,
+    memory: "256MiB",
+    timeoutSeconds: 10,
+    maxInstances: 10,
+    minInstances: 0,
+}, async (request) => {
+    try {
+        // Check if user is authenticated
+        if (!request.auth) {
+            return {
+                allowed: false,
+                requiresAuth: true,
+                message: 'Sign in to access premium video generation features',
+                signInUrl: '/signin.html',
+                hasManualOption: true
+            };
+        }
+
+        const userId = request.auth.uid;
+        const userEmail = request.auth.token.email;
+
+        // Get user's current plan and subscription status
+        const userData = await ensureUserDocument(userId);
+        const userPlan = userData.plan || 'free';
+        const subscriptionStatus = userData.stripeSubscriptionStatus;
+
+        // Check if pro user has valid subscription
+        if (userPlan === 'pro' && subscriptionStatus === 'active') {
+            return {
+                allowed: true,
+                plan: userPlan,
+                message: 'Premium video generation available',
+                subscriptionStatus: 'active',
+                userEmail: userEmail
+            };
+        }
+
+        // Authenticated but free user - offer upgrade
+        return {
+            allowed: false,
+            plan: 'free',
+            message: 'Upgrade to Pro for instant video generation',
+            subscriptionStatus: subscriptionStatus || null,
+            upgradeUrl: '/pricing.html',
+            requiresUpgrade: true,
+            userEmail: userEmail,
+            hasManualOption: true
+        };
+
+    } catch (error) {
+        logger.error("Error checking video generation permission:", error);
+        throw new HttpsError("internal", "Error checking video generation permission");
+    }
+});
+
+// Manual video generation request for non-premium users
+export const requestManualVideoGeneration = onCall({
+    enforceAppCheck: false,
+    memory: "256MiB",
+    timeoutSeconds: 30,
+    maxInstances: 5,
+    minInstances: 0,
+}, async (request) => {
+    try {
+        const { userEmail, segments, searchQuery, sessionId, userName } = request.data;
+
+        if (!userEmail || !segments || segments.length === 0) {
+            throw new HttpsError("invalid-argument", "Email and segments are required");
+        }
+
+        // Validate email format
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(userEmail)) {
+            throw new HttpsError("invalid-argument", "Invalid email format");
+        }
+
+        // Limit segments to prevent abuse
+        if (segments.length > 50) {
+            throw new HttpsError("invalid-argument", "Too many segments. Maximum 50 segments allowed for manual requests.");
+        }
+
+        // Generate unique request ID
+        const requestId = `manual_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+        // Store the request in Firestore
+        const requestData = {
+            userEmail,
+            userName: userName || 'Anonymous',
+            segments,
+            searchQuery: searchQuery || '',
+            sessionId: sessionId || null,
+            requestedAt: new Date(),
+            status: 'pending',
+            requestId: requestId,
+            segmentCount: segments.length
+        };
+
+        await db.collection('manualVideoRequests').add(requestData);
+        logger.info(`Manual video request created: ${requestId}`);
+
+        // Send email notification to admin
+        if (emailTransporter) {
+            try {
+                const emailContent = {
+                    from: EMAIL_CONFIG.auth.user,
+                    to: ADMIN_EMAIL,
+                    subject: `🎬 New Manual Video Generation Request - JRE Clipper`,
+                    html: `
+                        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                            <h2 style="color: #ff6b35;">🎬 New Manual Video Generation Request</h2>
+                            
+                            <div style="background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                                <h3>Request Details</h3>
+                                <p><strong>Request ID:</strong> ${requestId}</p>
+                                <p><strong>User Email:</strong> ${userEmail}</p>
+                                <p><strong>User Name:</strong> ${userName || 'Not provided'}</p>
+                                <p><strong>Search Query:</strong> ${searchQuery || 'Not provided'}</p>
+                                <p><strong>Number of Segments:</strong> ${segments.length}</p>
+                                <p><strong>Session ID:</strong> ${sessionId || 'Not provided'}</p>
+                                <p><strong>Requested At:</strong> ${new Date().toLocaleString()}</p>
+                            </div>
+
+                            <div style="background: #fff; border: 1px solid #ddd; padding: 20px; border-radius: 8px;">
+                                <h3>Selected Segments</h3>
+                                <div style="max-height: 400px; overflow-y: auto;">
+                                    ${segments.map((segment, index) => `
+                                        <div style="border-bottom: 1px solid #eee; padding: 10px 0;">
+                                            <p><strong>Segment ${index + 1}:</strong></p>
+                                            <p><strong>Video ID:</strong> ${segment.videoId}</p>
+                                            <p><strong>Time Range:</strong> ${segment.startTime}s - ${segment.endTime}s</p>
+                                            <p><strong>Content:</strong> ${(segment.text || 'No text available').substring(0, 200)}${segment.text && segment.text.length > 200 ? '...' : ''}</p>
+                                            <p><strong>YouTube URL:</strong> <a href="https://www.youtube.com/watch?v=${segment.videoId}&t=${segment.startTime}s">Watch Segment</a></p>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+
+                            <div style="background: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 8px; margin: 20px 0;">
+                                <h4>Next Steps:</h4>
+                                <ol>
+                                    <li>Download the video segments</li>
+                                    <li>Edit the compilation video</li>
+                                    <li>Reply to ${userEmail} with the final video</li>
+                                    <li>Update request status in Firebase</li>
+                                </ol>
+                            </div>
+                        </div>
+                    `
+                };
+
+                await emailTransporter.sendMail(emailContent);
+                logger.info(`Manual video request email sent for request ${requestId}`);
+            } catch (emailError) {
+                logger.error(`Failed to send email for request ${requestId}:`, emailError);
+                // Don't fail the request if email fails
+            }
+        }
+
+        return {
+            success: true,
+            requestId: requestId,
+            message: 'Your video compilation request has been submitted! We will manually create your video and email it to you within 24-48 hours.',
+            estimatedDelivery: '24-48 hours'
+        };
+
+    } catch (error) {
+        logger.error("Error processing manual video request:", error);
+        if (error instanceof HttpsError) {
+            throw error;
+        }
+        throw new HttpsError("internal", "Error processing video request");
+    }
+});
+
+// Updated Stripe checkout - requires authentication
+export const createCheckoutSessionAuth = onCall({
+    enforceAppCheck: false,
+    memory: "256MiB",
+    timeoutSeconds: 30,
+    maxInstances: 5,
+    minInstances: 0,
+}, async (request) => {
+    try {
+        // Require authentication for Stripe operations
+        if (!request.auth) {
+            throw new HttpsError("unauthenticated", "Please sign in to subscribe to premium features");
+        }
+
+        const userId = request.auth.uid;
+        const userEmail = request.auth.token.email;
+
+        logger.info("createCheckoutSessionAuth called for user:", userId);
+
+        // Check Stripe initialization
+        if (!stripe) {
+            logger.error("Stripe not initialized");
+            throw new HttpsError("failed-precondition", "Payment service not available");
+        }
+
+        // Check if user is already a pro subscriber
+        let userData = {};
+        try {
+            userData = await ensureUserDocument(userId);
+            logger.info("User data retrieved:", { plan: userData.plan, hasSubscription: !!userData.stripeSubscriptionStatus });
+        } catch (firestoreError) {
+            logger.error("Firestore error when checking user status:", firestoreError);
+            userData = { plan: 'free' };
+        }
+
+        if (userData.plan === 'pro' && userData.stripeSubscriptionStatus === 'active') {
+            throw new HttpsError("failed-precondition", "You are already a Pro subscriber");
+        }
+
+        logger.info("Creating Stripe checkout session with price ID:", STRIPE_PRICE_ID);
+
+        const session = await stripe.checkout.sessions.create({
+            mode: 'subscription',
+            payment_method_types: ['card'],
+            line_items: [
+                {
+                    price: STRIPE_PRICE_ID,
+                    quantity: 1,
+                },
+            ],
+            success_url: `${DOMAIN}/success?session_id={CHECKOUT_SESSION_ID}`,
+            cancel_url: `${DOMAIN}/pricing.html`,
+            client_reference_id: userId,
+            metadata: {
+                userId: userId,
+                plan: 'pro'
+            },
+            customer_email: userEmail
+        });
+
+        logger.info("Stripe checkout session created successfully:", session.id);
+
+        // Store pending subscription info
+        try {
+            await db.collection('users').doc(userId).set({
+                ...userData,
+                email: userEmail,
+                pendingSubscription: {
+                    sessionId: session.id,
+                    createdAt: new Date(),
+                    status: 'pending'
+                }
+            }, { merge: true });
+            logger.info("Pending subscription stored in database");
+        } catch (firestoreError) {
+            logger.error("Failed to store pending subscription, but continuing:", firestoreError);
+        }
+
+        return { sessionId: session.id };
+
+    } catch (error) {
+        logger.error("Stripe checkout error:", error);
+
+        if (error instanceof HttpsError) {
+            throw error;
+        }
+
+        if (error.type === 'StripeInvalidRequestError') {
+            throw new HttpsError("invalid-argument", `Stripe configuration error: ${error.message}`);
+        }
+
+        throw new HttpsError("internal", `Payment service error: ${error.message}`);
+    }
+});
