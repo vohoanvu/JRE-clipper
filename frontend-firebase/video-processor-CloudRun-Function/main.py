@@ -617,7 +617,7 @@ def combine_multiple_videos(video_paths, temp_dir, job_id):
                 except (subprocess.CalledProcessError, FileNotFoundError):
                     raise Exception("FFmpeg is not installed or not accessible for video combination.")
                 
-                ffmpeg.run(output, overwrite_output=True, capture_stdout=True, capture_stderr=True)
+                ffmpeg.run(output)
             except ffmpeg.Error as e:
                 stderr = e.stderr.decode('utf-8') if e.stderr else "Unknown ffmpeg error"
                 logger.error(f"FFmpeg combination failed: {stderr}")
