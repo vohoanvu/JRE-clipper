@@ -560,7 +560,7 @@
         // Poll every 3 seconds during download phase
         apifyProgressInterval = setInterval(() => {
           pollApifyProgress(jobId);
-        }, 3000);
+        }, 10000);
         
         // Initial check
         pollApifyProgress(jobId);

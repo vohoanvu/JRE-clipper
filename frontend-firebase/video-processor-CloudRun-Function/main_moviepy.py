@@ -500,9 +500,10 @@ def processVideoJob(request):
 def handleVideoDownloadSuccess(request):
     """
     Webhook endpoint called by Apify when video download is successful.
-    Expected payload: {
-        "runId": "apify_run_id",
-        "runStatus": "SUCCEEDED"
+    Expected payload: 
+    {
+        "runId": {{resource.id}},
+        "runStatus": {{resource.status}}
     }
     """
     headers = {"Access-Control-Allow-Origin": "*"}

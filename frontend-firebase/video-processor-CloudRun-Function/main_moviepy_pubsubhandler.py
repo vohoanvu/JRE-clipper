@@ -411,7 +411,37 @@ def combine_multiple_videos(video_paths, temp_dir, job_id):
 
             # Write the final video with optimized settings
             logger.info(f"Job {job_id}: Writing combined video to: {output_path}")
-            final_clip.write_videofile(output_path)
+            final_clip.write_videofile(
+                output_path,
+                codec="libx264",
+                audio_codec="aac",
+                threads=1,
+                ffmpeg_params=[
+                    "-y",  # Force overwrite (prevents hanging on existing files)
+                    "-crf",
+                    "28",
+                    "-preset",
+                    "ultrafast",  # Fastest encoding to reduce hang risk
+                    "-movflags",
+                    "+faststart",
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-f",
+                    "mp4",  # Force format
+                    "-avoid_negative_ts",
+                    "make_zero",  # Handle timestamp issues
+                    "-fflags",
+                    "+genpts",  # Generate presentation timestamps
+                    "-timeout",
+                    "600000000",  # 10 minute timeout (microseconds)
+                    "-nostdin",  # Don't wait for stdin input
+                    "-loglevel",
+                    "error",  # Reduce log verbosity
+                ],
+                temp_audiofile=f"/tmp/temp_audio_{job_id}.m4a",
+                remove_temp=True,
+                logger=None,
+            )
 
             # Close all clips to free memory
             logger.info(f"Job {job_id}: Cleaning up video clips from memory")
@@ -512,13 +542,13 @@ def find_video_file_fuse(video_id: str, mount_path: str = "/jre-videos") -> str:
     """
 
     # Pattern: "<videoID>_<IgnoreTitleString>.mp4.mp4"
-    pattern = f"{mount_path}/{video_id}_*.mp4.mp4"
+    pattern = f"{mount_path}/{video_id}.mp4"
 
     matching_files = glob.glob(pattern)
 
     if not matching_files:
         # Try broader search in subdirectories
-        pattern = f"{mount_path}/**/{video_id}_*.mp4.mp4"
+        pattern = f"{mount_path}/**/{video_id}.mp4"
         matching_files = glob.glob(pattern, recursive=True)
 
     if not matching_files:
