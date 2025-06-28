@@ -8,6 +8,7 @@ import time
 import shutil
 import re
 import uuid
+import requests
 from datetime import datetime, timedelta
 from pathlib import Path
 import logging
@@ -52,9 +53,9 @@ FIRESTORE_DB = "jre-clipper-db"
 apify_token = os.environ.get("APIFY_KEY")
 if not apify_token:
     logger.error("APIFY_KEY environment variable is not set")
-    api_client = None
+    apify_client = None
 else:
-    api_client = ApifyClient(apify_token)
+    apify_client = ApifyClient(apify_token)
     logger.info("Apify client initialized successfully")
 
 storage_client = None
@@ -131,6 +132,7 @@ def update_job_status(
     error=None,
     video_url=None,
     suggestions=None,
+    download_progress=None,
 ):
     """
     Update job status in Firestore with enhanced error information
@@ -150,6 +152,8 @@ def update_job_status(
             update_data["finalVideoUrl"] = video_url
         if suggestions:
             update_data["suggestions"] = suggestions
+        if download_progress is not None:
+            update_data["download_progress"] = download_progress
 
         job_ref.update(update_data)
         logger.info(f"Updated job {job_id} status: {status}")
@@ -194,6 +198,8 @@ def main_handler(request):
         return handleVideoDownloadSuccess(request)
     elif path == "getSourceVideos":
         return getSourceVideos(request)
+    elif path == "getApifyProgress":
+        return getApifyProgress(request)
     else:
         return (
             jsonify({"error": f"Unknown endpoint: /{path}"}),
@@ -227,7 +233,7 @@ def processVideoJob(request):
         user_session_id = request_json.get("user_session_id")
 
         # Check if Apify client is available
-        if not api_client:
+        if not apify_client:
             return (
                 jsonify(
                     {
@@ -433,7 +439,7 @@ def processVideoJob(request):
             }
 
             # Start the Actor asynchronously (non-blocking)
-            run = api_client.actor("UUhJDfKJT2SsXdclR").start(run_input=run_input)
+            run = apify_client.actor("UUhJDfKJT2SsXdclR").start(run_input=run_input)
 
             # Check if the actor was started successfully
             if not run or "id" not in run:
@@ -725,6 +731,167 @@ def getSourceVideos(request):
 
     except Exception as e:
         error_msg = f"Error getting source videos: {e}"
+        print(error_msg)  # Fallback logging
+        if logger:
+            logger.error(error_msg)
+        return jsonify({"error": "Internal server error"}), 500, headers
+
+def get_apify_run_progress(apify_run_id):
+    """
+    Fetch progress information from Apify API for a specific run.
+    Returns run details including status, stats, and completion info.
+    """
+    try:
+        # Check if Apify client is available
+        if not apify_client:
+            return {"error": "Apify client not initialized - APIFY_KEY not configured"}
+        
+        # Use the Apify Python client to get run details
+        run_info = apify_client.run(apify_run_id).get()
+        
+        if not run_info:
+            return {"error": "Run not found or access denied"}
+        
+        return run_info
+        
+    except Exception as e:
+        logger.error(f"Error fetching Apify run progress: {e}")
+        return {"error": f"Failed to fetch run details: {str(e)}"}
+
+def calculate_download_progress(video_ids, apify_progress):
+    """
+    Calculate download progress percentage based on video IDs and Apify run status.
+    Checks GCS bucket to see which videos have been downloaded.
+    """
+    try:
+        if not video_ids:
+            return 0
+        
+        # Check Apify run status first
+        apify_status = apify_progress.get("status", "").upper()
+        
+        # If Apify run hasn't started or failed, progress is 0
+        if apify_status in ["READY", "RUNNING"] and not apify_progress.get("startedAt"):
+            return 0
+        
+        # If Apify run failed, return 0
+        if apify_status in ["FAILED", "ABORTED", "TIMED_OUT"]:
+            return 0
+        
+        # Check which videos are already downloaded in GCS
+        existing_videos = check_existing_videos_in_gcs(video_ids)
+        downloaded_count = sum(1 for blob_name in existing_videos.values() if blob_name is not None)
+        
+        progress_percentage = (downloaded_count / len(video_ids)) * 100
+        
+        # If Apify run is finished but not all videos are downloaded, cap at 95%
+        # This handles cases where some videos might have failed to download
+        if apify_status == "SUCCEEDED" and progress_percentage < 100:
+            progress_percentage = min(progress_percentage, 95)
+        
+        # If all videos are downloaded, return 100%
+        if downloaded_count == len(video_ids):
+            progress_percentage = 100
+        
+        logger.info(f"Download progress: {downloaded_count}/{len(video_ids)} videos ({progress_percentage:.1f}%)")
+        return round(progress_percentage, 1)
+        
+    except Exception as e:
+        logger.error(f"Error calculating download progress: {e}")
+        return 0
+
+def getApifyProgress(request):
+    """
+    Get granular Apify download progress for a job.
+    Request format: GET /getApifyProgress?jobId=<job_id>
+    Returns progress details including per-video download status.
+    """
+    headers = {"Access-Control-Allow-Origin": "*"}
+
+    try:
+        # Get job ID from query parameters
+        job_id = request.args.get("jobId")
+        if not job_id:
+            return jsonify({"error": "jobId query parameter is required"}), 400, headers
+
+        # Get job document from Firestore
+        job_ref = firestore_client.collection("videoJobs").document(job_id)
+        job_doc = job_ref.get()
+
+        if not job_doc.exists:
+            return jsonify({"error": "Job not found"}), 404, headers
+
+        job_data = job_doc.to_dict()
+
+        # Check if job has an apify_run_id
+        apify_run_id = job_data.get("apifyRunId")  # Note: using camelCase to match job creation
+        if not apify_run_id:
+            return jsonify({
+                "error": "No Apify run ID found for this job",
+                "jobId": job_id,
+                "status": job_data.get("status", "Unknown")
+            }), 400, headers
+
+        # Check if job is in downloading status
+        current_status = job_data.get("status")
+        if current_status not in ["Queued", "Downloading"]:
+            # If job is already past downloading, return completed state
+            return jsonify({
+                "jobId": job_id,
+                "apifyRunId": apify_run_id,
+                "status": current_status,
+                "isDownloadComplete": True,
+                "progress": 100,
+                "message": f"Download phase completed. Current status: {current_status}"
+            }), 200, headers
+
+        # Get Apify progress
+        apify_progress = get_apify_run_progress(apify_run_id)
+        
+        if apify_progress.get("error"):
+            return jsonify({
+                "error": f"Failed to fetch Apify progress: {apify_progress['error']}",
+                "jobId": job_id,
+                "apifyRunId": apify_run_id
+            }), 500, headers
+
+        # Calculate download progress based on job segments
+        segments = job_data.get("segments", [])
+        video_ids = list(set(segment.get("videoId") for segment in segments if segment.get("videoId")))
+        
+        download_progress = calculate_download_progress(video_ids, apify_progress)
+
+        # Update job status with download progress if significant change
+        current_download_progress = job_data.get("download_progress", 0)
+        if abs(download_progress - current_download_progress) >= 5:  # Update every 5% change
+            update_job_status(
+                job_id=job_id,
+                status="Downloading",
+                progress=None,  # Keep overall progress unchanged
+                message=f"Downloading videos... {download_progress}% complete",
+                download_progress=download_progress
+            )
+
+        return jsonify({
+            "jobId": job_id,
+            "apifyRunId": apify_run_id,
+            "status": current_status,
+            "isDownloadComplete": download_progress >= 100,
+            "downloadProgress": download_progress,
+            "totalVideos": len(video_ids),
+            "videoIds": video_ids,
+            "apifyDetails": {
+                "runId": apify_run_id,
+                "status": apify_progress.get("status"),
+                "runStartedAt": apify_progress.get("startedAt"),
+                "runFinishedAt": apify_progress.get("finishedAt"),
+                "stats": apify_progress.get("stats", {})
+            },
+            "message": f"Downloading videos... {download_progress}% complete"
+        }), 200, headers
+
+    except Exception as e:
+        error_msg = f"Error getting Apify progress: {e}"
         print(error_msg)  # Fallback logging
         if logger:
             logger.error(error_msg)

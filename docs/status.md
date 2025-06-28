@@ -1,11 +1,84 @@
 # Project Status: "What would Joe Rogan say?" - Web App
 
-**Date:** 2025-06-24
-**Overall Status:** `COMPLETE - Frontend Refactored with Vertical Stepper UI + Async Video Processing`
+**Date:** 2025-06-28
+**Overall Status:** `COMPLETE - Frontend Refactored with Vertical Stepper UI + Async Video Processing + Real-time Progress Tracking`
 
 ---
 
-## Latest Update (2025-06-24): Video Processing Performance Optimizations ✅
+## Latest Update (2025-06-28): Apify Download Progress Tracking ✅
+
+**GRANULAR DOWNLOAD PROGRESS IMPLEMENTED**: Added real-time Apify download progress tracking in Python backend:
+
+### New Features Completed:
+- ✅ **`/getApifyProgress` Endpoint**: New Python API endpoint for granular download progress
+- ✅ **Apify API Integration**: Direct integration with Apify API to fetch run status
+- ✅ **GCS Progress Verification**: Cross-references API status with actual file downloads
+- ✅ **Enhanced Status Updates**: Added `download_progress` field to job status tracking
+- ✅ **Progress Calculation Logic**: Smart progress calculation based on video completion
+- ✅ **Error Handling**: Comprehensive error handling for API failures and edge cases
+
+### Technical Implementation:
+
+#### 🔄 **Real-time Progress Polling**:
+- ✅ **Frontend Integration Ready**: Endpoint ready for frontend polling every 2-3 seconds
+- ✅ **Efficient Updates**: Only updates Firestore on significant progress changes (5%+)
+- ✅ **Status Synchronization**: Maintains consistency between Apify status and GCS files
+- ✅ **Progress Persistence**: Stores download progress separately from overall job progress
+
+#### 📊 **Progress Calculation Algorithm**:
+- ✅ **Multi-Source Verification**: Combines Apify API status with GCS file existence
+- ✅ **Smart Progress Logic**: Handles READY, RUNNING, SUCCEEDED, FAILED states appropriately
+- ✅ **Partial Download Support**: Tracks individual video download completion
+- ✅ **Completion Detection**: Accurately detects when all videos are downloaded
+
+#### 🛡️ **Enhanced Error Handling**:
+- ✅ **API Timeout Protection**: 10-second timeout for Apify API calls
+- ✅ **Graceful Degradation**: Falls back to existing status if API unavailable
+- ✅ **Detailed Error Messages**: Specific error responses for different failure scenarios
+- ✅ **Job State Validation**: Ensures job is in appropriate state for progress tracking
+
+### API Response Format:
+```json
+{
+  "jobId": "string",
+  "apifyRunId": "string",
+  "status": "Downloading|Queued|Processing|Complete",
+  "isDownloadComplete": boolean,
+  "downloadProgress": 85.5,  // Percentage 0-100
+  "totalVideos": 3,
+  "videoIds": ["abc123", "def456", "ghi789"],
+  "apifyDetails": {
+    "runId": "string",
+    "status": "RUNNING",
+    "runStartedAt": "2025-06-28T10:30:00Z",
+    "stats": {}
+  },
+  "message": "Downloading videos... 85.5% complete"
+}
+```
+
+### Backend Architecture Changes:
+- 🔧 **Function Addition**: Added `get_apify_run_progress()` for API communication
+- 🔧 **Progress Calculator**: Added `calculate_download_progress()` for smart progress logic
+- 🔧 **Enhanced Status Updates**: Extended `update_job_status()` with download_progress field
+- 🔧 **Routing Integration**: Added `/getApifyProgress` to main HTTP handler routing
+
+### Next Steps for Frontend:
+- 🔄 **Poll Integration**: Frontend should poll `/getApifyProgress` during download phase
+- 📊 **UI Updates**: Display real-time download progress in stepper UI
+- ⚡ **Performance**: Replace binary download status with granular progress bars
+- 🛡️ **Error Handling**: Handle API errors and fallback to existing status tracking
+
+### Environment Configuration:
+- ✅ **APIFY_KEY**: Uses existing environment variable for API authentication
+- ✅ **GCS Integration**: Leverages existing GCS service account configuration
+- ✅ **Firestore Updates**: Compatible with existing job status structure
+
+This enhancement provides the missing piece for real-time download progress tracking, enabling the frontend to show users exactly how their video downloads are progressing instead of a binary "Downloading" status.
+
+---
+
+## Previous Update (2025-06-24): Video Processing Performance Optimizations ✅
 
 **MAJOR BACKEND OPTIMIZATIONS COMPLETED**: Fixed hanging issue and dramatically improved video processing performance:
 
