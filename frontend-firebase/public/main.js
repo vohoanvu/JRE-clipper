@@ -50,9 +50,6 @@ function initializeApp() {
   // Set up event listeners
   setupEventListeners();
 
-  // Initialize rate limiting
-  initializeRateLimit();
-
   // Initialize the app for non-authenticated users
   fetchAccessToken();
 }
@@ -116,13 +113,11 @@ function initializeAuth() {
       checkUserStatus().then(status => {
         userPlan = status.plan || 'free';
         localStorage.setItem('jre_user_plan', userPlan);
-        updateUsageDisplay();
         console.log('User plan updated to:', userPlan);
       }).catch(error => {
         console.error('Error checking user status on auth change:', error);
         userPlan = 'free';
         localStorage.setItem('jre_user_plan', 'free');
-        updateUsageDisplay();
       });
 
     } else {
@@ -139,7 +134,6 @@ function initializeAuth() {
       // Set user as free
       userPlan = 'free';
       localStorage.setItem('jre_user_plan', 'free');
-      updateUsageDisplay();
     }
   });
 }
@@ -218,7 +212,6 @@ function getCurrentUserIdentification() {
   };
 }
 
-// ===== RATE LIMITING =====
 async function checkUserStatus() {
   try {
     initializeSession();
@@ -317,212 +310,10 @@ async function checkVideoGenerationPermission() {
   }
 }
 
-async function recordServerSearch() {
-  try {
-    initializeSession();
-    const userInfo = getCurrentUserIdentification();
-
-    const recordSearch = firebase.functions().httpsCallable('recordSearch');
-    await recordSearch({
-      userId: userInfo.userId,
-      sessionId: userInfo.sessionId
-    });
-    
-    console.log('Search recorded for:', userInfo.isAuthenticated ? 'authenticated user' : 'anonymous session');
-  } catch (error) {
-    console.error('Error recording search:', error);
-    // Fallback to client-side increment for anonymous users
-    if (!getCurrentUserIdentification().isAuthenticated) {
-      incrementClientSearchCount();
-    }
-  }
-}
-
-// Fallback client-side rate limiting (kept for offline scenarios)
-function checkClientRateLimit() {
-  const today = new Date().toDateString();
-  let searchCount = parseInt(localStorage.getItem('jre_search_count') || '0');
-  let lastReset = localStorage.getItem('jre_last_reset');
-  let userPlan = localStorage.getItem('jre_user_plan') || 'free';
-
-  // Reset if new day
-  if (lastReset !== today) {
-    searchCount = 0;
-    localStorage.setItem('jre_search_count', '0');
-    localStorage.setItem('jre_last_reset', today);
-  }
-
-  if (userPlan === 'pro') {
-    return {
-      allowed: true,
-      plan: userPlan,
-      remaining: null,
-      message: 'Unlimited searches available'
-    };
-  }
-
-  const remaining = Math.max(0, 10 - searchCount);
-  return {
-    allowed: remaining > 0,
-    plan: userPlan,
-    remaining: remaining,
-    message: remaining > 0 ? `${remaining} searches remaining today` : 'Daily limit reached',
-    showWarning: remaining <= 3 && remaining > 0
-  };
-}
-
-function incrementClientSearchCount() {
-  let userPlan = localStorage.getItem('jre_user_plan') || 'free';
-  if (userPlan === 'free') {
-    let searchCount = parseInt(localStorage.getItem('jre_search_count') || '0');
-    localStorage.setItem('jre_search_count', (searchCount + 1).toString());
-  }
-}
-
-function initializeRateLimit() {
-  const today = new Date().toDateString();
-
-  // Reset count if it's a new day
-  if (lastResetDate !== today) {
-    userSearchCount = 0;
-    lastResetDate = today;
-    localStorage.setItem('jre_search_count', '0');
-    localStorage.setItem('jre_last_reset', today);
-  } else {
-    // Load from localStorage
-    userSearchCount = parseInt(localStorage.getItem('jre_search_count') || '0');
-    lastResetDate = localStorage.getItem('jre_last_reset');
-  }
-
-  // Load user plan (in real app, this would come from backend)
-  userPlan = localStorage.getItem('jre_user_plan') || 'free';
-
-  updateUsageDisplay();
-}
-
-function checkAndUpdateSearchLimit() {
-  // Pro users have unlimited searches
-  if (userPlan === 'pro') {
-    return true;
-  }
-
-  const today = new Date().toDateString();
-
-  // Reset count if it's a new day
-  if (lastResetDate !== today) {
-    userSearchCount = 0;
-    lastResetDate = today;
-    localStorage.setItem('jre_search_count', '0');
-    localStorage.setItem('jre_last_reset', today);
-    updateUsageDisplay();
-  }
-
-  return userSearchCount < DAILY_SEARCH_LIMIT;
-}
-
-function incrementSearchCount() {
-  if (userPlan === 'free') {
-    userSearchCount++;
-    localStorage.setItem('jre_search_count', userSearchCount.toString());
-    updateUsageDisplay();
-  }
-}
-
-function getRemainingSearches() {
-  if (userPlan === 'pro') {
-    return 'Unlimited';
-  }
-  return Math.max(0, DAILY_SEARCH_LIMIT - userSearchCount);
-}
-
-function updateUsageDisplay() {
-  const remaining = getRemainingSearches();
-  const counterElement = document.getElementById('searches-remaining');
-
-  if (!counterElement) return; // Element might not exist on all pages
-
-  // All users now have unlimited searches
-  counterElement.textContent = '∞';
-  counterElement.parentElement.innerHTML = '<span id="searches-remaining">∞</span> unlimited searches';
-}
-
-function showRateLimitWarning(remaining = null) {
-  if (userPlan === 'pro') return; // No warnings for pro users
-
-  const actualRemaining = remaining || getRemainingSearches();
-
-  // Remove any existing warnings
-  const existingWarning = document.querySelector('.rate-limit-warning');
-  if (existingWarning) {
-    existingWarning.remove();
-  }
-
-  if (actualRemaining <= 3 && actualRemaining > 0) {
-    const warningDiv = document.createElement('div');
-    warningDiv.className = 'rate-limit-warning';
-    warningDiv.innerHTML = `
-      <div style="background: #fff3cd; border: 1px solid #ffeaa7; padding: 1rem; border-radius: 4px; margin: 1rem 0; text-align: center;">
-        <strong>⚠️ Search Limit Warning</strong><br>
-        You have ${actualRemaining} searches remaining today. <a href="/pricing.html" style="color: #0066cc; font-weight: bold;">Upgrade to Pro</a> for unlimited searches!
-      </div>
-    `;
-    document.querySelector('main.container').insertBefore(warningDiv, answerSection);
-
-    // Auto-remove warning after 8 seconds
-    setTimeout(() => {
-      if (warningDiv.parentNode) {
-        warningDiv.remove();
-      }
-    }, 8000);
-  }
-}
-
-function showServerRateLimitExceeded(rateLimitData) {
-  searchResultsContainer.innerHTML = `
-    <div style="background: #f8d7da; border: 1px solid #f5c6cb; padding: 2rem; border-radius: 8px; text-align: center; margin: 2rem 0;">
-      <h3 style="color: #721c24; margin-bottom: 1rem;">🚫 Daily Search Limit Reached</h3>
-      <p style="color: #721c24; margin-bottom: 1rem;">
-        ${rateLimitData.message}
-      </p>
-      <p style="color: #721c24; margin-bottom: 1.5rem;">
-        Your limit will reset at <strong>midnight UTC</strong> (${getTimeUntilReset()}).
-      </p>
-      <div style="margin-bottom: 1.5rem;">
-        <strong>Want unlimited searches right now?</strong>
-      </div>
-      <a href="/pricing.html" style="display: inline-block; background: #28a745; color: white; padding: 1rem 2rem; text-decoration: none; border-radius: 6px; font-weight: bold; margin-bottom: 1rem;">
-        ⚡ Upgrade to Pro - $9.99/month
-      </a>
-      <div style="margin-top: 1rem; font-size: 0.9rem; color: #6c757d;">
-        ✓ Unlimited searches &nbsp; ✓ Advanced AI insights &nbsp; ✓ Priority support &nbsp; ✓ Cancel anytime
-      </div>
-      <div style="margin-top: 1rem;">
-        <button onclick="simulateProUpgrade()" style="background: #007bff; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; font-size: 0.9rem; cursor: pointer;">
-          🧪 Try Pro Mode (Demo)
-        </button>
-      </div>
-    </div>
-  `;
-}
-
-function getTimeUntilReset() {
-  const now = new Date();
-  const tomorrow = new Date(now);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  tomorrow.setHours(0, 0, 0, 0);
-
-  const timeDiff = tomorrow - now;
-  const hours = Math.floor(timeDiff / (1000 * 60 * 60));
-  const minutes = Math.floor((timeDiff % (1000 * 60 * 60)) / (1000 * 60));
-
-  return `${hours}h ${minutes}m`;
-}
-
 // Demo function to simulate Pro upgrade
 function simulateProUpgrade() {
   userPlan = 'pro';
   localStorage.setItem('jre_user_plan', 'pro');
-  updateUsageDisplay();
 
   // Clear rate limit message
   searchResultsContainer.innerHTML = `
@@ -579,9 +370,6 @@ async function performSearch(query) {
       return response.json();
     })
     .then(data => {
-      // Record search for analytics (no limits enforced)
-      recordServerSearch();
-
       lastSearchResults = data.results || [];
 
       // Extract session and queryId from the API response

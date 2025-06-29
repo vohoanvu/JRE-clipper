@@ -19,7 +19,7 @@
     "firebase-functions": "^6.3.2",
     "google-auth-library": "^9.15.1",
     "googleapis": "^144.0.0",
-    "nodemailer": "^7.0.3",
+    "resend": "^4.6.0",
     "stripe": "^17.4.0"
   },
   "devDependencies": {

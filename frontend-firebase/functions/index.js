@@ -7,30 +7,86 @@ import { GoogleAuth } from "google-auth-library";
 import { logger } from "firebase-functions";
 import { google } from "googleapis";
 import Stripe from "stripe";
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 
 initializeApp();
 const db = getFirestore('jre-clipper-db');
 const auth = getAuth();
 
-// Email configuration
-const EMAIL_CONFIG = {
-    service: 'gmail',
-    auth: {
-        user: process.env.EMAIL_USER || 'vohoanvu96@gmail.com',
-        pass: process.env.EMAIL_APP_PASSWORD || 'your-app-password'
-    }
-};
-
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'vohoanvu96@gmail.com';
 
-// Create nodemailer transporter
-let emailTransporter;
-try {
-    emailTransporter = nodemailer.createTransporter(EMAIL_CONFIG);
-    logger.info("Email transporter initialized successfully");
-} catch (error) {
-    logger.error("Failed to initialize email transporter:", error);
+// Initialize Resend email service (free tier: 3,000 emails/month)
+const RESEND_API_KEY = process.env.RESEND_API_KEY || null;
+let resend = null;
+
+if (RESEND_API_KEY) {
+    resend = new Resend(RESEND_API_KEY);
+    logger.info("Resend email service initialized");
+} else {
+    logger.warn("Resend API key not found - emails will be logged only");
+}
+
+// Simple email function using Resend (free email service)
+async function sendEmailNotification(to, subject, htmlContent) {
+    try {
+        // Always log the email for debugging
+        logger.info("📧 EMAIL NOTIFICATION:", {
+            to: to,
+            subject: subject,
+            timestamp: new Date().toISOString()
+        });
+
+        // Store in Firestore for backup/manual processing
+        await db.collection('emailNotifications').add({
+            to: to,
+            subject: subject,
+            html: htmlContent,
+            status: 'pending',
+            createdAt: new Date()
+        });
+
+        // Send via Resend if API key is configured
+        if (resend) {
+            try {
+                const emailResult = await resend.emails.send({
+                    from: 'JRE Clipper <onboarding@resend.dev>', // Default Resend sender
+                    to: [to],
+                    subject: subject,
+                    html: htmlContent,
+                });
+
+                logger.info("✅ Email sent successfully via Resend:", emailResult.data?.id);
+                
+                // Update Firestore record with success status
+                await db.collection('emailNotifications').where('to', '==', to).where('subject', '==', subject).limit(1).get().then(snapshot => {
+                    if (!snapshot.empty) {
+                        snapshot.docs[0].ref.update({ status: 'sent', sentAt: new Date(), emailId: emailResult.data?.id });
+                    }
+                });
+
+                return { success: true, emailId: emailResult.data?.id };
+                
+            } catch (resendError) {
+                logger.error("❌ Resend email error:", resendError);
+                
+                // Update Firestore with error status
+                await db.collection('emailNotifications').where('to', '==', to).where('subject', '==', subject).limit(1).get().then(snapshot => {
+                    if (!snapshot.empty) {
+                        snapshot.docs[0].ref.update({ status: 'failed', error: resendError.message, failedAt: new Date() });
+                    }
+                });
+
+                return { success: false, error: resendError.message };
+            }
+        } else {
+            logger.info("📋 Email logged to Firestore (no Resend API key configured)");
+            return { success: true, note: "Email logged to Firestore - configure RESEND_API_KEY to send actual emails" };
+        }
+        
+    } catch (error) {
+        logger.error("Error in email notification system:", error);
+        return { success: false, error: error.message };
+    }
 }
 
 const corsHandler = cors({
@@ -436,31 +492,6 @@ export const handleStripeWebhook = onRequest({
     } catch (error) {
         logger.error("Error processing webhook:", error);
         res.status(500).json({ error: "Webhook processing failed" });
-    }
-});
-
-// Function for search analytics (no user tracking or limits)
-export const recordSearch = onCall({
-    enforceAppCheck: false,
-    memory: "256MiB",
-    timeoutSeconds: 10,
-    maxInstances: 10,
-    minInstances: 0,
-}, async (request) => {
-    try {
-        // Simply log the search for analytics purposes
-        logger.info("Search recorded:", {
-            timestamp: new Date().toISOString(),
-            hasAuth: !!request.auth,
-            userId: request.auth?.uid || 'anonymous'
-        });
-        
-        return { success: true };
-        
-    } catch (error) {
-        logger.error("Error recording search:", error);
-        // Always return success for search analytics
-        return { success: true };
     }
 });
 
@@ -903,62 +934,60 @@ export const requestManualVideoGeneration = onCall({
         await db.collection('manualVideoRequests').add(requestData);
         logger.info(`Manual video request created: ${requestId}`);
 
-        // Send email notification to admin
-        if (emailTransporter) {
-            try {
-                const emailContent = {
-                    from: EMAIL_CONFIG.auth.user,
-                    to: ADMIN_EMAIL,
-                    subject: `🎬 New Manual Video Generation Request - JRE Clipper`,
-                    html: `
-                        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                            <h2 style="color: #ff6b35;">🎬 New Manual Video Generation Request</h2>
-                            
-                            <div style="background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
-                                <h3>Request Details</h3>
-                                <p><strong>Request ID:</strong> ${requestId}</p>
-                                <p><strong>User Email:</strong> ${userEmail}</p>
-                                <p><strong>User Name:</strong> ${userName || 'Not provided'}</p>
-                                <p><strong>Search Query:</strong> ${searchQuery || 'Not provided'}</p>
-                                <p><strong>Number of Segments:</strong> ${segments.length}</p>
-                                <p><strong>Session ID:</strong> ${sessionId || 'Not provided'}</p>
-                                <p><strong>Requested At:</strong> ${new Date().toLocaleString()}</p>
-                            </div>
+        // Send email notification to admin (no password required!)
+        try {
+            const emailHtml = `
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                    <h2 style="color: #ff6b35;">🎬 New Manual Video Generation Request</h2>
+                    
+                    <div style="background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                        <h3>Request Details</h3>
+                        <p><strong>Request ID:</strong> ${requestId}</p>
+                        <p><strong>User Email:</strong> ${userEmail}</p>
+                        <p><strong>User Name:</strong> ${userName || 'Not provided'}</p>
+                        <p><strong>Search Query:</strong> ${searchQuery || 'Not provided'}</p>
+                        <p><strong>Number of Segments:</strong> ${segments.length}</p>
+                        <p><strong>Session ID:</strong> ${sessionId || 'Not provided'}</p>
+                        <p><strong>Requested At:</strong> ${new Date().toLocaleString()}</p>
+                    </div>
 
-                            <div style="background: #fff; border: 1px solid #ddd; padding: 20px; border-radius: 8px;">
-                                <h3>Selected Segments</h3>
-                                <div style="max-height: 400px; overflow-y: auto;">
-                                    ${segments.map((segment, index) => `
-                                        <div style="border-bottom: 1px solid #eee; padding: 10px 0;">
-                                            <p><strong>Segment ${index + 1}:</strong></p>
-                                            <p><strong>Video ID:</strong> ${segment.videoId}</p>
-                                            <p><strong>Time Range:</strong> ${segment.startTime}s - ${segment.endTime}s</p>
-                                            <p><strong>Content:</strong> ${(segment.text || 'No text available').substring(0, 200)}${segment.text && segment.text.length > 200 ? '...' : ''}</p>
-                                            <p><strong>YouTube URL:</strong> <a href="https://www.youtube.com/watch?v=${segment.videoId}&t=${segment.startTime}s">Watch Segment</a></p>
-                                        </div>
-                                    `).join('')}
+                    <div style="background: #fff; border: 1px solid #ddd; padding: 20px; border-radius: 8px;">
+                        <h3>Selected Segments</h3>
+                        <div style="max-height: 400px; overflow-y: auto;">
+                            ${segments.map((segment, index) => `
+                                <div style="border-bottom: 1px solid #eee; padding: 10px 0;">
+                                    <p><strong>Segment ${index + 1}:</strong></p>
+                                    <p><strong>Video ID:</strong> ${segment.videoId}</p>
+                                    <p><strong>Time Range:</strong> ${segment.startTime}s - ${segment.endTime}s</p>
+                                    <p><strong>Content:</strong> ${(segment.text || 'No text available').substring(0, 200)}${segment.text && segment.text.length > 200 ? '...' : ''}</p>
+                                    <p><strong>YouTube URL:</strong> <a href="https://www.youtube.com/watch?v=${segment.videoId}&t=${segment.startTime}s">Watch Segment</a></p>
                                 </div>
-                            </div>
-
-                            <div style="background: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 8px; margin: 20px 0;">
-                                <h4>Next Steps:</h4>
-                                <ol>
-                                    <li>Download the video segments</li>
-                                    <li>Edit the compilation video</li>
-                                    <li>Reply to ${userEmail} with the final video</li>
-                                    <li>Update request status in Firebase</li>
-                                </ol>
-                            </div>
+                            `).join('')}
                         </div>
-                    `
-                };
+                    </div>
 
-                await emailTransporter.sendMail(emailContent);
-                logger.info(`Manual video request email sent for request ${requestId}`);
-            } catch (emailError) {
-                logger.error(`Failed to send email for request ${requestId}:`, emailError);
-                // Don't fail the request if email fails
-            }
+                    <div style="background: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 8px; margin: 20px 0;">
+                        <h4>Next Steps:</h4>
+                        <ol>
+                            <li>Download the video segments</li>
+                            <li>Edit the compilation video</li>
+                            <li>Reply to ${userEmail} with the final video</li>
+                            <li>Update request status in Firebase</li>
+                        </ol>
+                    </div>
+                </div>
+            `;
+
+            await sendEmailNotification(
+                ADMIN_EMAIL,
+                `🎬 New Manual Video Generation Request - JRE Clipper`,
+                emailHtml
+            );
+            
+            logger.info(`Manual video request notification sent for request ${requestId}`);
+        } catch (emailError) {
+            logger.error(`Failed to send notification for request ${requestId}:`, emailError);
+            // Don't fail the request if email fails
         }
 
         return {
