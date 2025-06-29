@@ -740,3 +740,71 @@ timeout_timer.start()
 - 🛡️ **Robust Error Handling**: Better timeout detection and recovery
 
 This fix resolves the critical threading issue that was preventing background video processing from working at all in the Cloud Run environment.
+
+---
+
+## Latest Update (2025-06-29): Firebase Hosting Initialization Refactoring ✅
+
+**FIREBASE HOSTING INIT IMPLEMENTED**: Updated all pages to use Firebase Hosting's automatic initialization instead of manual configuration:
+
+### Changes Completed:
+- ✅ **Firebase Hosting Init**: All pages now use `/__/firebase/init.js` for automatic configuration
+- ✅ **Removed Manual Config**: Deleted `firebase-config.js` file - no longer needed
+- ✅ **Updated All Pages**: index.html, signin.html, pricing.html all use hosting init
+- ✅ **Emulator Support**: Added `?useEmulator=true` flag for local development
+- ✅ **Google OAuth Issue**: Fixed redirect URI mismatch by updating Google Cloud Console
+
+### Technical Implementation:
+
+#### 🔧 **Firebase Hosting Benefits**:
+- ✅ **Automatic Configuration**: Firebase project settings loaded automatically
+- ✅ **Security**: No API keys exposed in client code
+- ✅ **Deployment Ready**: Seamless transition from development to production
+- ✅ **Emulator Support**: Works with Firebase emulators for local testing
+
+#### 🐛 **Authentication Issue Investigation**:
+- ⚠️ **OAuth Redirect Working**: Google sign-in completes successfully
+- ⚠️ **Auth State Issue**: User authentication not persisting after redirect
+- 🔍 **Debugging**: Added comprehensive logging and fallback mechanisms
+- 🔍 **Root Cause**: Investigating Firebase auth state timing issues
+
+### Files Modified:
+- 🔧 **`firebase.json`**: Updated hosting configuration
+- 🔧 **`index.html`**: Updated to use Firebase Hosting init
+- 🔧 **`signin.html`**: Updated to use Firebase Hosting init  
+- 🔧 **`pricing.html`**: Updated to use Firebase Hosting init
+- 🔧 **`auth.js`**: Enhanced with better error handling and debugging
+- 🗑️ **`firebase-config.js`**: Removed manual configuration file
+
+---
+
+## Latest Update (2025-06-29): Google Authentication Race Condition Fix ✅
+
+**CRITICAL AUTH BUG RESOLVED**: Fixed inconsistent Google Sign-In behavior caused by race conditions.
+
+### Issue Identified:
+- ✅ **Root Cause**: FirebaseUI redirect flow was failing due to OAuth callback handling issues
+- ✅ **Proof**: Simple `signInWithPopup()` worked consistently, but FirebaseUI redirect flow was unreliable
+- ✅ **Inconsistency**: Sign-out → Sign-in cycles had race conditions between multiple auth state listeners
+
+### Technical Solution:
+- ✅ **Flow Change**: Switched from `signInFlow: 'redirect'` to `signInFlow: 'popup'` (proven to work)
+- ✅ **State Management**: Eliminated duplicate auth state listeners causing conflicts
+- ✅ **Race Condition Fix**: Added proper cleanup of listeners and timeouts
+- ✅ **Debouncing**: Added `scheduleRedirectToHome()` with timeout to prevent rapid redirects
+- ✅ **Memory Management**: Added `beforeunload` and `pageshow` event handlers for cleanup
+
+### Auth Flow Improvements:
+- ✅ **Single Listener**: Only one auth state listener per page load
+- ✅ **Proper Cleanup**: Listeners and timeouts are properly removed on redirect/unload
+- ✅ **State Synchronization**: Better `isSigningIn` flag management prevents conflicts
+- ✅ **Loading States**: Improved loading/hiding logic for UI elements
+- ✅ **Error Handling**: Better failure recovery and state reset
+
+### Testing Results:
+- ✅ **Popup Flow**: Google authentication works consistently with popup
+- ✅ **User Creation**: Firebase Auth users and Firestore records created properly
+- ✅ **Redirect Flow**: Clean redirect to index.html after successful authentication
+- ✅ **No More Loops**: Eliminated redirect loops between signin.html and index.html
+
+**AUTHENTICATION NOW WORKING RELIABLY** ✅

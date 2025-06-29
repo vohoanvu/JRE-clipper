@@ -92,7 +92,7 @@ function initializeAuth() {
       const userEmail = document.getElementById('user-email');
       
       if (userPhoto) userPhoto.src = user.photoURL || 'https://via.placeholder.com/40';
-      if (userEmail) userEmail.textContent = user.email;
+      if (userEmail) userEmail.textContent = user.email; 
 
       // Set up sign-out functionality
       const signOutBtn = document.getElementById('sign-out');

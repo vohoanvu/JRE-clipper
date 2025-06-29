@@ -466,22 +466,29 @@ export const getUserSubscriptionStatus = onCall({
 }, async (request) => {
     try {
         logger.info("getUserSubscriptionStatus called with data:", request.data);
+        logger.info("Auth context:", request.auth ? `UID: ${request.auth.uid}` : "No auth");
         
         const { userId, sessionId } = request.data || {};
-        const identifier = userId || sessionId;
+        
+        // Prefer authenticated user UID over provided userId/sessionId
+        const identifier = request.auth?.uid || userId || sessionId;
         
         if (!identifier) {
-            logger.error("No identifier provided");
-            throw new HttpsError("invalid-argument", "User ID or session ID required");
+            logger.error("No identifier provided and user not authenticated");
+            throw new HttpsError("invalid-argument", "User ID, session ID required, or user must be authenticated");
         }
 
-        logger.info("Attempting to fetch user document for identifier:", identifier);
+        logger.info("Using identifier for user lookup:", identifier);
         
         // Try to get user document with proper error handling
         let userData;
         try {
             userData = await ensureUserDocument(identifier);
-            logger.info("Successfully fetched user document, plan:", userData.plan);
+            logger.info("Successfully fetched/created user document:", { 
+                plan: userData.plan, 
+                hasSubscription: !!userData.stripeSubscriptionStatus,
+                identifier: identifier 
+            });
         } catch (firestoreError) {
             logger.error("Firestore error when fetching user document:", firestoreError);
             // Return default values if Firestore is unavailable
@@ -494,7 +501,6 @@ export const getUserSubscriptionStatus = onCall({
                 error: 'Database temporarily unavailable'
             };
         }
-        logger.info("User data retrieved:", { plan: userData.plan, hasSubscription: !!userData.stripeSubscriptionStatus });
         
         return {
             plan: userData.plan || 'free',

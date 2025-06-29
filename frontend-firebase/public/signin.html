@@ -8,14 +8,20 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
   <link type="text/css" rel="stylesheet" href="https://www.gstatic.com/firebasejs/ui/4.8.1/firebase-ui-auth.css" />
   <link rel="stylesheet" href="main.css">
+  <style>
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  </style>
 
-  <!-- Firebase SDK via CDN (Firebase Hosting Init) -->
+  <!-- Firebase SDK via CDN (Firebase Hosting Init with Emulator Support) -->
   <script src="/__/firebase/11.9.1/firebase-app-compat.js"></script>
   <script src="/__/firebase/11.9.1/firebase-auth-compat.js"></script>
   <script src="/__/firebase/11.9.1/firebase-functions-compat.js"></script>
   <script src="/__/firebase/init.js"></script>
-  <script defer src="auth.js"></script>
   <script src="https://www.gstatic.com/firebasejs/ui/4.8.1/firebase-ui-auth.js"></script>
+  <script defer src="auth.js"></script>
 </head>
 
 <body>
@@ -43,6 +49,10 @@
 
       <div class="signin-container">
         <div class="signin-box">
+          <div id="loading-message" style="text-align: center; padding: 20px; display: none;">
+            <p>Completing sign-in...</p>
+            <div style="display: inline-block; width: 20px; height: 20px; border: 3px solid #f3f3f3; border-top: 3px solid #007bff; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+          </div>
           <div id="firebaseui-auth-container"></div>
           <div class="signin-footer">
             <p><small>Continue as guest on the <a href="index.html">main page</a> with limited features.</small></p>
