@@ -9,7 +9,7 @@ load_dotenv()
 API_KEY = os.getenv('YOUTUBE_API_KEY')
 PLAYLIST_ID = "PLk1Sqn_f33KuWf3tW9BBe_4TP7x8l0m3T"  # The JRE Playlist ID
 CHANNEL_ID = "UCzQUP1qoWDoEbmsQxvdjxgQ"  # the JRE Channel ID
-OUTPUT_CSV = "jre-playlist.csv"  # Output file in the same directory
+OUTPUT_CSV = "jre-playlist_cleaned.csv"  # Output file in the same directory
 
 # Set up the YouTube API client
 youtube = googleapiclient.discovery.build("youtube", "v3", developerKey=API_KEY)
