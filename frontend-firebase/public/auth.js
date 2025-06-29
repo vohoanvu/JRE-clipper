@@ -28,9 +28,9 @@ function initializeSignInWidget() {
       }
     ],
     // Terms of service url/callback
-    tosUrl: '#', // You can replace this with your actual ToS URL
+    tosUrl: '/404.html', // You can replace this with your actual ToS URL
     // Privacy policy url/callback
-    privacyPolicyUrl: '#', // You can replace this with your actual Privacy Policy URL
+    privacyPolicyUrl: '/404.html', // You can replace this with your actual Privacy Policy URL
     callbacks: {
       signInSuccessWithAuthResult: function(authResult, redirectUrl) {
         // User successfully signed in

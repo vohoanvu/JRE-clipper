@@ -10,28 +10,11 @@
   <link rel="stylesheet" href="main.css">
   <script src="https://cloud.google.com/ai/gen-app-builder/client?hl=en_US"></script>
 
-  <!-- Firebase SDK via CDN (Manual Integration) -->
-  <script src="https://www.gstatic.com/firebasejs/11.9.1/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/11.9.1/firebase-auth-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/11.9.1/firebase-functions-compat.js"></script>
-  
-  <!-- Firebase Configuration -->
-  <script>
-    // Your web app's Firebase configuration
-    const firebaseConfig = {
-      apiKey: "AIzaSyDnuPflwDM_Him7KozhdR4QZruQSiObay0",
-      authDomain: "gen-lang-client-demo.firebaseapp.com",
-      projectId: "gen-lang-client-demo",
-      storageBucket: "gen-lang-client-demo.firebasestorage.app",
-      messagingSenderId: "408323719521",
-      appId: "1:408323719521:web:cb81b241c0eb131c224520",
-      measurementId: "G-28DR17HF9R"
-    };
-
-    // Initialize Firebase
-    firebase.initializeApp(firebaseConfig);
-  </script>
-  
+  <!-- Firebase SDK via CDN (Firebase Hosting Init) -->
+  <script src="/__/firebase/11.9.1/firebase-app-compat.js"></script>
+  <script src="/__/firebase/11.9.1/firebase-auth-compat.js"></script>
+  <script src="/__/firebase/11.9.1/firebase-functions-compat.js"></script>
+  <script src="/__/firebase/init.js?useEmulator=true"></script>
   <script type="module" src="main.js"></script>
 </head>
 

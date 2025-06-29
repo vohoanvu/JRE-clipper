@@ -9,31 +9,13 @@
   <link type="text/css" rel="stylesheet" href="https://www.gstatic.com/firebasejs/ui/4.8.1/firebase-ui-auth.css" />
   <link rel="stylesheet" href="main.css">
 
-  <!-- Firebase SDK via CDN (Manual Integration) -->
-  <script src="https://www.gstatic.com/firebasejs/11.9.1/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/11.9.1/firebase-auth-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/11.9.1/firebase-functions-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/ui/4.8.1/firebase-ui-auth.js"></script>
-  
-  <!-- Firebase Configuration -->
-  <script>
-    // Your web app's Firebase configuration
-    const firebaseConfig = {
-      apiKey: "AIzaSyDnuPflwDM_Him7KozhdR4QZruQSiObay0",
-      authDomain: "gen-lang-client-demo.firebaseapp.com",
-      projectId: "gen-lang-client-demo",
-      storageBucket: "gen-lang-client-demo.firebasestorage.app",
-      messagingSenderId: "408323719521",
-      appId: "1:408323719521:web:cb81b241c0eb131c224520",
-      measurementId: "G-28DR17HF9R"
-    };
-
-    // Initialize Firebase
-    firebase.initializeApp(firebaseConfig);
-  </script>
-  
-  <script defer src="debug-firebase.js"></script>
+  <!-- Firebase SDK via CDN (Firebase Hosting Init) -->
+  <script src="/__/firebase/11.9.1/firebase-app-compat.js"></script>
+  <script src="/__/firebase/11.9.1/firebase-auth-compat.js"></script>
+  <script src="/__/firebase/11.9.1/firebase-functions-compat.js"></script>
+  <script src="/__/firebase/init.js"></script>
   <script defer src="auth.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/ui/4.8.1/firebase-ui-auth.js"></script>
 </head>
 
 <body>
@@ -63,7 +45,6 @@
         <div class="signin-box">
           <div id="firebaseui-auth-container"></div>
           <div class="signin-footer">
-            <p>By signing in, you agree to our <a href="#">Terms of Service</a> and <a href="#">Privacy Policy</a>.</p>
             <p><small>Continue as guest on the <a href="index.html">main page</a> with limited features.</small></p>
           </div>
         </div>

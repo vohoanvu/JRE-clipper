@@ -8,9 +8,10 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
   <script src="https://js.stripe.com/v3/"></script>
 
-  <!-- Firebase SDK v9 - CDN approach -->
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-functions-compat.js"></script>
+  <!-- Firebase SDK via CDN (Firebase Hosting Init) -->
+  <script src="/__/firebase/11.9.1/firebase-app-compat.js"></script>
+  <script src="/__/firebase/11.9.1/firebase-functions-compat.js"></script>
+  <script src="/__/firebase/init.js"></script>
 
   <style media="screen">
     * {
@@ -308,27 +309,6 @@
   </div>
 
   <script>
-    // Firebase configuration - Replace with your actual config
-    const firebaseConfig = {
-      apiKey: "AIzaSyDINU6PKYWJewuYqNLDI3NEYumStT4bIDk",
-      authDomain: "gen-lang-client-demo.firebaseapp.com",
-      projectId: "gen-lang-client-demo",
-      storageBucket: "gen-lang-client-demo.appspot.com",
-      messagingSenderId: "408323719521",
-      appId: "1:408323719521:web:your-app-id-here"
-    };
-
-    // Initialize Firebase
-    let app, functions;
-    try {
-      app = firebase.initializeApp(firebaseConfig);
-      functions = firebase.functions(app);
-      console.log('Firebase initialized successfully');
-    } catch (error) {
-      console.error('Firebase initialization error:', error);
-      // Continue without Firebase functionality
-    }
-
     // Initialize Stripe
     const stripe = Stripe('pk_test_51Rco8nR9HLu4Z6TSlSjCZypyASEmikaanI10fX2UA0tQSYJZy5A2rQU7eaMNB0jATz9NHNDTPO47cXBoLGsfAnuR00GC3QLQwi');
     
@@ -337,11 +317,14 @@
     let userSearches = 7; // Current usage (would come from backend)
     const dailyLimit = 10;
 
-    // Initialize Firebase when DOM is ready
+    // Initialize Firebase Functions
+    let functions = null;
+    
+    // Wait for Firebase to be ready
     document.addEventListener('DOMContentLoaded', function() {
-      // Wait a bit for Firebase to be ready, then check user status
       setTimeout(() => {
-        if (functions) {
+        if (typeof firebase !== 'undefined' && firebase.functions) {
+          functions = firebase.functions();
           checkUserStatus();
         } else {
           console.log('Firebase not available, using demo mode');
