@@ -1,6 +1,6 @@
 import { onRequest, onCall, HttpsError } from "firebase-functions/v2/https";
 import { initializeApp } from "firebase-admin/app";
-import { getFirestore } from "firebase-admin/firestore";
+import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { getAuth } from "firebase-admin/auth";
 import cors from "cors";
 import { GoogleAuth } from "google-auth-library";
@@ -42,7 +42,7 @@ const corsHandler = cors({
 const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || 'your-api-key-here';
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || 'sk_test_your_stripe_secret_key';
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || 'whsec_your_webhook_secret';
-const DOMAIN = process.env.DOMAIN || 'https://your-domain.com';
+const DOMAIN = process.env.DOMAIN || 'https://whatwouldjoerogansay.com';
 const STRIPE_PRICE_ID = process.env.STRIPE_PRICE_ID || 'price_1234567890';
 
 
@@ -204,107 +204,6 @@ export const getVideoMetadata = onCall({
     }
 });
 
-// Stripe checkout session creation with cost optimization
-export const createCheckoutSession = onCall({
-    enforceAppCheck: false,
-    memory: "256MiB", // Minimal memory for simple operations
-    timeoutSeconds: 30, // Short timeout
-    maxInstances: 5, // Lower max instances
-    minInstances: 0, // No warm instances
-}, async (request) => {
-    try {
-        logger.info("createCheckoutSession called with data:", request.data);
-        
-        const { userId, sessionId } = request.data || {};
-        
-        // Use sessionId as fallback for anonymous users
-        const identifier = userId || sessionId;
-        
-        if (!identifier) {
-            logger.error("No identifier provided");
-            throw new HttpsError("invalid-argument", "User ID or session ID is required");
-        }
-
-        // Check Stripe initialization
-        if (!stripe) {
-            logger.error("Stripe not initialized");
-            throw new HttpsError("failed-precondition", "Payment service not available");
-        }
-
-        // Check if user is already a pro subscriber (with Firestore error handling)
-        let userData = {};
-        try {
-            logger.info("Fetching user document for identifier:", identifier);
-            userData = await ensureUserDocument(identifier);
-            logger.info("User data retrieved:", { plan: userData.plan, hasSubscription: !!userData.stripeSubscriptionStatus });
-        } catch (firestoreError) {
-            logger.error("Firestore error when checking user status:", firestoreError);
-            // Continue with empty userData - we'll still allow checkout attempt
-            userData = { plan: 'free' };
-        }
-        
-        if (userData.plan === 'pro' && userData.stripeSubscriptionStatus === 'active') {
-            throw new HttpsError("failed-precondition", "User is already a Pro subscriber");
-        }
-
-        logger.info("Creating Stripe checkout session with price ID:", STRIPE_PRICE_ID);
-        
-        const session = await stripe.checkout.sessions.create({
-            mode: 'subscription',
-            payment_method_types: ['card'],
-            line_items: [
-                {
-                    price: STRIPE_PRICE_ID, // Use environment variable
-                    quantity: 1,
-                },
-            ],
-            success_url: `${DOMAIN}/success?session_id={CHECKOUT_SESSION_ID}`,
-            cancel_url: `${DOMAIN}/pricing.html`,
-            client_reference_id: identifier,
-            metadata: {
-                userId: identifier,
-                plan: 'pro'
-            },
-            // Add customer email if available
-            ...(userData.email && { customer_email: userData.email })
-        });
-
-        logger.info("Stripe checkout session created successfully:", session.id);
-        
-        // Store pending subscription info (with error handling)
-        try {
-            await db.collection('users').doc(identifier).set({
-                ...userData,
-                pendingSubscription: {
-                    sessionId: session.id,
-                    createdAt: new Date(),
-                    status: 'pending'
-                }
-            }, { merge: true });
-            logger.info("Pending subscription stored in database");
-        } catch (firestoreError) {
-            logger.error("Failed to store pending subscription, but continuing:", firestoreError);
-            // Don't fail the checkout if we can't store pending status
-        }
-        
-        return { sessionId: session.id };
-        
-    } catch (error) {
-        logger.error("Stripe checkout error:", error);
-        
-        // Provide more specific error messages
-        if (error instanceof HttpsError) {
-            throw error;
-        }
-        
-        if (error.type === 'StripeInvalidRequestError') {
-            throw new HttpsError("invalid-argument", `Stripe configuration error: ${error.message}`);
-        }
-        
-        throw new HttpsError("internal", `Payment service error: ${error.message}`);
-    }
-});
-
 // Stripe webhook handler with cost optimization and proper plan enforcement
 export const handleStripeWebhook = onRequest({
     memory: "256MiB", // Minimal memory
@@ -329,19 +228,49 @@ export const handleStripeWebhook = onRequest({
                 const session = event.data.object;
                 const userId = session.client_reference_id;
                 
-                if (userId) {
-                    // Upgrade user to pro plan
-                    await db.collection('users').doc(userId).set({
-                        plan: 'pro',
-                        stripeCustomerId: session.customer,
-                        stripeSubscriptionId: session.subscription,
-                        stripeSubscriptionStatus: 'active',
-                        upgradedAt: new Date(),
-                        pendingSubscription: null // Clear pending status
-                    }, { merge: true });
-                    
-                    logger.info(`User ${userId} upgraded to pro plan via checkout session ${session.id}`);
+                if (!userId) {
+                    logger.error(`Checkout session ${session.id} completed but no user ID found in client_reference_id`);
+                    break;
                 }
+                
+                // Validate that the userId corresponds to a Firebase Auth user
+                try {
+                    const userRecord = await auth.getUser(userId);
+                    logger.info(`Validated Firebase Auth user for payment: ${userRecord.email || userRecord.uid}`);
+                } catch (authError) {
+                    logger.error(`Payment completed for invalid Firebase Auth user: ${userId}`, authError);
+                    // Still process the payment but log the error for investigation
+                }
+                
+                // Upgrade user to pro plan in subscriptions collection
+                await db.collection('subscriptions').doc(userId).set({
+                    plan: 'pro',
+                    stripeCustomerId: session.customer,
+                    stripeSubscriptionId: session.subscription,
+                    stripeSubscriptionStatus: 'active',
+                    upgradedAt: new Date(),
+                    pendingSubscription: null, // Clear pending status
+                    // Add payment audit trail
+                    paymentHistory: FieldValue.arrayUnion({
+                        type: 'subscription_created',
+                        sessionId: session.id,
+                        customerId: session.customer,
+                        subscriptionId: session.subscription,
+                        amount: session.amount_total,
+                        currency: session.currency,
+                        timestamp: new Date()
+                    })
+                }, { merge: true });
+                
+                // Update Firebase Auth custom claims for fast access
+                await auth.setCustomUserClaims(userId, {
+                    plan: 'pro',
+                    subscriptionStatus: 'active',
+                    subscriptionId: session.subscription,
+                    upgradedAt: new Date().toISOString()
+                });
+                
+                logger.info(`User ${userId} upgraded to pro plan via checkout session ${session.id}`);
                 break;
             }
             
@@ -349,19 +278,49 @@ export const handleStripeWebhook = onRequest({
                 const invoice = event.data.object;
                 const subscriptionId = invoice.subscription;
                 
-                // Update subscription status to active
-                const usersQuery = await db.collection('users')
+                // Update subscription status to active in subscriptions collection
+                const subscriptionsQuery = await db.collection('subscriptions')
                     .where('stripeSubscriptionId', '==', subscriptionId)
                     .limit(1)
                     .get();
                 
-                if (!usersQuery.empty) {
-                    const userDoc = usersQuery.docs[0];
-                    await userDoc.ref.update({
+                if (!subscriptionsQuery.empty) {
+                    const subscriptionDoc = subscriptionsQuery.docs[0];
+                    const userId = subscriptionDoc.id;
+                    
+                    // Validate Firebase Auth user
+                    try {
+                        await auth.getUser(userId);
+                        logger.info(`Validated Firebase Auth user for payment success: ${userId}`);
+                    } catch (authError) {
+                        logger.error(`Payment succeeded for invalid Firebase Auth user: ${userId}`, authError);
+                    }
+                    
+                    await subscriptionDoc.ref.update({
                         stripeSubscriptionStatus: 'active',
-                        lastPaymentAt: new Date()
+                        lastPaymentAt: new Date(),
+                        // Add payment audit trail
+                        paymentHistory: FieldValue.arrayUnion({
+                            type: 'payment_succeeded',
+                            invoiceId: invoice.id,
+                            subscriptionId: subscriptionId,
+                            amount: invoice.amount_paid,
+                            currency: invoice.currency,
+                            timestamp: new Date()
+                        })
                     });
+                    
+                    // Update Firebase Auth custom claims
+                    await auth.setCustomUserClaims(userId, {
+                        plan: 'pro',
+                        subscriptionStatus: 'active',
+                        subscriptionId: subscriptionId,
+                        lastPaymentAt: new Date().toISOString()
+                    });
+                    
                     logger.info(`Payment succeeded for subscription ${subscriptionId}`);
+                } else {
+                    logger.error(`No subscription found for subscription ${subscriptionId} payment success`);
                 }
                 break;
             }
@@ -370,19 +329,50 @@ export const handleStripeWebhook = onRequest({
                 const invoice = event.data.object;
                 const subscriptionId = invoice.subscription;
                 
-                // Update subscription status to past_due
-                const usersQuery = await db.collection('users')
+                // Update subscription status to past_due in subscriptions collection
+                const subscriptionsQuery = await db.collection('subscriptions')
                     .where('stripeSubscriptionId', '==', subscriptionId)
                     .limit(1)
                     .get();
                 
-                if (!usersQuery.empty) {
-                    const userDoc = usersQuery.docs[0];
-                    await userDoc.ref.update({
+                if (!subscriptionsQuery.empty) {
+                    const subscriptionDoc = subscriptionsQuery.docs[0];
+                    const userId = subscriptionDoc.id;
+                    
+                    // Validate Firebase Auth user
+                    try {
+                        await auth.getUser(userId);
+                        logger.info(`Validated Firebase Auth user for payment failure: ${userId}`);
+                    } catch (authError) {
+                        logger.error(`Payment failed for invalid Firebase Auth user: ${userId}`, authError);
+                    }
+                    
+                    await subscriptionDoc.ref.update({
                         stripeSubscriptionStatus: 'past_due',
-                        paymentFailedAt: new Date()
+                        paymentFailedAt: new Date(),
+                        // Add payment audit trail
+                        paymentHistory: FieldValue.arrayUnion({
+                            type: 'payment_failed',
+                            invoiceId: invoice.id,
+                            subscriptionId: subscriptionId,
+                            amount: invoice.amount_due,
+                            currency: invoice.currency,
+                            timestamp: new Date(),
+                            error: invoice.last_finalization_error?.message || 'Unknown payment error'
+                        })
                     });
+                    
+                    // Update Firebase Auth custom claims
+                    await auth.setCustomUserClaims(userId, {
+                        plan: 'free', // Downgrade to free on payment failure
+                        subscriptionStatus: 'past_due',
+                        subscriptionId: subscriptionId,
+                        paymentFailedAt: new Date().toISOString()
+                    });
+                    
                     logger.warn(`Payment failed for subscription ${subscriptionId}`);
+                } else {
+                    logger.error(`No subscription found for subscription ${subscriptionId} payment failure`);
                 }
                 break;
             }
@@ -390,20 +380,49 @@ export const handleStripeWebhook = onRequest({
             case 'customer.subscription.deleted': {
                 const subscription = event.data.object;
                 
-                // Downgrade user to free plan
-                const usersQuery = await db.collection('users')
+                // Downgrade user to free plan in subscriptions collection
+                const subscriptionsQuery = await db.collection('subscriptions')
                     .where('stripeSubscriptionId', '==', subscription.id)
                     .limit(1)
                     .get();
                 
-                if (!usersQuery.empty) {
-                    const userDoc = usersQuery.docs[0];
-                    await userDoc.ref.update({
+                if (!subscriptionsQuery.empty) {
+                    const subscriptionDoc = subscriptionsQuery.docs[0];
+                    const userId = subscriptionDoc.id;
+                    
+                    // Validate Firebase Auth user
+                    try {
+                        await auth.getUser(userId);
+                        logger.info(`Validated Firebase Auth user for subscription cancellation: ${userId}`);
+                    } catch (authError) {
+                        logger.error(`Subscription canceled for invalid Firebase Auth user: ${userId}`, authError);
+                    }
+                    
+                    await subscriptionDoc.ref.update({
                         plan: 'free',
                         stripeSubscriptionStatus: 'canceled',
-                        canceledAt: new Date()
+                        canceledAt: new Date(),
+                        // Add payment audit trail
+                        paymentHistory: FieldValue.arrayUnion({
+                            type: 'subscription_canceled',
+                            subscriptionId: subscription.id,
+                            canceledAt: new Date(subscription.canceled_at * 1000),
+                            cancelReason: subscription.cancellation_details?.reason || 'Unknown',
+                            timestamp: new Date()
+                        })
                     });
+                    
+                    // Update Firebase Auth custom claims
+                    await auth.setCustomUserClaims(userId, {
+                        plan: 'free',
+                        subscriptionStatus: 'canceled',
+                        subscriptionId: null,
+                        canceledAt: new Date().toISOString()
+                    });
+                    
                     logger.info(`User downgraded to free plan after subscription ${subscription.id} was canceled`);
+                } else {
+                    logger.error(`No subscription found for canceled subscription ${subscription.id}`);
                 }
                 break;
             }
@@ -420,43 +439,32 @@ export const handleStripeWebhook = onRequest({
     }
 });
 
-// Function to increment search count with plan validation
+// Function for search analytics (no user tracking or limits)
 export const recordSearch = onCall({
     enforceAppCheck: false,
-    memory: "256MiB", // Minimal memory
-    timeoutSeconds: 10, // Very short timeout
-    maxInstances: 10, // Allow more instances for frequent calls
-    minInstances: 0, // No warm instances
+    memory: "256MiB",
+    timeoutSeconds: 10,
+    maxInstances: 10,
+    minInstances: 0,
 }, async (request) => {
     try {
-        const { userId, sessionId } = request.data;
-        
-        // Use sessionId as fallback if no userId (for anonymous users)
-        const identifier = userId || sessionId;
-        
-        if (!identifier) {
-            throw new HttpsError("invalid-argument", "User ID or session ID required");
-        }
-        
-        // Update user's last search time for analytics
-        const userRef = db.collection('users').doc(identifier);
-        
-        await userRef.set({
-            lastSearchAt: new Date()
-        }, { merge: true });
+        // Simply log the search for analytics purposes
+        logger.info("Search recorded:", {
+            timestamp: new Date().toISOString(),
+            hasAuth: !!request.auth,
+            userId: request.auth?.uid || 'anonymous'
+        });
         
         return { success: true };
         
     } catch (error) {
         logger.error("Error recording search:", error);
-        if (error instanceof HttpsError) {
-            throw error;
-        }
-        throw new HttpsError("internal", "Error recording search");
+        // Always return success for search analytics
+        return { success: true };
     }
 });
 
-// Add utility function to get user subscription status
+// Get user subscription status using Firebase Auth and subscriptions collection
 export const getUserSubscriptionStatus = onCall({
     enforceAppCheck: false,
     memory: "256MiB",
@@ -465,50 +473,92 @@ export const getUserSubscriptionStatus = onCall({
     minInstances: 0,
 }, async (request) => {
     try {
-        logger.info("getUserSubscriptionStatus called with data:", request.data);
+        logger.info("getUserSubscriptionStatus called");
         logger.info("Auth context:", request.auth ? `UID: ${request.auth.uid}` : "No auth");
         
-        const { userId, sessionId } = request.data || {};
-        
-        // Prefer authenticated user UID over provided userId/sessionId
-        const identifier = request.auth?.uid || userId || sessionId;
-        
-        if (!identifier) {
-            logger.error("No identifier provided and user not authenticated");
-            throw new HttpsError("invalid-argument", "User ID, session ID required, or user must be authenticated");
+        // If no authentication, return default free plan
+        if (!request.auth) {
+            logger.info("No authentication - returning default free plan");
+            return {
+                plan: 'free',
+                subscriptionStatus: null,
+                subscriptionId: null,
+                upgradedAt: null,
+                canceledAt: null
+            };
         }
 
-        logger.info("Using identifier for user lookup:", identifier);
+        const userId = request.auth.uid;
+        logger.info("Getting subscription status for authenticated user:", userId);
         
-        // Try to get user document with proper error handling
-        let userData;
         try {
-            userData = await ensureUserDocument(identifier);
-            logger.info("Successfully fetched/created user document:", { 
-                plan: userData.plan, 
-                hasSubscription: !!userData.stripeSubscriptionStatus,
-                identifier: identifier 
-            });
-        } catch (firestoreError) {
-            logger.error("Firestore error when fetching user document:", firestoreError);
-            // Return default values if Firestore is unavailable
+            // Get user's custom claims from Firebase Auth
+            const userRecord = await auth.getUser(userId);
+            const customClaims = userRecord.customClaims || {};
+            
+            // If user has subscription info in custom claims, use it for quick response
+            if (customClaims.plan && customClaims.subscriptionStatus) {
+                logger.info("Using cached subscription data from custom claims");
+                return {
+                    plan: customClaims.plan,
+                    subscriptionStatus: customClaims.subscriptionStatus,
+                    subscriptionId: customClaims.subscriptionId || null,
+                    upgradedAt: customClaims.upgradedAt || null,
+                    canceledAt: customClaims.canceledAt || null
+                };
+            }
+            
+            // Check subscriptions collection for detailed info
+            const subscriptionRef = db.collection('subscriptions').doc(userId);
+            const subscriptionDoc = await subscriptionRef.get();
+            
+            if (subscriptionDoc.exists) {
+                const subscriptionData = subscriptionDoc.data();
+                logger.info("Found subscription data:", { 
+                    plan: subscriptionData.plan,
+                    status: subscriptionData.stripeSubscriptionStatus
+                });
+                
+                // Update custom claims for faster future lookups
+                await auth.setCustomUserClaims(userId, {
+                    plan: subscriptionData.plan || 'free',
+                    subscriptionStatus: subscriptionData.stripeSubscriptionStatus || null,
+                    subscriptionId: subscriptionData.stripeSubscriptionId || null,
+                    upgradedAt: subscriptionData.upgradedAt?.toDate?.()?.toISOString() || null,
+                    canceledAt: subscriptionData.canceledAt?.toDate?.()?.toISOString() || null
+                });
+                
+                return {
+                    plan: subscriptionData.plan || 'free',
+                    subscriptionStatus: subscriptionData.stripeSubscriptionStatus || null,
+                    subscriptionId: subscriptionData.stripeSubscriptionId || null,
+                    upgradedAt: subscriptionData.upgradedAt || null,
+                    canceledAt: subscriptionData.canceledAt || null
+                };
+            }
+            
+            // No subscription found - user is free plan
+            logger.info("No subscription found - user is free plan");
+            return {
+                plan: 'free',
+                subscriptionStatus: null,
+                subscriptionId: null,
+                upgradedAt: null,
+                canceledAt: null
+            };
+            
+        } catch (authError) {
+            logger.error("Firebase Auth error:", authError);
+            // Return default values if Auth is unavailable
             return {
                 plan: 'free',
                 subscriptionStatus: null,
                 subscriptionId: null,
                 upgradedAt: null,
                 canceledAt: null,
-                error: 'Database temporarily unavailable'
+                error: 'Authentication service temporarily unavailable'
             };
         }
-        
-        return {
-            plan: userData.plan || 'free',
-            subscriptionStatus: userData.stripeSubscriptionStatus || null,
-            subscriptionId: userData.stripeSubscriptionId || null,
-            upgradedAt: userData.upgradedAt || null,
-            canceledAt: userData.canceledAt || null
-        };
         
     } catch (error) {
         logger.error("Error getting subscription status:", error);
@@ -726,39 +776,6 @@ export const streamJobStatus = onRequest({
     }
 });
 
-// Utility function to ensure user document exists with default values
-async function ensureUserDocument(identifier) {
-    try {
-        const userRef = db.collection('users').doc(identifier);
-        const userDoc = await userRef.get();
-        
-        if (!userDoc.exists) {
-            const defaultUserData = {
-                plan: 'free',
-                createdAt: new Date(),
-                usage: {},
-                stripeSubscriptionStatus: null,
-                stripeSubscriptionId: null,
-                stripeCustomerId: null
-            };
-            
-            await userRef.set(defaultUserData);
-            logger.info(`Created new user document for identifier: ${identifier}`);
-            return defaultUserData;
-        }
-        
-        return userDoc.data();
-    } catch (error) {
-        logger.error("Error ensuring user document:", error);
-        // Return safe defaults if database is unavailable
-        return {
-            plan: 'free',
-            createdAt: new Date(),
-            usage: {}
-        };
-    }
-}
-
 // Check video generation permission - requires authentication for premium features
 export const checkVideoGenerationPermission = onCall({
     enforceAppCheck: false,
@@ -782,10 +799,35 @@ export const checkVideoGenerationPermission = onCall({
         const userId = request.auth.uid;
         const userEmail = request.auth.token.email;
 
-        // Get user's current plan and subscription status
-        const userData = await ensureUserDocument(userId);
-        const userPlan = userData.plan || 'free';
-        const subscriptionStatus = userData.stripeSubscriptionStatus;
+        // Get user's subscription status from Firebase Auth custom claims first
+        const userRecord = await auth.getUser(userId);
+        const customClaims = userRecord.customClaims || {};
+        let userPlan = customClaims.plan || 'free';
+        let subscriptionStatus = customClaims.subscriptionStatus || null;
+
+        // If no custom claims, check subscriptions collection
+        if (!customClaims.plan) {
+            try {
+                const subscriptionRef = db.collection('subscriptions').doc(userId);
+                const subscriptionDoc = await subscriptionRef.get();
+                
+                if (subscriptionDoc.exists) {
+                    const subscriptionData = subscriptionDoc.data();
+                    userPlan = subscriptionData.plan || 'free';
+                    subscriptionStatus = subscriptionData.stripeSubscriptionStatus || null;
+                    
+                    // Update custom claims for faster future access
+                    await auth.setCustomUserClaims(userId, {
+                        plan: userPlan,
+                        subscriptionStatus: subscriptionStatus,
+                        subscriptionId: subscriptionData.stripeSubscriptionId || null
+                    });
+                }
+            } catch (error) {
+                logger.error("Error fetching subscription data:", error);
+                // Continue with default free plan
+            }
+        }
 
         // Check if pro user has valid subscription
         if (userPlan === 'pro' && subscriptionStatus === 'active') {
@@ -960,17 +1002,33 @@ export const createCheckoutSessionAuth = onCall({
             throw new HttpsError("failed-precondition", "Payment service not available");
         }
 
-        // Check if user is already a pro subscriber
-        let userData = {};
-        try {
-            userData = await ensureUserDocument(userId);
-            logger.info("User data retrieved:", { plan: userData.plan, hasSubscription: !!userData.stripeSubscriptionStatus });
-        } catch (firestoreError) {
-            logger.error("Firestore error when checking user status:", firestoreError);
-            userData = { plan: 'free' };
+        // Check if user is already a pro subscriber using Firebase Auth custom claims
+        const userRecord = await auth.getUser(userId);
+        const customClaims = userRecord.customClaims || {};
+        let userPlan = customClaims.plan || 'free';
+        let subscriptionStatus = customClaims.subscriptionStatus || null;
+
+        // If no custom claims, check subscriptions collection
+        if (!customClaims.plan) {
+            try {
+                const subscriptionRef = db.collection('subscriptions').doc(userId);
+                const subscriptionDoc = await subscriptionRef.get();
+                
+                if (subscriptionDoc.exists) {
+                    const subscriptionData = subscriptionDoc.data();
+                    userPlan = subscriptionData.plan || 'free';
+                    subscriptionStatus = subscriptionData.stripeSubscriptionStatus || null;
+                }
+                
+                logger.info("User subscription data retrieved:", { plan: userPlan, hasSubscription: !!subscriptionStatus });
+            } catch (firestoreError) {
+                logger.error("Firestore error when checking user status:", firestoreError);
+                userPlan = 'free';
+                subscriptionStatus = null;
+            }
         }
 
-        if (userData.plan === 'pro' && userData.stripeSubscriptionStatus === 'active') {
+        if (userPlan === 'pro' && subscriptionStatus === 'active') {
             throw new HttpsError("failed-precondition", "You are already a Pro subscriber");
         }
 
@@ -997,10 +1055,10 @@ export const createCheckoutSessionAuth = onCall({
 
         logger.info("Stripe checkout session created successfully:", session.id);
 
-        // Store pending subscription info
+        // Store pending subscription info in subscriptions collection
         try {
-            await db.collection('users').doc(userId).set({
-                ...userData,
+            await db.collection('subscriptions').doc(userId).set({
+                plan: 'free', // Current plan
                 email: userEmail,
                 pendingSubscription: {
                     sessionId: session.id,
@@ -1008,7 +1066,7 @@ export const createCheckoutSessionAuth = onCall({
                     status: 'pending'
                 }
             }, { merge: true });
-            logger.info("Pending subscription stored in database");
+            logger.info("Pending subscription stored in subscriptions collection");
         } catch (firestoreError) {
             logger.error("Failed to store pending subscription, but continuing:", firestoreError);
         }

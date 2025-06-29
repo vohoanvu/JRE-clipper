@@ -85,6 +85,8 @@ function initializeAuth() {
 
     if (user) {
       // User is signed in
+      console.log('User signed in:', user.email);
+      
       if (authButtonsContainer) authButtonsContainer.style.display = 'none';
       if (userInfoContainer) userInfoContainer.style.display = 'flex';
 
@@ -92,7 +94,7 @@ function initializeAuth() {
       const userEmail = document.getElementById('user-email');
       
       if (userPhoto) userPhoto.src = user.photoURL || 'https://via.placeholder.com/40';
-      if (userEmail) userEmail.textContent = user.email; 
+      if (userEmail) userEmail.textContent = user.email;
 
       // Set up sign-out functionality
       const signOutBtn = document.getElementById('sign-out');
@@ -107,16 +109,33 @@ function initializeAuth() {
         });
       }
 
-      // Set user as pro (authenticated users get pro features)
-      userPlan = 'pro';
-      localStorage.setItem('jre_user_plan', 'pro');
-      updateUsageDisplay();
+      // Update session to use Firebase Auth UID
+      userSessionId = user.uid;
+      
+      // Update user plan based on actual subscription status
+      checkUserStatus().then(status => {
+        userPlan = status.plan || 'free';
+        localStorage.setItem('jre_user_plan', userPlan);
+        updateUsageDisplay();
+        console.log('User plan updated to:', userPlan);
+      }).catch(error => {
+        console.error('Error checking user status on auth change:', error);
+        userPlan = 'free';
+        localStorage.setItem('jre_user_plan', 'free');
+        updateUsageDisplay();
+      });
 
     } else {
       // User is signed out - show sign-in button
+      console.log('User signed out or not authenticated');
+      
       if (authButtonsContainer) authButtonsContainer.style.display = 'block';
       if (userInfoContainer) userInfoContainer.style.display = 'none';
 
+      // Reset to anonymous session
+      userSessionId = null;
+      initializeSession(); // Will create new anonymous session
+      
       // Set user as free
       userPlan = 'free';
       localStorage.setItem('jre_user_plan', 'free');
@@ -171,43 +190,83 @@ function toggleInstructionField() {
 
 // ===== SESSION MANAGEMENT =====
 function initializeSession() {
-  if (!userSessionId) {
-    userSessionId = 'session_' + Math.random().toString(36).substring(2) + Date.now().toString(36);
+  // Check if user is authenticated with Firebase
+  const currentUser = firebase.auth().currentUser;
+  
+  if (currentUser) {
+    // Use Firebase Auth UID as the primary identifier
+    userSessionId = currentUser.uid;
+    console.log('Using Firebase Auth UID as session ID:', userSessionId);
+  } else {
+    // Fallback to anonymous session for non-authenticated users
+    if (!userSessionId) {
+      userSessionId = 'session_' + Math.random().toString(36).substring(2) + Date.now().toString(36);
+      console.log('Using anonymous session ID:', userSessionId);
+    }
   }
+}
+
+// Helper function to get current user identification
+function getCurrentUserIdentification() {
+  const currentUser = firebase.auth().currentUser;
+  
+  return {
+    userId: currentUser ? currentUser.uid : null,
+    sessionId: currentUser ? null : userSessionId, // Only use sessionId for anonymous users
+    isAuthenticated: !!currentUser,
+    email: currentUser ? currentUser.email : null
+  };
 }
 
 // ===== RATE LIMITING =====
 async function checkUserStatus() {
   try {
     initializeSession();
+    const userInfo = getCurrentUserIdentification();
 
     const getSubscriptionStatus = firebase.functions().httpsCallable('getUserSubscriptionStatus');
     const result = await getSubscriptionStatus({
-      sessionId: userSessionId,
-      userId: null // For now, we're using anonymous sessions
+      userId: userInfo.userId,
+      sessionId: userInfo.sessionId
     });
 
     const data = result.data;
+    
+    console.log('User status check result:', {
+      isAuthenticated: userInfo.isAuthenticated,
+      plan: data.plan,
+      subscriptionStatus: data.subscriptionStatus
+    });
     
     // Transform the response to match the expected format
     return {
       allowed: true, // All users have unlimited searches now
       plan: data.plan || 'free',
-      canGenerateVideos: data.plan === 'pro' && data.subscriptionStatus === 'active',
-      message: 'Unlimited searches available. Upgrade to Pro for video generation.',
+      canGenerateVideos: userInfo.isAuthenticated && data.plan === 'pro' && data.subscriptionStatus === 'active',
+      message: userInfo.isAuthenticated 
+        ? 'Unlimited searches available. Upgrade to Pro for video generation.'
+        : 'Unlimited searches available. Sign in for premium features.',
       subscriptionStatus: data.subscriptionStatus,
       subscriptionId: data.subscriptionId,
       upgradedAt: data.upgradedAt,
-      canceledAt: data.canceledAt
+      canceledAt: data.canceledAt,
+      isAuthenticated: userInfo.isAuthenticated,
+      userEmail: userInfo.email
     };
   } catch (error) {
     console.error('Error checking user status:', error);
+    const userInfo = getCurrentUserIdentification();
+    
     // Fallback to free user status
     return {
       allowed: true,
       plan: 'free',
       canGenerateVideos: false,
-      message: 'Unlimited searches available. Upgrade to Pro for video generation.'
+      message: userInfo.isAuthenticated 
+        ? 'Unlimited searches available. Upgrade to Pro for video generation.'
+        : 'Unlimited searches available. Sign in for premium features.',
+      isAuthenticated: userInfo.isAuthenticated,
+      userEmail: userInfo.email
     };
   }
 }
@@ -215,23 +274,45 @@ async function checkUserStatus() {
 async function checkVideoGenerationPermission() {
   try {
     initializeSession();
+    const userInfo = getCurrentUserIdentification();
+
+    // Video generation requires Firebase Auth
+    if (!userInfo.isAuthenticated) {
+      return {
+        allowed: false,
+        requiresAuth: true,
+        message: 'Please sign in to access video generation features.',
+        signInUrl: '/signin.html',
+        hasManualOption: true,
+        plan: 'free'
+      };
+    }
 
     const checkVideoPermission = firebase.functions().httpsCallable('checkVideoGenerationPermission');
     const result = await checkVideoPermission({
-      sessionId: userSessionId,
-      userId: null // Will be automatically filled by Firebase Auth if user is signed in
+      userId: userInfo.userId,
+      sessionId: null // Firebase Auth will be used automatically
     });
 
+    console.log('Video generation permission result:', result.data);
     return result.data;
   } catch (error) {
     console.error('Error checking video generation permission:', error);
+    const userInfo = getCurrentUserIdentification();
+    
     // Fallback to require sign in
     return {
       allowed: false,
-      requiresAuth: true,
-      message: 'Please sign in to access video generation features.',
+      requiresAuth: !userInfo.isAuthenticated,
+      requiresUpgrade: userInfo.isAuthenticated,
+      message: userInfo.isAuthenticated 
+        ? 'Upgrade to Pro for instant video generation.'
+        : 'Please sign in to access video generation features.',
       signInUrl: '/signin.html',
-      hasManualOption: true
+      upgradeUrl: '/pricing.html',
+      hasManualOption: true,
+      plan: 'free',
+      userEmail: userInfo.email
     };
   }
 }
@@ -239,16 +320,21 @@ async function checkVideoGenerationPermission() {
 async function recordServerSearch() {
   try {
     initializeSession();
+    const userInfo = getCurrentUserIdentification();
 
     const recordSearch = firebase.functions().httpsCallable('recordSearch');
     await recordSearch({
-      sessionId: userSessionId,
-      userId: null // For now, we're using anonymous sessions
+      userId: userInfo.userId,
+      sessionId: userInfo.sessionId
     });
+    
+    console.log('Search recorded for:', userInfo.isAuthenticated ? 'authenticated user' : 'anonymous session');
   } catch (error) {
     console.error('Error recording search:', error);
-    // Fallback to client-side increment
-    incrementClientSearchCount();
+    // Fallback to client-side increment for anonymous users
+    if (!getCurrentUserIdentification().isAuthenticated) {
+      incrementClientSearchCount();
+    }
   }
 }
 
@@ -1354,13 +1440,17 @@ async function submitManualRequest() {
     submitBtn.textContent = 'Submitting...';
     submitBtn.disabled = true;
     
+    const userInfo = getCurrentUserIdentification();
+    
     const requestManual = firebase.functions().httpsCallable('requestManualVideoGeneration');
     const result = await requestManual({
       userEmail: email,
       userName: name,
       segments: selectedSegments,
       searchQuery: searchInput.value || '',
-      sessionId: userSessionId
+      userId: userInfo.userId,
+      sessionId: userInfo.sessionId,
+      isAuthenticated: userInfo.isAuthenticated
     });
     
     // Show success message
@@ -1423,7 +1513,7 @@ async function initiateProUpgrade() {
     const result = await createCheckout();
     
     // Redirect to Stripe checkout
-    const stripe = Stripe('your-stripe-publishable-key'); // You'll need to add this
+    const stripe = Stripe('pk_test_51Rco8nR9HLu4Z6TSlSjCZypyASEmikaanI10fX2UA0tQSYJZy5A2rQU7eaMNB0jATz9NHNDTPO47cXBoLGsfAnuR00GC3QLQwi');
     await stripe.redirectToCheckout({
       sessionId: result.data.sessionId
     });
