@@ -76,6 +76,18 @@ def write_to_csv(videos):
         print("Warning: No videos to write. Skipping CSV update to prevent data loss.")
         return  # Exit the function without writing
     
+    # Read existing CSV to preserve isVectorized values
+    existing_vectorized = {}
+    if os.path.exists(OUTPUT_CSV):
+        try:
+            with open(OUTPUT_CSV, "r", encoding="utf-8") as csvfile:
+                reader = csv.DictReader(csvfile)
+                for row in reader:
+                    existing_vectorized[row['videoId']] = row.get('isVectorized', 'False')
+            print(f"Loaded existing isVectorized values for {len(existing_vectorized)} videos.")
+        except Exception as e:
+            print(f"Warning: Could not read existing CSV for isVectorized values: {e}")
+    
     fieldnames = ["videoId", "title", "description", "date", "Url", "isTranscripted", "isVectorized", "isEmptyTranscript"]
     try:
         with open(OUTPUT_CSV, "w", newline="", encoding="utf-8") as csvfile:
@@ -86,7 +98,15 @@ def write_to_csv(videos):
                 video_copy = video.copy()  # Avoid modifying original data
                 video_copy['Url'] = f"https://www.youtube.com/watch?v={video_copy['videoId']}"
                 video_copy['isTranscripted'] = str(is_transcripted(video_copy['videoId']))
-                video_copy['isVectorized'] = 'False'
+                
+                # Preserve existing isVectorized value, or set to False for new videos
+                video_id = video_copy['videoId']
+                if video_id in existing_vectorized:
+                    video_copy['isVectorized'] = existing_vectorized[video_id]
+                    print(f"Preserving isVectorized={existing_vectorized[video_id]} for existing video {video_id}")
+                else:
+                    video_copy['isVectorized'] = 'False'
+                    print(f"Setting isVectorized=False for new video {video_id}")
                 
                 transcript_file_path = os.path.join('./transcriptions', f"transcript-{video_copy['videoId']}.json")
                 if os.path.exists(transcript_file_path):  # Check if file exists
