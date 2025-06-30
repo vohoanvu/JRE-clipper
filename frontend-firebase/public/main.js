@@ -1290,25 +1290,69 @@ function showSuccessModal(data) {
 // Initiate Pro upgrade for authenticated users
 async function initiateProUpgrade() {
   try {
+    // Check if user is authenticated
     const user = firebase.auth().currentUser;
     if (!user) {
       alert('Please sign in first');
       window.location.href = '/signin.html';
       return;
     }
+
+    // Check if Stripe is loaded
+    if (typeof Stripe === 'undefined') {
+      console.error('Stripe.js is not loaded');
+      alert('Payment system not ready. Please refresh the page and try again.');
+      return;
+    }
+
+    // Show loading state
+    const upgradeButton = event?.target;
+    if (upgradeButton) {
+      upgradeButton.disabled = true;
+      upgradeButton.textContent = 'Creating checkout session...';
+    }
     
+    // Call Firebase Function to create checkout session
     const createCheckout = firebase.functions().httpsCallable('createCheckoutSessionAuth');
     const result = await createCheckout();
     
-    // Redirect to Stripe checkout
+    if (!result.data?.sessionId) {
+      throw new Error('No session ID returned from server');
+    }
+
+    // Initialize Stripe and redirect to checkout
     const stripe = Stripe('pk_test_51Rco8nR9HLu4Z6TSlSjCZypyASEmikaanI10fX2UA0tQSYJZy5A2rQU7eaMNB0jATz9NHNDTPO47cXBoLGsfAnuR00GC3QLQwi');
-    await stripe.redirectToCheckout({
+    
+    // Redirect to Stripe checkout
+    const { error } = await stripe.redirectToCheckout({
       sessionId: result.data.sessionId
     });
+
+    if (error) {
+      throw new Error(`Stripe checkout error: ${error.message}`);
+    }
     
   } catch (error) {
     console.error('Error creating checkout session:', error);
-    alert('Error starting checkout. Please try again.');
+    
+    // Reset button state
+    const upgradeButton = event?.target;
+    if (upgradeButton) {
+      upgradeButton.disabled = false;
+      upgradeButton.textContent = 'Upgrade to Pro';
+    }
+
+    // Show user-friendly error message
+    if (error.message?.includes('already a Pro subscriber')) {
+      alert('You are already a Pro subscriber! 🎉');
+    } else if (error.message?.includes('unauthenticated')) {
+      alert('Please sign in to upgrade to Pro');
+      window.location.href = '/signin.html';
+    } else if (error.message?.includes('Payment service not available')) {
+      alert('Payment system is temporarily unavailable. Please try again later.');
+    } else {
+      alert('Error starting checkout. Please try again or contact support if the problem persists.');
+    }
   }
 }
 

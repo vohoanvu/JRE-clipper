@@ -1006,7 +1006,7 @@ export const requestManualVideoGeneration = onCall({
     }
 });
 
-// Updated Stripe checkout - requires authentication
+// Stripe checkout - requires authentication
 export const createCheckoutSessionAuth = onCall({
     enforceAppCheck: false,
     memory: "256MiB",

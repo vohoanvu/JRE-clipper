@@ -866,7 +866,7 @@ h1 {
 }
 
 .signin-box {
-  background: #2c3e50; /* Primary project color */
+  background: #2c3e50;
   padding: 2rem;
   border-radius: 12px;
   border: 1px solid #34495e;
@@ -875,49 +875,8 @@ h1 {
   max-width: 400px;
 }
 
-/* Make all text in signin-box white */
-.signin-box,
-.signin-box * {
-  color: white !important;
-}
-
-/* Style the FirebaseUI components for better contrast */
-.signin-box #firebaseui-auth-container .firebaseui-card-content,
-.signin-box #firebaseui-auth-container .firebaseui-title,
-.signin-box #firebaseui-auth-container .firebaseui-subtitle {
-  color: white !important;
-}
-
-/* Style FirebaseUI buttons */
-.signin-box .firebaseui-idp-button {
-  background-color: #007bff !important;
-  border: 1px solid #0056b3 !important;
-}
-
-.signin-box .firebaseui-idp-button:hover {
-  background-color: #0056b3 !important;
-}
-
-/* Style FirebaseUI text */
-.signin-box .firebaseui-idp-text {
-  color: white !important;
-}
-
-.signin-footer {
-  margin-top: 1.5rem;
-  text-align: center;
-  font-size: 0.9rem;
-  color: #bdc3c7 !important; /* Lighter white for footer text */
-}
-
-.signin-footer a {
-  color: #3498db !important; /* Bright blue for links */
-  text-decoration: none;
-}
-
-.signin-footer a:hover {
-  color: #2980b9 !important; /* Darker blue on hover */
-  text-decoration: underline;
+.firebaseui-form-actions {
+  white-space: unset;
 }
 
 /* Responsive adjustments */

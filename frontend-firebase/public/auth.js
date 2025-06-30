@@ -182,38 +182,52 @@ function redirectToHome() {
 function initializeSignInWidget() {
   console.log('Initializing FirebaseUI widget...');
   
-  // Get current origin for absolute URLs
-  const baseUrl = window.location.origin;
+  const authContainer = document.getElementById('firebaseui-auth-container');
+  if (!authContainer) {
+    console.error('Auth container not found');
+    return;
+  }
+  
+  // Clear any existing content
+  authContainer.innerHTML = '';
+  
+  // Delete any existing AuthUI instance
+  if (firebaseui.auth.AuthUI.getInstance()) {
+    firebaseui.auth.AuthUI.getInstance().delete();
+  }
   
   const uiConfig = {
-    signInFlow: 'popup', // Use popup flow instead of redirect - this works!
+    signInFlow: 'popup',
     signInOptions: [
       {
         provider: firebase.auth.GoogleAuthProvider.PROVIDER_ID,
         customParameters: {
           prompt: 'select_account'
         }
+      },
+      {
+        provider: firebase.auth.EmailAuthProvider.PROVIDER_ID,
       }
     ],
+    signInSuccessUrl: window.location.origin + '/index.html',
+    credentialHelper: firebaseui.auth.CredentialHelper.NONE,
     tosUrl: `/404.html`,
     privacyPolicyUrl: `/404.html`,
     callbacks: {
       signInSuccessWithAuthResult: function(authResult, redirectUrl) {
-        console.log('FirebaseUI popup sign-in success callback triggered');
+        console.log('FirebaseUI sign-in success callback triggered');
         console.log('Auth result:', {
           user: authResult.user.email,
           uid: authResult.user.uid,
-          additionalUserInfo: authResult.additionalUserInfo
+          additionalUserInfo: authResult.additionalUserInfo,
+          isNewUser: authResult.additionalUserInfo ? authResult.additionalUserInfo.isNewUser : false
         });
         
-        // The auth state listener will handle the redirect
-        // Just return false to prevent FirebaseUI from handling redirect
-        console.log('FirebaseUI callback complete, letting auth state listener handle redirect');
+        // Let the auth state listener handle the redirect
         return false;
       },
       uiShown: function() {
         console.log('FirebaseUI widget shown');
-        // Ensure loading is hidden and auth container is shown
         hideLoadingState();
       },
       signInFailure: function(error) {
@@ -226,20 +240,8 @@ function initializeSignInWidget() {
   };
 
   try {
-    // Get or create the auth container
-    let authContainer = document.getElementById('firebaseui-auth-container');
-    if (!authContainer) {
-      console.error('Auth container not found');
-      return;
-    }
-    
-    // Clear any existing content
-    authContainer.innerHTML = '';
-    
-    // Initialize the FirebaseUI Widget
     const ui = new firebaseui.auth.AuthUI(firebase.auth());
     
-    // Start the FirebaseUI widget
     ui.start('#firebaseui-auth-container', uiConfig);
     console.log('FirebaseUI widget started successfully');
     
