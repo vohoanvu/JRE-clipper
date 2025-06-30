@@ -76,7 +76,7 @@ function setupEventListeners() {
 // ===== AUTHENTICATION =====
 function initializeAuth() {
   // Listen for auth state changes
-  firebase.auth().onAuthStateChanged(user => {
+  firebase.auth().onAuthStateChanged(async user => {
     const authButtonsContainer = document.getElementById('auth-buttons');
     const userInfoContainer = document.getElementById('user-info');
 
@@ -109,16 +109,23 @@ function initializeAuth() {
       // Update session to use Firebase Auth UID
       userSessionId = user.uid;
       
-      // Update user plan based on actual subscription status
-      checkUserStatus().then(status => {
-        userPlan = status.plan || 'free';
+      // Get user plan from custom claims
+      try {
+        const tokenResult = await user.getIdTokenResult(true); // Force refresh
+        const customClaims = tokenResult.claims;
+        userPlan = customClaims.plan || 'free';
         localStorage.setItem('jre_user_plan', userPlan);
-        console.log('User plan updated to:', userPlan);
-      }).catch(error => {
-        console.error('Error checking user status on auth change:', error);
+        console.log('User plan from custom claims:', userPlan);
+        
+        // Update video generation button if it exists
+        updateGenerateVideoButton();
+      } catch (error) {
+        console.error('Error getting custom claims on auth change:', error);
         userPlan = 'free';
         localStorage.setItem('jre_user_plan', 'free');
-      });
+        // Update video generation button with fallback
+        updateGenerateVideoButton();
+      }
 
     } else {
       // User is signed out - show sign-in button
@@ -134,6 +141,9 @@ function initializeAuth() {
       // Set user as free
       userPlan = 'free';
       localStorage.setItem('jre_user_plan', 'free');
+      
+      // Update video generation button for unauthenticated user
+      updateGenerateVideoButton();
     }
   });
 }
@@ -200,6 +210,35 @@ function initializeSession() {
   }
 }
 
+// Helper function to refresh user's custom claims
+async function refreshUserClaims() {
+  try {
+    const currentUser = firebase.auth().currentUser;
+    if (!currentUser) {
+      console.log('No authenticated user to refresh claims for');
+      return null;
+    }
+
+    // Force token refresh to get latest custom claims
+    const tokenResult = await currentUser.getIdTokenResult(true);
+    const customClaims = tokenResult.claims;
+    
+    // Update global user plan
+    userPlan = customClaims.plan || 'free';
+    localStorage.setItem('jre_user_plan', userPlan);
+    
+    console.log('User claims refreshed:', {
+      plan: customClaims.plan,
+      subscriptionStatus: customClaims.subscriptionStatus
+    });
+    
+    return customClaims;
+  } catch (error) {
+    console.error('Error refreshing user claims:', error);
+    return null;
+  }
+}
+
 // Helper function to get current user identification
 function getCurrentUserIdentification() {
   const currentUser = firebase.auth().currentUser;
@@ -216,33 +255,44 @@ async function checkUserStatus() {
   try {
     initializeSession();
     const userInfo = getCurrentUserIdentification();
+    const currentUser = firebase.auth().currentUser;
 
-    const getSubscriptionStatus = firebase.functions().httpsCallable('getUserSubscriptionStatus');
-    const result = await getSubscriptionStatus({
-      userId: userInfo.userId,
-      sessionId: userInfo.sessionId
-    });
+    // Get subscription data from Firebase Auth custom claims
+    let plan = 'free';
+    let subscriptionStatus = null;
+    let subscriptionId = null;
+    let upgradedAt = null;
+    let canceledAt = null;
 
-    const data = result.data;
+    if (currentUser) {
+      // Force token refresh to get latest custom claims
+      const tokenResult = await currentUser.getIdTokenResult(true);
+      const customClaims = tokenResult.claims;
+
+      plan = customClaims.plan || 'free';
+      subscriptionStatus = customClaims.subscriptionStatus || null;
+      subscriptionId = customClaims.subscriptionId || null;
+      upgradedAt = customClaims.upgradedAt || null;
+      canceledAt = customClaims.canceledAt || null;
+
+      console.log('User status from Firebase Auth custom claims:', {
+        isAuthenticated: userInfo.isAuthenticated,
+        plan: plan,
+        subscriptionStatus: subscriptionStatus
+      });
+    }
     
-    console.log('User status check result:', {
-      isAuthenticated: userInfo.isAuthenticated,
-      plan: data.plan,
-      subscriptionStatus: data.subscriptionStatus
-    });
-    
-    // Transform the response to match the expected format
     return {
       allowed: true, // All users have unlimited searches now
-      plan: data.plan || 'free',
-      canGenerateVideos: userInfo.isAuthenticated && data.plan === 'pro' && data.subscriptionStatus === 'active',
+      plan: plan,
+      canGenerateVideos: userInfo.isAuthenticated && plan === 'pro' && subscriptionStatus === 'active',
       message: userInfo.isAuthenticated 
-        ? 'Unlimited searches available. Upgrade to Pro for video generation.'
+        ? (plan === 'pro' ? 'Pro user - unlimited searches and video generation.' : 'Unlimited searches available. Upgrade to Pro for video generation.')
         : 'Unlimited searches available. Sign in for premium features.',
-      subscriptionStatus: data.subscriptionStatus,
-      subscriptionId: data.subscriptionId,
-      upgradedAt: data.upgradedAt,
-      canceledAt: data.canceledAt,
+      subscriptionStatus: subscriptionStatus,
+      subscriptionId: subscriptionId,
+      upgradedAt: upgradedAt,
+      canceledAt: canceledAt,
       isAuthenticated: userInfo.isAuthenticated,
       userEmail: userInfo.email
     };
@@ -264,52 +314,6 @@ async function checkUserStatus() {
   }
 }
 
-async function checkVideoGenerationPermission() {
-  try {
-    initializeSession();
-    const userInfo = getCurrentUserIdentification();
-
-    // Video generation requires Firebase Auth
-    if (!userInfo.isAuthenticated) {
-      return {
-        allowed: false,
-        requiresAuth: true,
-        message: 'Please sign in to access video generation features.',
-        signInUrl: '/signin.html',
-        hasManualOption: true,
-        plan: 'free'
-      };
-    }
-
-    const checkVideoPermission = firebase.functions().httpsCallable('checkVideoGenerationPermission');
-    const result = await checkVideoPermission({
-      userId: userInfo.userId,
-      sessionId: null // Firebase Auth will be used automatically
-    });
-
-    console.log('Video generation permission result:', result.data);
-    return result.data;
-  } catch (error) {
-    console.error('Error checking video generation permission:', error);
-    const userInfo = getCurrentUserIdentification();
-    
-    // Fallback to require sign in
-    return {
-      allowed: false,
-      requiresAuth: !userInfo.isAuthenticated,
-      requiresUpgrade: userInfo.isAuthenticated,
-      message: userInfo.isAuthenticated 
-        ? 'Upgrade to Pro for instant video generation.'
-        : 'Please sign in to access video generation features.',
-      signInUrl: '/signin.html',
-      upgradeUrl: '/pricing.html',
-      hasManualOption: true,
-      plan: 'free',
-      userEmail: userInfo.email
-    };
-  }
-}
-
 // Demo function to simulate Pro upgrade
 function simulateProUpgrade() {
   userPlan = 'pro';
@@ -320,10 +324,10 @@ function simulateProUpgrade() {
     <div style="background: #d4edda; border: 1px solid #c3e6cb; padding: 2rem; border-radius: 8px; text-align: center; margin: 2rem 0;">
       <h3 style="color: #155724; margin-bottom: 1rem;">🎉 Welcome to Pro!</h3>
       <p style="color: #155724; margin-bottom: 1rem;">
-        You now have unlimited searches! Try searching again.
+        You now have unlimited searches and video generation! Try searching again.
       </p>
       <p style="color: #155724; font-size: 0.9rem;">
-        <em>This is a demo mode. In production, this would require payment via Stripe.</em>
+        <em>This is a demo mode. In production, custom claims would be updated via backend functions.</em>
       </p>
     </div>
   `;
@@ -779,16 +783,36 @@ function updateGenerateVideoButton() {
   if (!button) return;
 
   const count = selectedSegments.length;
+  const currentUser = firebase.auth().currentUser;
   
-  // Check user status to update button text appropriately
-  checkUserStatus().then(userStatus => {
-    if (userStatus.plan === 'pro' && userStatus.subscriptionStatus === 'active') {
+  // Check user authentication and subscription status from Firebase Auth
+  if (!currentUser) {
+    // User not authenticated
+    button.textContent = `🔒 Generate Compilation Video (Sign In Required) - ${count} segment${count !== 1 ? 's' : ''} selected`;
+    button.disabled = count === 0;
+    button.title = count === 0 
+      ? 'Select segments and sign in to access video generation'
+      : `Sign in to generate compilation video from ${count} selected segment${count !== 1 ? 's' : ''}`;
+    button.style.background = 'linear-gradient(135deg, #6c757d, #5a6268)';
+    button.style.border = '2px solid #6c757d';
+    return;
+  }
+
+  // User is authenticated - check custom claims for subscription status
+  currentUser.getIdTokenResult().then(tokenResult => {
+    const customClaims = tokenResult.claims;
+    const plan = customClaims.plan || 'free';
+    const subscriptionStatus = customClaims.subscriptionStatus || null;
+    
+    if (plan === 'pro' && subscriptionStatus === 'active') {
       // Pro user - normal functionality
       button.textContent = `📹 Generate Compilation Video (${count} segment${count !== 1 ? 's' : ''} selected)`;
       button.disabled = count === 0;
       button.title = count === 0 
         ? 'Select at least one segment to generate compilation video'
-        : `Generate Compilation video from ${count} selected segment${count !== 1 ? 's' : ''}`;
+        : `Generate compilation video from ${count} selected segment${count !== 1 ? 's' : ''}`;
+      button.style.background = ''; // Reset to default CSS styling
+      button.style.border = '';
     } else {
       // Free user - show upgrade messaging
       button.textContent = `🔒 Generate Compilation Video (Premium Only) - ${count} segment${count !== 1 ? 's' : ''} selected`;
@@ -800,10 +824,12 @@ function updateGenerateVideoButton() {
       button.style.border = '2px solid #ff6b35';
     }
   }).catch(error => {
-    console.error('Error checking user status for button update:', error);
+    console.error('Error getting custom claims for button update:', error);
     // Fallback to free user display
     button.textContent = `🔒 Generate Compilation Video (Premium Only) - ${count} segment${count !== 1 ? 's' : ''} selected`;
     button.disabled = count === 0;
+    button.style.background = 'linear-gradient(135deg, #ffa500, #ff6b35)';
+    button.style.border = '2px solid #ff6b35';
   });
 }
 
@@ -867,106 +893,134 @@ async function initiateVideoGeneration() {
     return;
   }
 
-  // Check video generation permission
-  const permission = await checkVideoGenerationPermission();
+  const currentUser = firebase.auth().currentUser;
   
-  if (permission.requiresAuth) {
-    // User is not authenticated - show sign in option with manual request
-    showAuthRequiredModal(permission);
+  // Check if user is authenticated
+  if (!currentUser) {
+    showAuthRequiredModal({
+      requiresAuth: true,
+      message: 'Please sign in to access video generation features.',
+      signInUrl: '/signin.html',
+      hasManualOption: true,
+      plan: 'free'
+    });
     return;
   }
-  
-  if (permission.requiresUpgrade) {
-    // User is authenticated but needs to upgrade
-    showUpgradeRequiredModal(permission);
-    return;
-  }
-  
-  if (!permission.allowed) {
-    // Other restriction
-    showVideoGenerationRestricted(permission);
-    return;
-  }
-
-  // User is premium - proceed with video generation
-  const button = document.getElementById('generateVideoBtn');
-  const originalText = button.textContent;
 
   try {
-    // Initialize session if needed
-    initializeSession();
+    // Get user's subscription status from Firebase Auth custom claims
+    const tokenResult = await currentUser.getIdTokenResult();
+    const customClaims = tokenResult.claims;
+    const plan = customClaims.plan || 'free';
+    const subscriptionStatus = customClaims.subscriptionStatus || null;
 
-    // Disable button and show processing state
-    button.disabled = true;
-    button.textContent = '⚙️ Processing...';
-
-    showGenerationStatus(`
-      <div style="display: flex; align-items: center; gap: 0.5rem; justify-content: center;">
-        <div class="gemini-loading">
-          <div class="dot"></div>
-          <div class="dot"></div>
-          <div class="dot"></div>
-          <div class="dot"></div>
-        </div>
-        <span>Initiating video generation job...</span>
-      </div>
-    `, 'processing');
-
-    console.log('Sending video generation request:', {
-      segments: selectedSegments,
-      user_session_id: userSessionId
-    });
-
-    // Call the Cloud Run service
-    const response = await fetch(`${videoProcessorUrl}/processVideoJob`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        segments: selectedSegments,
-        user_session_id: userSessionId
-      })
-    });
-
-    const result = await response.json();
-
-    if (!response.ok) {
-      throw new Error(result.error || `HTTP ${response.status}: ${response.statusText}`);
+    // Check if user has pro subscription with active status
+    if (plan !== 'pro' || subscriptionStatus !== 'active') {
+      // User is authenticated but needs to upgrade
+      showUpgradeRequiredModal({
+        requiresUpgrade: true,
+        message: 'Upgrade to Pro for instant video generation',
+        upgradeUrl: '/pricing.html',
+        userEmail: currentUser.email,
+        plan: plan,
+        hasManualOption: true
+      });
+      return;
     }
 
-    console.log('Video generation job created:', result);
+    // User is premium - proceed with video generation
+    const button = document.getElementById('generateVideoBtn');
+    const originalText = button.textContent;
 
-    // Store the search query for potential return navigation
-    localStorage.setItem('lastSearchQuery', searchInput.value || '');
+    try {
+      // Initialize session if needed
+      initializeSession();
 
-    // Redirect to status page with job ID
-    window.location.href = `status.html?jobId=${result.jobId}`;
+      // Disable button and show processing state
+      button.disabled = true;
+      button.textContent = '⚙️ Processing...';
+
+      showGenerationStatus(`
+        <div style="display: flex; align-items: center; gap: 0.5rem; justify-content: center;">
+          <div class="gemini-loading">
+            <div class="dot"></div>
+            <div class="dot"></div>
+            <div class="dot"></div>
+            <div class="dot"></div>
+          </div>
+          <span>Initiating video generation job...</span>
+        </div>
+      `, 'processing');
+
+      console.log('Sending video generation request:', {
+        segments: selectedSegments,
+        user_session_id: userSessionId
+      });
+
+      // Call the Cloud Run service
+      const response = await fetch(`${videoProcessorUrl}/processVideoJob`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          segments: selectedSegments,
+          user_session_id: userSessionId
+        })
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || `HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      console.log('Video generation job created:', result);
+
+      // Store the search query for potential return navigation
+      localStorage.setItem('lastSearchQuery', searchInput.value || '');
+
+      // Redirect to status page with job ID
+      window.location.href = `status.html?jobId=${result.jobId}`;
+
+    } catch (error) {
+      console.error('Video generation failed:', error);
+
+      showGenerationStatus(`
+        <div>
+          <h4>❌ Video Generation Failed</h4>
+          <p><strong>Error:</strong> ${error.message}</p>
+          <p style="margin-top: 1rem;">
+            <strong>Possible solutions:</strong><br>
+            • Check your internet connection<br>
+            • Try selecting fewer segments<br>
+            • Wait a moment and try again<br>
+            • Make sure videos are publicly available
+          </p>
+          <button onclick="hideGenerationStatus()" style="margin-top: 1rem; padding: 0.5rem 1rem; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer;">
+            Dismiss
+          </button>
+        </div>
+      `, 'error');
+
+    } finally {
+      // Re-enable button
+      button.disabled = selectedSegments.length === 0;
+      button.textContent = originalText;
+    }
 
   } catch (error) {
-    console.error('Video generation failed:', error);
-
-    showGenerationStatus(`
-      <div>
-        <h4>❌ Video Generation Failed</h4>
-        <p><strong>Error:</strong> ${error.message}</p>
-        <p style="margin-top: 1rem;">
-          <strong>Possible solutions:</strong><br>
-          • Check your internet connection<br>
-          • Try selecting fewer segments<br>
-          • Wait a moment and try again<br>
-          • Make sure videos are publicly available
-        </p>
-        <button onclick="hideGenerationStatus()" style="margin-top: 1rem; padding: 0.5rem 1rem; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer;">
-          Dismiss
-        </button>
-      </div>
-    `, 'error');
-
-  } finally {
-    // Re-enable button
-    button.disabled = selectedSegments.length === 0;
-    button.textContent = originalText;
+    console.error('Error checking user subscription status:', error);
+    
+    // Fallback to requiring upgrade
+    showUpgradeRequiredModal({
+      requiresUpgrade: true,
+      message: 'Unable to verify subscription status. Please upgrade to Pro for video generation.',
+      upgradeUrl: '/pricing.html',
+      userEmail: currentUser.email,
+      plan: 'free',
+      hasManualOption: true
+    });
   }
 }
 
@@ -1035,6 +1089,7 @@ function seekToTime(videoId, startTime) {
 // ===== GLOBAL FUNCTION EXPOSURE =====
 // Expose functions to global scope so they can be called from onclick handlers
 window.simulateProUpgrade = simulateProUpgrade;
+window.refreshUserClaims = refreshUserClaims;
 window.updateSelectedSegments = updateSelectedSegments;
 window.selectAllSegments = selectAllSegments;
 window.clearAllSelections = clearAllSelections;

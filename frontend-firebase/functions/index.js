@@ -126,18 +126,6 @@ const youtube = google.youtube({
     auth: YOUTUBE_API_KEY
 });
 
-// Rate limiting configuration - Updated for new model
-const RATE_LIMITS = {
-    free: {
-        searches: null, // unlimited searches for free users
-        videoGeneration: 0 // no video generation for free users
-    },
-    pro: {
-        searches: null, // unlimited searches for pro users
-        videoGeneration: null // unlimited video generation for pro users
-    }
-};
-
 // Multi-purpose function: handles Vertex AI tokens
 // Optimized for cost: minimal memory, short timeout
 export const getVertexAiToken = onRequest({
@@ -495,116 +483,6 @@ export const handleStripeWebhook = onRequest({
     }
 });
 
-// Get user subscription status using Firebase Auth and subscriptions collection
-export const getUserSubscriptionStatus = onCall({
-    enforceAppCheck: false,
-    memory: "256MiB",
-    timeoutSeconds: 10,
-    maxInstances: 5,
-    minInstances: 0,
-}, async (request) => {
-    try {
-        logger.info("getUserSubscriptionStatus called");
-        logger.info("Auth context:", request.auth ? `UID: ${request.auth.uid}` : "No auth");
-        
-        // If no authentication, return default free plan
-        if (!request.auth) {
-            logger.info("No authentication - returning default free plan");
-            return {
-                plan: 'free',
-                subscriptionStatus: null,
-                subscriptionId: null,
-                upgradedAt: null,
-                canceledAt: null
-            };
-        }
-
-        const userId = request.auth.uid;
-        logger.info("Getting subscription status for authenticated user:", userId);
-        
-        try {
-            // Get user's custom claims from Firebase Auth
-            const userRecord = await auth.getUser(userId);
-            const customClaims = userRecord.customClaims || {};
-            
-            // If user has subscription info in custom claims, use it for quick response
-            if (customClaims.plan && customClaims.subscriptionStatus) {
-                logger.info("Using cached subscription data from custom claims");
-                return {
-                    plan: customClaims.plan,
-                    subscriptionStatus: customClaims.subscriptionStatus,
-                    subscriptionId: customClaims.subscriptionId || null,
-                    upgradedAt: customClaims.upgradedAt || null,
-                    canceledAt: customClaims.canceledAt || null
-                };
-            }
-            
-            // Check subscriptions collection for detailed info
-            const subscriptionRef = db.collection('subscriptions').doc(userId);
-            const subscriptionDoc = await subscriptionRef.get();
-            
-            if (subscriptionDoc.exists) {
-                const subscriptionData = subscriptionDoc.data();
-                logger.info("Found subscription data:", { 
-                    plan: subscriptionData.plan,
-                    status: subscriptionData.stripeSubscriptionStatus
-                });
-                
-                // Update custom claims for faster future lookups
-                await auth.setCustomUserClaims(userId, {
-                    plan: subscriptionData.plan || 'free',
-                    subscriptionStatus: subscriptionData.stripeSubscriptionStatus || null,
-                    subscriptionId: subscriptionData.stripeSubscriptionId || null,
-                    upgradedAt: subscriptionData.upgradedAt?.toDate?.()?.toISOString() || null,
-                    canceledAt: subscriptionData.canceledAt?.toDate?.()?.toISOString() || null
-                });
-                
-                return {
-                    plan: subscriptionData.plan || 'free',
-                    subscriptionStatus: subscriptionData.stripeSubscriptionStatus || null,
-                    subscriptionId: subscriptionData.stripeSubscriptionId || null,
-                    upgradedAt: subscriptionData.upgradedAt || null,
-                    canceledAt: subscriptionData.canceledAt || null
-                };
-            }
-            
-            // No subscription found - user is free plan
-            logger.info("No subscription found - user is free plan");
-            return {
-                plan: 'free',
-                subscriptionStatus: null,
-                subscriptionId: null,
-                upgradedAt: null,
-                canceledAt: null
-            };
-            
-        } catch (authError) {
-            logger.error("Firebase Auth error:", authError);
-            // Return default values if Auth is unavailable
-            return {
-                plan: 'free',
-                subscriptionStatus: null,
-                subscriptionId: null,
-                upgradedAt: null,
-                canceledAt: null,
-                error: 'Authentication service temporarily unavailable'
-            };
-        }
-        
-    } catch (error) {
-        logger.error("Error getting subscription status:", error);
-        // Return safe defaults instead of throwing
-        return {
-            plan: 'free',
-            subscriptionStatus: null,
-            subscriptionId: null,
-            upgradedAt: null,
-            canceledAt: null,
-            error: 'Service temporarily unavailable'
-        };
-    }
-});
-
 // Server-Sent Events endpoint for real-time job status updates
 export const streamJobStatus = onRequest({
     region: 'us-central1',
@@ -807,88 +685,6 @@ export const streamJobStatus = onRequest({
     }
 });
 
-// Check video generation permission - requires authentication for premium features
-export const checkVideoGenerationPermission = onCall({
-    enforceAppCheck: false,
-    memory: "256MiB",
-    timeoutSeconds: 10,
-    maxInstances: 10,
-    minInstances: 0,
-}, async (request) => {
-    try {
-        // Check if user is authenticated
-        if (!request.auth) {
-            return {
-                allowed: false,
-                requiresAuth: true,
-                message: 'Sign in to access premium video generation features',
-                signInUrl: '/signin.html',
-                hasManualOption: true
-            };
-        }
-
-        const userId = request.auth.uid;
-        const userEmail = request.auth.token.email;
-
-        // Get user's subscription status from Firebase Auth custom claims first
-        const userRecord = await auth.getUser(userId);
-        const customClaims = userRecord.customClaims || {};
-        let userPlan = customClaims.plan || 'free';
-        let subscriptionStatus = customClaims.subscriptionStatus || null;
-
-        // If no custom claims, check subscriptions collection
-        if (!customClaims.plan) {
-            try {
-                const subscriptionRef = db.collection('subscriptions').doc(userId);
-                const subscriptionDoc = await subscriptionRef.get();
-                
-                if (subscriptionDoc.exists) {
-                    const subscriptionData = subscriptionDoc.data();
-                    userPlan = subscriptionData.plan || 'free';
-                    subscriptionStatus = subscriptionData.stripeSubscriptionStatus || null;
-                    
-                    // Update custom claims for faster future access
-                    await auth.setCustomUserClaims(userId, {
-                        plan: userPlan,
-                        subscriptionStatus: subscriptionStatus,
-                        subscriptionId: subscriptionData.stripeSubscriptionId || null
-                    });
-                }
-            } catch (error) {
-                logger.error("Error fetching subscription data:", error);
-                // Continue with default free plan
-            }
-        }
-
-        // Check if pro user has valid subscription
-        if (userPlan === 'pro' && subscriptionStatus === 'active') {
-            return {
-                allowed: true,
-                plan: userPlan,
-                message: 'Premium video generation available',
-                subscriptionStatus: 'active',
-                userEmail: userEmail
-            };
-        }
-
-        // Authenticated but free user - offer upgrade
-        return {
-            allowed: false,
-            plan: 'free',
-            message: 'Upgrade to Pro for instant video generation',
-            subscriptionStatus: subscriptionStatus || null,
-            upgradeUrl: '/pricing.html',
-            requiresUpgrade: true,
-            userEmail: userEmail,
-            hasManualOption: true
-        };
-
-    } catch (error) {
-        logger.error("Error checking video generation permission:", error);
-        throw new HttpsError("internal", "Error checking video generation permission");
-    }
-});
-
 // Manual video generation request for non-premium users
 export const requestManualVideoGeneration = onCall({
     enforceAppCheck: false,
@@ -1073,7 +869,7 @@ export const createCheckoutSessionAuth = onCall({
                 },
             ],
             success_url: `${DOMAIN}/success?session_id={CHECKOUT_SESSION_ID}`,
-            cancel_url: `${DOMAIN}/pricing.html`,
+            cancel_url: `${DOMAIN}/index.html`,
             client_reference_id: userId,
             metadata: {
                 userId: userId,
@@ -1114,5 +910,256 @@ export const createCheckoutSessionAuth = onCall({
         }
 
         throw new HttpsError("internal", `Payment service error: ${error.message}`);
+    }
+});
+
+// Cancel subscription function
+export const cancelSubscription = onCall({
+    enforceAppCheck: false,
+    memory: "256MiB",
+    timeoutSeconds: 30,
+    maxInstances: 5,
+    minInstances: 0,
+}, async (request) => {
+    try {
+        // Require authentication
+        if (!request.auth) {
+            throw new HttpsError("unauthenticated", "Please sign in to cancel subscription");
+        }
+
+        const userId = request.auth.uid;
+        logger.info("cancelSubscription called for user:", userId);
+
+        // Check Stripe initialization
+        if (!stripe) {
+            logger.error("Stripe not initialized");
+            throw new HttpsError("failed-precondition", "Payment service not available");
+        }
+
+        // Get user's subscription data from Firestore
+        const subscriptionRef = db.collection('subscriptions').doc(userId);
+        const subscriptionDoc = await subscriptionRef.get();
+
+        if (!subscriptionDoc.exists) {
+            throw new HttpsError("not-found", "No subscription found for this user");
+        }
+
+        const subscriptionData = subscriptionDoc.data();
+        const stripeSubscriptionId = subscriptionData.stripeSubscriptionId;
+
+        if (!stripeSubscriptionId) {
+            throw new HttpsError("not-found", "No active Stripe subscription found");
+        }
+
+        if (subscriptionData.stripeSubscriptionStatus === 'canceled') {
+            throw new HttpsError("failed-precondition", "Subscription is already canceled");
+        }
+
+        // Cancel the subscription in Stripe (at period end)
+        const canceledSubscription = await stripe.subscriptions.update(stripeSubscriptionId, {
+            cancel_at_period_end: true,
+            metadata: {
+                canceledBy: 'user',
+                canceledAt: new Date().toISOString()
+            }
+        });
+
+        logger.info("Stripe subscription canceled:", canceledSubscription.id);
+
+        // Update subscription in Firestore
+        await subscriptionRef.update({
+            stripeSubscriptionStatus: 'cancel_at_period_end',
+            canceledAt: new Date(),
+            canceledBy: 'user',
+            periodEnd: new Date(canceledSubscription.current_period_end * 1000)
+        });
+
+        // Update custom claims
+        await auth.setCustomUserClaims(userId, {
+            plan: 'pro', // Still pro until period ends
+            subscriptionStatus: 'cancel_at_period_end',
+            subscriptionId: stripeSubscriptionId,
+            canceledAt: new Date().toISOString()
+        });
+
+        // Send cancellation email notification
+        const userRecord = await auth.getUser(userId);
+        await sendEmailNotification(
+            userRecord.email,
+            'JRE Clipper - Subscription Canceled',
+            `
+            <h2>Subscription Canceled</h2>
+            <p>Your JRE Clipper Pro subscription has been canceled and will expire at the end of your current billing period.</p>
+            <p>You will continue to have access to Pro features until ${new Date(canceledSubscription.current_period_end * 1000).toLocaleDateString()}.</p>
+            <p>You can reactivate your subscription anytime before the expiration date.</p>
+            <p>Thank you for using JRE Clipper!</p>
+            `
+        );
+
+        return {
+            success: true,
+            message: 'Subscription canceled successfully',
+            periodEnd: canceledSubscription.current_period_end
+        };
+
+    } catch (error) {
+        logger.error("Cancel subscription error:", error);
+
+        if (error instanceof HttpsError) {
+            throw error;
+        }
+
+        if (error.type === 'StripeInvalidRequestError') {
+            throw new HttpsError("invalid-argument", `Stripe error: ${error.message}`);
+        }
+
+        throw new HttpsError("internal", `Failed to cancel subscription: ${error.message}`);
+    }
+});
+
+// Create Stripe Customer Portal session for billing management
+export const createCustomerPortalSession = onCall({
+    enforceAppCheck: false,
+    memory: "256MiB",
+    timeoutSeconds: 30,
+    maxInstances: 5,
+    minInstances: 0,
+}, async (request) => {
+    try {
+        // Require authentication
+        if (!request.auth) {
+            throw new HttpsError("unauthenticated", "Please sign in to access billing management");
+        }
+
+        const userId = request.auth.uid;
+        logger.info("createCustomerPortalSession called for user:", userId);
+
+        // Check Stripe initialization
+        if (!stripe) {
+            logger.error("Stripe not initialized");
+            throw new HttpsError("failed-precondition", "Payment service not available");
+        }
+
+        // Get user's subscription data from Firestore
+        const subscriptionRef = db.collection('subscriptions').doc(userId);
+        const subscriptionDoc = await subscriptionRef.get();
+
+        if (!subscriptionDoc.exists) {
+            throw new HttpsError("not-found", "No subscription found for this user");
+        }
+
+        const subscriptionData = subscriptionDoc.data();
+        const stripeCustomerId = subscriptionData.stripeCustomerId;
+
+        if (!stripeCustomerId) {
+            throw new HttpsError("not-found", "No Stripe customer found");
+        }
+
+        // Create customer portal session
+        const session = await stripe.billingPortal.sessions.create({
+            customer: stripeCustomerId,
+            return_url: `${DOMAIN}/account.html`,
+        });
+
+        logger.info("Customer portal session created:", session.id);
+
+        return {
+            success: true,
+            url: session.url
+        };
+
+    } catch (error) {
+        logger.error("Create customer portal error:", error);
+
+        if (error instanceof HttpsError) {
+            throw error;
+        }
+
+        if (error.type === 'StripeInvalidRequestError') {
+            throw new HttpsError("invalid-argument", `Stripe error: ${error.message}`);
+        }
+
+        throw new HttpsError("internal", `Failed to create customer portal: ${error.message}`);
+    }
+});
+
+// Get user usage statistics
+export const getUserUsageStats = onCall({
+    enforceAppCheck: false,
+    memory: "256MiB",
+    timeoutSeconds: 10,
+    maxInstances: 5,
+    minInstances: 0,
+}, async (request) => {
+    try {
+        logger.info("getUserUsageStats called");
+        
+        // If no authentication, return default stats
+        if (!request.auth) {
+            return {
+                searchesThisMonth: 0,
+                videosGenerated: 0,
+                totalSearches: 0,
+                accountCreated: null
+            };
+        }
+
+        const userId = request.auth.uid;
+        
+        // Get current month's usage from user_sessions collection
+        const now = new Date();
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        
+        const sessionsQuery = await db.collection('user_sessions')
+            .where('userId', '==', userId)
+            .where('createdAt', '>=', startOfMonth)
+            .get();
+        
+        let searchesThisMonth = 0;
+        let videosGenerated = 0;
+        
+        sessionsQuery.forEach(doc => {
+            const sessionData = doc.data();
+            if (sessionData.searchCount) {
+                searchesThisMonth += sessionData.searchCount;
+            }
+            if (sessionData.videosGenerated) {
+                videosGenerated += sessionData.videosGenerated;
+            }
+        });
+        
+        // Get total searches from all time
+        const allSessionsQuery = await db.collection('user_sessions')
+            .where('userId', '==', userId)
+            .get();
+        
+        let totalSearches = 0;
+        allSessionsQuery.forEach(doc => {
+            const sessionData = doc.data();
+            if (sessionData.searchCount) {
+                totalSearches += sessionData.searchCount;
+            }
+        });
+        
+        // Get account creation date
+        const userRecord = await auth.getUser(userId);
+        
+        return {
+            searchesThisMonth,
+            videosGenerated,
+            totalSearches,
+            accountCreated: userRecord.metadata.creationTime
+        };
+        
+    } catch (error) {
+        logger.error("Error getting usage stats:", error);
+        // Return safe defaults instead of throwing
+        return {
+            searchesThisMonth: 0,
+            videosGenerated: 0,
+            totalSearches: 0,
+            accountCreated: null,
+            error: 'Could not load usage statistics'
+        };
     }
 });

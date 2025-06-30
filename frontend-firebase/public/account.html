@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Account Management - JRE Clipper</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
+  <link rel="stylesheet" href="main.css">
+  <script src="https://js.stripe.com/v3/"></script>
+
+  <!-- Firebase SDK via CDN (Firebase Hosting Init) -->
+  <script src="/__/firebase/11.9.1/firebase-app-compat.js"></script>
+  <script src="/__/firebase/11.9.1/firebase-auth-compat.js"></script>
+  <script src="/__/firebase/11.9.1/firebase-functions-compat.js"></script>
+  <script src="/__/firebase/init.js"></script>
+
+  <style>
+    .account-container {
+      max-width: 1000px;
+      margin: 0 auto;
+      padding: 2rem;
+    }
+
+    .account-header {
+      text-align: center;
+      margin-bottom: 3rem;
+    }
+
+    .account-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 2rem;
+      margin-bottom: 2rem;
+    }
+
+    @media (min-width: 768px) {
+      .account-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+
+    .account-card {
+      background: white;
+      border-radius: 12px;
+      padding: 2rem;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      border: 1px solid #e0e0e0;
+    }
+
+    .account-card h3 {
+      color: #2c3e50;
+      margin-bottom: 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .profile-info {
+      margin-bottom: 1.5rem;
+    }
+
+    .info-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.75rem 0;
+      border-bottom: 1px solid #f0f0f0;
+    }
+
+    .info-item:last-child {
+      border-bottom: none;
+    }
+
+    .info-label {
+      font-weight: 600;
+      color: #2c3e50;
+    }
+
+    .info-value {
+      color: #5a6c7d;
+      text-align: right;
+    }
+
+    .status-badge {
+      padding: 0.25rem 0.75rem;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+
+    .status-free {
+      background: #f8f9fa;
+      color: #6c757d;
+      border: 1px solid #dee2e6;
+    }
+
+    .status-pro {
+      background: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+
+    .status-canceled {
+      background: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+
+    .btn-upgrade {
+      background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+      color: white;
+      border: none;
+      padding: 1rem 2rem;
+      border-radius: 8px;
+      font-size: 1.1rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      width: 100%;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .btn-upgrade::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: -100%;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+      transition: left 0.5s ease;
+    }
+
+    .btn-upgrade:hover::before {
+      left: 100%;
+    }
+
+    .btn-upgrade:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(40, 167, 69, 0.3);
+    }
+
+    .btn-cancel {
+      background: #dc3545;
+      color: white;
+      border: none;
+      padding: 0.75rem 1.5rem;
+      border-radius: 6px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      width: 100%;
+    }
+
+    .btn-cancel:hover {
+      background: #c82333;
+      transform: translateY(-1px);
+    }
+
+    .btn-secondary {
+      background: #6c757d;
+      color: white;
+      border: none;
+      padding: 0.75rem 1.5rem;
+      border-radius: 6px;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: background 0.3s ease;
+      width: 100%;
+      margin-bottom: 1rem;
+    }
+
+    .btn-secondary:hover {
+      background: #5a6268;
+    }
+
+    .features-list {
+      list-style: none;
+      padding: 0;
+      margin: 1.5rem 0;
+    }
+
+    .features-list li {
+      padding: 0.5rem 0;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      color: #2c3e50;
+    }
+
+    .features-list .check {
+      color: #28a745;
+      font-weight: bold;
+    }
+
+    .features-list .cross {
+      color: #dc3545;
+      font-weight: bold;
+    }
+
+    .loading-spinner {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 3px solid #f3f3f3;
+      border-top: 3px solid #007bff;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-right: 0.5rem;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .alert {
+      padding: 1rem;
+      border-radius: 6px;
+      margin-bottom: 1rem;
+    }
+
+    .alert-success {
+      background: #d4edda;
+      border: 1px solid #c3e6cb;
+      color: #155724;
+    }
+
+    .alert-error {
+      background: #f8d7da;
+      border: 1px solid #f5c6cb;
+      color: #721c24;
+    }
+
+    .alert-warning {
+      background: #fff3cd;
+      border: 1px solid #ffeaa7;
+      color: #856404;
+    }
+
+    .back-link {
+      display: inline-block;
+      color: #0066cc;
+      text-decoration: none;
+      margin-bottom: 2rem;
+      font-size: 1.1rem;
+      transition: color 0.3s ease;
+    }
+
+    .back-link:hover {
+      color: #0056b3;
+      text-decoration: underline;
+    }
+
+    .user-photo-large {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      border: 3px solid #e0e0e0;
+      margin: 0 auto 1rem auto;
+      display: block;
+    }
+
+    .usage-stats {
+      background: #f8f9fa;
+      border-radius: 8px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .usage-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.75rem;
+    }
+
+    .usage-item:last-child {
+      margin-bottom: 0;
+    }
+
+    .usage-bar {
+      width: 100%;
+      height: 8px;
+      background: #e9ecef;
+      border-radius: 4px;
+      overflow: hidden;
+      margin-top: 0.5rem;
+    }
+
+    .usage-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #28a745, #20c997);
+      border-radius: 4px;
+      transition: width 0.3s ease;
+    }
+
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.5);
+      z-index: 1000;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .modal.show {
+      display: flex;
+    }
+
+    .modal-content {
+      background: white;
+      border-radius: 12px;
+      padding: 2rem;
+      max-width: 500px;
+      width: 90%;
+      text-align: center;
+    }
+
+    .modal-buttons {
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+      margin-top: 1.5rem;
+    }
+
+    .btn-confirm {
+      background: #dc3545;
+      color: white;
+      border: none;
+      padding: 0.75rem 1.5rem;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    .btn-confirm:hover {
+      background: #c82333;
+    }
+
+    .btn-cancel-modal {
+      background: #6c757d;
+      color: white;
+      border: none;
+      padding: 0.75rem 1.5rem;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    .btn-cancel-modal:hover {
+      background: #5a6268;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+  </style>
+</head>
+
+<body>
+  <header class="header">
+    <div class="container">
+      <div class="header-content">
+        <div class="logo">
+          <a href="index.html" style="text-decoration: none; color: inherit;">
+            <h2>🎙️ JRE Clipper</h2>
+          </a>
+        </div>
+        <div class="auth-section">
+          <div id="user-info" class="user-info" style="display: none;">
+            <img id="user-photo" src="" alt="User Photo" class="user-photo">
+            <span id="user-email" class="user-email"></span>
+            <button id="sign-out" class="sign-out-btn">Sign Out</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="account-container">
+    <a href="index.html" class="back-link">← Back to JRE Clipper</a>
+    
+    <div class="account-header">
+      <h1>Account Management</h1>
+      <p>Manage your profile and subscription settings</p>
+    </div>
+
+    <!-- Loading State -->
+    <div id="loading-section" class="loading" style="text-align: center; padding: 3rem;">
+      <div class="loading-spinner"></div>
+      <p>Loading your account information...</p>
+    </div>
+
+    <!-- Authentication Required -->
+    <div id="auth-required" class="hidden" style="text-align: center; padding: 3rem;">
+      <h2>🔐 Authentication Required</h2>
+      <p>Please sign in to access your account management page.</p>
+      <a href="signin.html" class="btn-upgrade" style="display: inline-block; text-decoration: none; max-width: 300px;">
+        Sign In
+      </a>
+    </div>
+
+    <!-- Main Account Content -->
+    <div id="account-content" class="hidden">
+      <!-- Alert Messages -->
+      <div id="alert-container"></div>
+
+      <div class="account-grid">
+        <!-- Profile Information -->
+        <div class="account-card">
+          <h3>👤 Profile Information</h3>
+          <div class="profile-info">
+            <img id="profile-photo" src="" alt="Profile Photo" class="user-photo-large">
+            <div class="info-item">
+              <span class="info-label">Email</span>
+              <span class="info-value" id="profile-email">-</span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">Display Name</span>
+              <span class="info-value" id="profile-name">-</span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">Member Since</span>
+              <span class="info-value" id="profile-created">-</span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">Last Sign In</span>
+              <span class="info-value" id="profile-last-signin">-</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Subscription Status -->
+        <div class="account-card">
+          <h3>💎 Subscription Status</h3>
+          <div class="profile-info">
+            <div class="info-item">
+              <span class="info-label">Current Plan</span>
+              <span class="status-badge" id="plan-status">Free</span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">Status</span>
+              <span class="info-value" id="subscription-status">-</span>
+            </div>
+            <div class="info-item" id="upgrade-date-item" style="display: none;">
+              <span class="info-label">Upgraded On</span>
+              <span class="info-value" id="upgrade-date">-</span>
+            </div>
+            <div class="info-item" id="next-billing-item" style="display: none;">
+              <span class="info-label">Next Billing</span>
+              <span class="info-value" id="next-billing">-</span>
+            </div>
+          </div>
+
+          <!-- Free Plan Features -->
+          <div id="free-features" class="hidden">
+            <h4>Free Plan Features</h4>
+            <ul class="features-list">
+              <li><span class="check">✓</span> Unlimited searches</li>
+              <li><span class="cross">✗</span> Video compilation generation</li>
+              <li><span class="cross">✗</span> Priority support</li>
+              <li><span class="cross">✗</span> Export results</li>
+            </ul>
+            <button id="upgrade-btn" class="btn-upgrade">
+              🚀 UPGRADE TO PRO
+            </button>
+          </div>
+
+          <!-- Pro Plan Features -->
+          <div id="pro-features" class="hidden">
+            <h4>Pro Plan Features</h4>
+            <ul class="features-list">
+              <li><span class="check">✓</span> Unlimited searches</li>
+              <li><span class="check">✓</span> Video compilation generation</li>
+              <li><span class="check">✓</span> Priority support</li>
+              <li><span class="check">✓</span> Export results</li>
+              <li><span class="check">✓</span> Early access to new features</li>
+            </ul>
+            <button id="manage-subscription-btn" class="btn-secondary">
+              Manage Billing
+            </button>
+            <button id="cancel-subscription-btn" class="btn-cancel">
+              Cancel Subscription
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Usage Statistics -->
+      <div class="account-card">
+        <h3>📊 Usage Statistics</h3>
+        <div class="usage-stats">
+          <div class="usage-item">
+            <span class="info-label">Searches This Month</span>
+            <span class="info-value" id="searches-count">-</span>
+          </div>
+          <div class="usage-item">
+            <span class="info-label">Videos Generated</span>
+            <span class="info-value" id="videos-generated">-</span>
+          </div>
+          <div class="usage-item">
+            <span class="info-label">Account Activity</span>
+            <span class="info-value status-pro">Active</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Cancellation Confirmation Modal -->
+  <div id="cancel-modal" class="modal">
+    <div class="modal-content">
+      <h2>Cancel Subscription</h2>
+      <p>Are you sure you want to cancel your Pro subscription?</p>
+      <p><strong>You will still have access to Pro features until the end of your current billing period.</strong></p>
+      <div class="modal-buttons">
+        <button id="confirm-cancel" class="btn-confirm">
+          <span class="loading-spinner hidden"></span>
+          Yes, Cancel
+        </button>
+        <button id="modal-cancel" class="btn-cancel-modal">Keep Subscription</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer Section -->
+  <footer class="footer">
+    <div class="footer-content">
+      <div class="footer-section">
+        <h3>👨‍💻 Developer Contact</h3>
+        <ul class="contact-links">
+          <li>📧 <a href="mailto:vohoanvu96@gmail.com">vohoanvu96@gmail.com</a></li>
+          <li>🐙 <a href="https://github.com/vohoanvu" target="_blank">GitHub Profile</a></li>
+          <li>💼 <a href="https://www.linkedin.com/in/thevuture/" target="_blank">LinkedIn</a></li>
+        </ul>
+      </div>
+      <div class="footer-section">
+        <div class="pricing-highlight">
+          <h3>⚡ Upgrade Your Experience</h3>
+          <p>Unlock video compilation generation<br>and priority support!</p>
+          <a href="/pricing.html" class="pricing-btn">View Pricing</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer-bottom">
+      <p>&copy; 2025 JRE Clipper. Built for educational purposes. Joe Rogan Experience content belongs to respective owners.</p>
+    </div>
+  </footer>
+
+  <script src="account.js"></script>
+</body>
+
+</html>
