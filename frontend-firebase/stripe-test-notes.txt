@@ -1,0 +1,61 @@
+✅ SUCCESSFUL PAYMENTS:
+4242 4242 4242 4242 (Visa)
+4000 0566 5566 5556 (Visa debit)
+5555 5555 5555 4444 (Mastercard)
+
+❌ CARD DECLINED:
+4000 0000 0000 0002 (Generic decline)
+4000 0000 0000 9995 (Insufficient funds)
+4000 0000 0000 9987 (Lost card)
+
+🔐 AUTHENTICATION REQUIRED:
+4000 0025 0000 3155 (Requires 3D Secure)
+
+💳 Use any future expiry date (e.g., 12/34)
+🔢 Use any 3-digit CVC (e.g., 123)
+📧 Use any email and name
+
+-----------
+Scenario A: Successful Account Upgrade
+Card Number: 4242 4242 4242 4242
+Expiry: 12/34
+CVC: 123
+Name: Test User
+Email: (your test email)
+
+------------
+Scenario B: Failed Checkout Payment
+Card Number: 4000 0000 0000 0002 (Generic decline)
+Expiry: 12/34
+CVC: 123
+Name: Test User
+Email: (your test email)
+
+Insufficient Funds: 4000 0000 0000 9995
+Lost Card: 4000 0000 0000 9987
+Expired Card: 4000 0000 0000 0069
+Processing Error: 4000 0000 0000 0119
+
+
+-------
+Scenario C: Premium User Cancels Subscription
+Scenario D: Test 3D Secure Authentication
+Scenario E: Test Subscription Management
+
+
+□ Free user can access upgrade button
+□ Upgrade button creates valid checkout session  
+□ Successful payment (4242 4242 4242 4242)
+□ Failed payment handling (4000 0000 0000 0002)
+□ User promoted to Pro after successful payment
+□ Pro features unlock after upgrade
+□ Webhook events processed correctly
+□ Firestore data updated accurately
+□ Custom claims updated in Firebase Auth
+□ Pro user can access billing management
+□ Subscription cancellation works
+□ User downgraded after cancellation
+□ Canceled user can re-upgrade
+□ 3D Secure authentication flow
+□ Multiple payment method testing
+□ Edge case handling (already subscribed, etc.)

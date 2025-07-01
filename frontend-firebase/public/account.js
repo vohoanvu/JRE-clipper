@@ -231,6 +231,21 @@ function updateSubscriptionUI(data) {
     const nextBillingItem = document.getElementById('next-billing-item');
     const freeFeatures = document.getElementById('free-features');
     const proFeatures = document.getElementById('pro-features');
+    const cancelSubscriptionBtn = document.getElementById('cancel-subscription-btn');
+
+    if (cancelSubscriptionBtn) {
+        if (data.subscriptionStatus === 'canceled' || 
+            data.subscriptionStatus === 'cancel_at_period_end' || 
+            data.plan === 'free') {
+            cancelSubscriptionBtn.disabled = true;
+            cancelSubscriptionBtn.classList.add('disabled');
+            cancelSubscriptionBtn.setAttribute('title', 'Subscription already canceled or not active');
+        } else {
+            cancelSubscriptionBtn.disabled = false;
+            cancelSubscriptionBtn.classList.remove('disabled');
+            cancelSubscriptionBtn.removeAttribute('title');
+        }
+    }
     
     // Update plan status badge
     if (planStatus) {
