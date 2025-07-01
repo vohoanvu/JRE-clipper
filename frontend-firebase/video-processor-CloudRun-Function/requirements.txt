@@ -10,3 +10,14 @@ ffmpeg-python==0.2.*
 apify-client
 moviepy>=1.0.3
 imageio-ffmpeg>=0.4.8
+
+
+
+# Apify Actor configuration steps:
+- Select "YouTube Video Downloader" actor from the Apify Store.
+- Configure the actor webhook Integration that points to "https://jre-video-processor-py-408323719521.us-central1.run.app/handlehandleVideoDownloadSuccess"
+- Copy the Service Account JSON content into the Actors GSC config in order to obtain then ENCRYPTED credentials string.
+- Paste the ENCRYPTED credentials string into the jre-video-processor-py Cloud Run Function environment variable named GCS_SERVICE_ACCOUNT_JSON_APIFY
+- Copy and paster another PRIMARY Service Account JSON content into the Python Cloud Run Container environment variable named GCS_SERVICE_ACCOUNT_JSON
+- Ensure the PRIMARY Service Account JSON have access to Firestore storage.
+- Copy and paste the current Apify account API Key into the Python Cloud Run Container environment variable named APIFY_KEY

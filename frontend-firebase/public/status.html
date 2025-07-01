@@ -630,10 +630,12 @@
         
         const progress = progressData.downloadProgress || 0;
         const totalVideos = progressData.totalVideos || 1;
+        const progressDetails = progressData.progressDetails || {};
+        const apifyDetails = progressData.apifyDetails || {};
         
-        // Create enhanced progress display
+        // Create enhanced progress display with new structure
         details.innerHTML = `
-          <div class="progress-indicator">
+          <div class="progress-indicator realtime">
             <span style="min-width: 50px; font-weight: bold; color: #2196F3;">${progress.toFixed(1)}%</span>
             <div class="progress-bar">
               <div class="progress-fill" style="width: ${progress}%; transition: width 0.5s ease;"></div>
@@ -642,21 +644,46 @@
               ${totalVideos} video${totalVideos !== 1 ? 's' : ''}
             </span>
           </div>
+          
           <div class="time-estimate">
-            <span class="icon">📊</span>
-            <strong>Download Progress:</strong> ${progress.toFixed(1)}% complete
-            ${progress > 0 && progress < 100 ? `<br><small>Processing ${totalVideos} video${totalVideos !== 1 ? 's' : ''} from YouTube...</small>` : ''}
+            <span class="icon">⏱️</span>
+            <strong>${progressDetails.userFriendlyStatus || 'Downloading'}:</strong> ${progress.toFixed(1)}% complete
+            ${progressDetails.elapsedTime ? `<br><small><strong>Elapsed:</strong> ${progressDetails.elapsedTime}</small>` : ''}
+            ${progressDetails.estimatedCompletion ? `<br><small><strong>Remaining:</strong> ${progressDetails.estimatedCompletion}</small>` : ''}
           </div>
-          ${progress > 0 ? `
-            <div style="background: #e8f5e8; padding: 0.75rem; border-radius: 4px; margin: 0.5rem 0; border-left: 4px solid #4caf50;">
-              <small><strong>✅ Real-time Progress:</strong> ${progressData.message || 'Downloading in progress...'}</small>
+          
+          ${progressDetails.statusMessage ? `
+            <div style="background: #e3f2fd; padding: 0.75rem; border-radius: 4px; margin: 0.5rem 0; border-left: 4px solid #2196F3;">
+              <small><strong>📊 Current Status:</strong> ${progressDetails.statusMessage}</small>
             </div>
           ` : ''}
+          
+          ${progress > 0 ? `
+            <div style="background: #e8f5e8; padding: 0.75rem; border-radius: 4px; margin: 0.5rem 0; border-left: 4px solid #4caf50;">
+              <small><strong>✅ Progress Update:</strong> ${progressData.message || 'Downloading in progress...'}</small>
+            </div>
+          ` : ''}
+          
+          ${progressDetails.dataDownloaded || progressDetails.memoryUsage ? `
+            <div class="helpful-tips">
+              <h4>📈 Resource Usage</h4>
+              <ul>
+                ${progressDetails.dataDownloaded ? `<li><strong>Data Downloaded:</strong> ${progressDetails.dataDownloaded}</li>` : ''}
+                ${progressDetails.memoryUsage ? `<li><strong>Memory Usage:</strong> ${progressDetails.memoryUsage}</li>` : ''}
+                ${apifyDetails.stats && apifyDetails.stats.computeUnits ? `<li><strong>Compute Units:</strong> ${apifyDetails.stats.computeUnits}</li>` : ''}
+              </ul>
+            </div>
+          ` : ''}
+          
           <p class="loading-dots"><strong>Downloading videos from YouTube</strong></p>
-          ${progressData.apifyDetails ? `
-            <div style="font-size: 0.8rem; color: #666; margin-top: 0.5rem;">
-              <strong>Apify Status:</strong> ${progressData.apifyDetails.status || 'Running'}
-              ${progressData.apifyDetails.runStartedAt ? `<br><strong>Started:</strong> ${new Date(progressData.apifyDetails.runStartedAt).toLocaleTimeString()}` : ''}
+          
+          ${apifyDetails.runId ? `
+            <div style="font-size: 0.8rem; color: #666; margin-top: 0.5rem; padding: 0.5rem; background: #f8f9fa; border-radius: 4px;">
+              <strong>Technical Details:</strong><br>
+              <strong>Apify Status:</strong> ${apifyDetails.status || 'Running'}<br>
+              ${apifyDetails.startedAt ? `<strong>Started:</strong> ${new Date(apifyDetails.startedAt).toLocaleTimeString()}<br>` : ''}
+              ${apifyDetails.stats && apifyDetails.stats.runTimeSecs ? `<strong>Runtime:</strong> ${Math.round(apifyDetails.stats.runTimeSecs / 60)}m ${Math.round(apifyDetails.stats.runTimeSecs % 60)}s<br>` : ''}
+              <strong>Run ID:</strong> <code style="font-size: 0.7rem;">${apifyDetails.runId}</code>
             </div>
           ` : ''}
         `;
@@ -967,7 +994,7 @@
                 ${lastApifyProgress.apifyDetails ? `
                   <div style="font-size: 0.8rem; color: #666; margin-top: 0.5rem; padding: 0.5rem; background: #f8f9fa; border-radius: 4px;">
                     <strong>Download Engine:</strong> ${lastApifyProgress.apifyDetails.status || 'Running'}
-                    ${lastApifyProgress.apifyDetails.runStartedAt ? `<br><strong>Started:</strong> ${new Date(lastApifyProgress.apifyDetails.runStartedAt).toLocaleTimeString()}` : ''}
+                    ${lastApifyProgress.apifyDetails.startedAt ? `<br><strong>Started:</strong> ${new Date(lastApifyProgress.apifyDetails.startedAt).toLocaleTimeString()}` : ''}
                   </div>
                 ` : ''}
               `;

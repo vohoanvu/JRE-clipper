@@ -856,24 +856,103 @@ def getApifyProgress(request):
                 "apifyRunId": apify_run_id
             }), 500, headers
 
+        # Extract detailed Apify information
+        apify_data = apify_progress.get("data", {})
+        apify_stats = apify_data.get("stats", {})
+        
         # Calculate download progress based on job segments
         segments = job_data.get("segments", [])
         video_ids = list(set(segment.get("videoId") for segment in segments if segment.get("videoId")))
         
-        download_progress = calculate_download_progress(video_ids, apify_progress)
+        download_progress = calculate_download_progress(video_ids, apify_data)
+
+        # Parse timing information
+        started_at = apify_data.get("startedAt")
+        finished_at = apify_data.get("finishedAt")
+        duration_seconds = apify_stats.get("runTimeSecs", 0)
+        
+        # Calculate elapsed time and estimated completion
+        elapsed_time_str = ""
+        estimated_completion = None
+        
+        if started_at:
+            from datetime import datetime
+            try:
+                start_time = datetime.fromisoformat(started_at.replace('Z', '+00:00'))
+                elapsed_seconds = (datetime.now().replace(tzinfo=start_time.tzinfo) - start_time).total_seconds()
+                
+                # Format elapsed time
+                if elapsed_seconds >= 3600:  # More than 1 hour
+                    hours = int(elapsed_seconds // 3600)
+                    minutes = int((elapsed_seconds % 3600) // 60)
+                    elapsed_time_str = f"{hours}h {minutes}m"
+                elif elapsed_seconds >= 60:  # More than 1 minute
+                    minutes = int(elapsed_seconds // 60)
+                    seconds = int(elapsed_seconds % 60)
+                    elapsed_time_str = f"{minutes}m {seconds}s"
+                else:
+                    elapsed_time_str = f"{int(elapsed_seconds)}s"
+                
+                # Estimate completion time if we have meaningful progress
+                if download_progress > 5 and download_progress < 100:
+                    estimated_total_time = elapsed_seconds * (100 / download_progress)
+                    remaining_time = estimated_total_time - elapsed_seconds
+                    
+                    if remaining_time > 0:
+                        if remaining_time >= 3600:
+                            est_hours = int(remaining_time // 3600)
+                            est_minutes = int((remaining_time % 3600) // 60)
+                            estimated_completion = f"~{est_hours}h {est_minutes}m remaining"
+                        elif remaining_time >= 60:
+                            est_minutes = int(remaining_time // 60)
+                            estimated_completion = f"~{est_minutes}m remaining"
+                        else:
+                            estimated_completion = f"~{int(remaining_time)}s remaining"
+            except Exception as e:
+                logger.warning(f"Error parsing time information: {e}")
+
+        # Format data usage
+        net_rx_bytes = apify_stats.get("netRxBytes", 0)
+        data_downloaded_mb = round(net_rx_bytes / (1024 * 1024), 1) if net_rx_bytes > 0 else 0
+        
+        # Format memory usage
+        mem_current_bytes = apify_stats.get("memCurrentBytes", 0)
+        mem_current_mb = round(mem_current_bytes / (1024 * 1024), 1) if mem_current_bytes > 0 else 0
+        
+        # Parse status message for more context
+        status_message = apify_data.get("statusMessage", "")
+        pages_info = ""
+        if "Crawled" in status_message:
+            pages_info = status_message
+        
+        # Determine user-friendly status
+        apify_status = apify_data.get("status", "").upper()
+        user_friendly_status = {
+            "READY": "Initializing",
+            "RUNNING": "Downloading",
+            "SUCCEEDED": "Complete",
+            "FAILED": "Failed",
+            "ABORTED": "Cancelled",
+            "TIMED_OUT": "Timed Out"
+        }.get(apify_status, apify_status)
 
         # Update job status with download progress if significant change
         current_download_progress = job_data.get("download_progress", 0)
         if abs(download_progress - current_download_progress) >= 5:  # Update every 5% change
+            progress_message = f"Downloading videos... {download_progress}% complete"
+            if elapsed_time_str:
+                progress_message += f" (elapsed: {elapsed_time_str})"
+            
             update_job_status(
                 job_id=job_id,
                 status="Downloading",
                 progress=None,  # Keep overall progress unchanged
-                message=f"Downloading videos... {download_progress}% complete",
+                message=progress_message,
                 download_progress=download_progress
             )
 
-        return jsonify({
+        # Enhanced response with detailed progress information
+        response_data = {
             "jobId": job_id,
             "apifyRunId": apify_run_id,
             "status": current_status,
@@ -881,15 +960,39 @@ def getApifyProgress(request):
             "downloadProgress": download_progress,
             "totalVideos": len(video_ids),
             "videoIds": video_ids,
+            
+            # Detailed progress information
+            "progressDetails": {
+                "userFriendlyStatus": user_friendly_status,
+                "statusMessage": pages_info or status_message,
+                "elapsedTime": elapsed_time_str,
+                "estimatedCompletion": estimated_completion,
+                "dataDownloaded": f"{data_downloaded_mb} MB" if data_downloaded_mb > 0 else "0 MB",
+                "memoryUsage": f"{mem_current_mb} MB" if mem_current_mb > 0 else "0 MB"
+            },
+            
+            # Technical details for debugging
             "apifyDetails": {
                 "runId": apify_run_id,
-                "status": apify_progress.get("status"),
-                "runStartedAt": apify_progress.get("startedAt"),
-                "runFinishedAt": apify_progress.get("finishedAt"),
-                "stats": apify_progress.get("stats", {})
+                "status": apify_data.get("status"),
+                "startedAt": started_at,
+                "finishedAt": finished_at,
+                "durationSeconds": duration_seconds,
+                "stats": {
+                    "runTimeSecs": apify_stats.get("runTimeSecs", 0),
+                    "computeUnits": round(apify_stats.get("computeUnits", 0), 4),
+                    "netRxBytes": net_rx_bytes,
+                    "memCurrentBytes": mem_current_bytes,
+                    "cpuCurrentUsage": round(apify_stats.get("cpuCurrentUsage", 0), 1)
+                }
             },
-            "message": f"Downloading videos... {download_progress}% complete"
-        }), 200, headers
+            
+            # User-facing message
+            "message": f"{user_friendly_status}: {download_progress}% complete" + 
+                      (f" ({elapsed_time_str})" if elapsed_time_str else "")
+        }
+
+        return jsonify(response_data), 200, headers
 
     except Exception as e:
         error_msg = f"Error getting Apify progress: {e}"
