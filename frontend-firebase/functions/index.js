@@ -847,7 +847,7 @@ export const requestManualVideoGeneration = onCall({
     enforceAppCheck: false,
     memory: "256MiB",
     timeoutSeconds: 30,
-    maxInstances: 5,
+    maxInstances: 2,
     minInstances: 0,
 }, async (request) => {
     try {
@@ -1088,7 +1088,7 @@ export const cancelSubscription = onCall({
     enforceAppCheck: false,
     memory: "256MiB",
     timeoutSeconds: 30,
-    maxInstances: 5,
+    maxInstances: 2,
     minInstances: 0,
 }, async (request) => {
     try {
@@ -1192,7 +1192,7 @@ export const createCustomerPortalSession = onCall({
     enforceAppCheck: false,
     memory: "256MiB",
     timeoutSeconds: 30,
-    maxInstances: 5,
+    maxInstances: 2,
     minInstances: 0,
 }, async (request) => {
     try {
@@ -1270,55 +1270,119 @@ export const getUserUsageStats = onCall({
                 searchesThisMonth: 0,
                 videosGenerated: 0,
                 totalSearches: 0,
-                accountCreated: null
+                accountCreated: null,
+                generatedVideos: []
             };
         }
 
         const userId = request.auth.uid;
         
-        // Get current month's usage from user_sessions collection
         const now = new Date();
         const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
         
-        const sessionsQuery = await db.collection('user_sessions')
-            .where('userId', '==', userId)
-            .where('createdAt', '>=', startOfMonth)
-            .get();
+        // Get all video generation jobs for this user from videoJobs collection
+        // userSessionId now references the User Account UID
+        // Get all video generation jobs for this user from videoJobs collection
+        // userSessionId now references the User Account UID
+        let videosGeneratedThisMonth = 0;
+        let totalVideosGenerated = 0;
+        const generatedVideos = [];
         
-        let searchesThisMonth = 0;
-        let videosGenerated = 0;
-        
-        sessionsQuery.forEach(doc => {
-            const sessionData = doc.data();
-            if (sessionData.searchCount) {
-                searchesThisMonth += sessionData.searchCount;
+        try {
+            // First attempt: Try query with composite index
+            logger.info(`Fetching video jobs for user ${userId} with ordered query`);
+            const videoJobsQuery = await db.collection('videoJobs')
+                .where('userSessionId', '==', userId)
+                .orderBy('createdAt', 'desc')
+                .get();
+            
+            videoJobsQuery.forEach(doc => {
+                const jobData = doc.data();
+                const jobId = doc.id;
+                const createdAt = jobData.createdAt?.toDate();
+            
+            if (createdAt) {
+                // Count total videos generated
+                totalVideosGenerated++;
+                
+                // Count videos generated this month
+                if (createdAt >= startOfMonth) {
+                    videosGeneratedThisMonth++;
+                }
+                
+                // Only include completed jobs with final video URLs
+                if (jobData.status === 'Complete' && jobData.finalVideoUrl) {
+                    generatedVideos.push({
+                        jobId: jobId,
+                        createdAt: createdAt.toISOString(),
+                        status: jobData.status,
+                        finalVideoUrl: jobData.finalVideoUrl,
+                        segmentCount: jobData.segmentCount || 0,
+                        totalVideos: jobData.totalVideos || 0,
+                        progressMessage: jobData.progressMessage || null
+                    });
+                }
             }
-            if (sessionData.videosGenerated) {
-                videosGenerated += sessionData.videosGenerated;
-            }
-        });
-        
-        // Get total searches from all time
-        const allSessionsQuery = await db.collection('user_sessions')
-            .where('userId', '==', userId)
-            .get();
-        
-        let totalSearches = 0;
-        allSessionsQuery.forEach(doc => {
-            const sessionData = doc.data();
-            if (sessionData.searchCount) {
-                totalSearches += sessionData.searchCount;
-            }
-        });
+            });
+            logger.info(`Successfully retrieved ${videoJobsQuery.size} video jobs for user ${userId}`);
+            
+        } catch (indexError) {
+            // If the index doesn't exist, fall back to a simpler query
+            logger.warn(`Index error fetching ordered video jobs: ${indexError.message}. Falling back to unordered query.`);
+            
+            // Fallback to a simpler query without ordering
+            const simpleQuery = await db.collection('videoJobs')
+                .where('userSessionId', '==', userId)
+                .get();
+                
+            simpleQuery.forEach(doc => {
+                const jobData = doc.data();
+                const jobId = doc.id;
+                const createdAt = jobData.createdAt?.toDate();
+                
+                if (createdAt) {
+                    // Count total videos generated
+                    totalVideosGenerated++;
+                    
+                    // Count videos generated this month
+                    if (createdAt >= startOfMonth) {
+                        videosGeneratedThisMonth++;
+                    }
+                    
+                    // Only include completed jobs with final video URLs
+                    if (jobData.status === 'Complete' && jobData.finalVideoUrl) {
+                        generatedVideos.push({
+                            jobId: jobId,
+                            createdAt: createdAt.toISOString(),
+                            status: jobData.status,
+                            finalVideoUrl: jobData.finalVideoUrl,
+                            segmentCount: jobData.segmentCount || 0,
+                            totalVideos: jobData.totalVideos || 0,
+                            progressMessage: jobData.progressMessage || null
+                        });
+                    }
+                }
+            });
+            
+            // Sort manually since we couldn't use orderBy
+            generatedVideos.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+            logger.info(`Successfully retrieved ${simpleQuery.size} video jobs using simple query for user ${userId}`);
+        }
         
         // Get account creation date
         const userRecord = await auth.getUser(userId);
         
+        // Since we no longer track searches separately, we'll use video generation as proxy
+        // In the future, you might want to add search tracking separately
+        const searchesThisMonth = videosGeneratedThisMonth; // Proxy measure
+        const totalSearches = totalVideosGenerated; // Proxy measure
+        
         return {
             searchesThisMonth,
-            videosGenerated,
+            videosGenerated: videosGeneratedThisMonth,
             totalSearches,
-            accountCreated: userRecord.metadata.creationTime
+            accountCreated: userRecord.metadata.creationTime,
+            generatedVideos: generatedVideos.slice(0, 10) // Return last 10 generated videos
         };
         
     } catch (error) {
@@ -1329,6 +1393,7 @@ export const getUserUsageStats = onCall({
             videosGenerated: 0,
             totalSearches: 0,
             accountCreated: null,
+            generatedVideos: [],
             error: 'Could not load usage statistics'
         };
     }

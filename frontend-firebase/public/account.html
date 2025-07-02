@@ -363,6 +363,90 @@
     .hidden {
       display: none !important;
     }
+
+    .generated-videos-list {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+
+    .video-item {
+      background: #f9f9f9;
+      border-radius: 8px;
+      padding: 1rem;
+      border: 1px solid #eaeaea;
+      transition: all 0.3s ease;
+    }
+
+    .video-item:hover {
+      box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1);
+      transform: translateY(-2px);
+    }
+
+    .video-item-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.5rem;
+    }
+
+    .video-date {
+      font-size: 0.8rem;
+      color: #666;
+    }
+
+    .video-title {
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+    }
+
+    .video-stats {
+      font-size: 0.9rem;
+      color: #555;
+      margin-bottom: 0.75rem;
+    }
+
+    .video-actions {
+      display: flex;
+      gap: 0.5rem;
+      margin-top: 1rem;
+    }
+
+    .btn-view-video {
+      background: #4caf50;
+      color: white;
+      border: none;
+      padding: 0.5rem 1rem;
+      border-radius: 4px;
+      font-size: 0.9rem;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .btn-view-video:hover {
+      background: #43a047;
+    }
+
+    .btn-copy-url {
+      background: #2196f3;
+      color: white;
+      border: none;
+      padding: 0.5rem 1rem;
+      border-radius: 4px;
+      font-size: 0.9rem;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .btn-copy-url:hover {
+      background: #1e88e5;
+    }
   </style>
 </head>
 
@@ -500,17 +584,25 @@
         <h3>📊 Usage Statistics</h3>
         <div class="usage-stats">
           <div class="usage-item">
-            <span class="info-label">Searches This Month</span>
-            <span class="info-value" id="searches-count">-</span>
+            <span class="info-label">Video Generations This Month</span>
+            <span class="info-value" id="videos-generated">-</span>
           </div>
           <div class="usage-item">
-            <span class="info-label">Videos Generated</span>
-            <span class="info-value" id="videos-generated">-</span>
+            <span class="info-label">Total Video Generations</span>
+            <span class="info-value" id="total-videos-generated">-</span>
           </div>
           <div class="usage-item">
             <span class="info-label">Account Activity</span>
             <span class="info-value status-pro">Active</span>
           </div>
+        </div>
+      </div>
+
+      <!-- Generated Videos History -->
+      <div id="generated-videos-section" class="account-card hidden">
+        <h3>🎬 Your Generated Videos</h3>
+        <div id="generated-videos-list" class="generated-videos-list">
+          <!-- Videos will be populated here -->
         </div>
       </div>
     </div>
@@ -543,13 +635,13 @@
           <li>💼 <a href="https://www.linkedin.com/in/thevuture/" target="_blank">LinkedIn</a></li>
         </ul>
       </div>
-      <div class="footer-section">
+      <!-- <div class="footer-section">
         <div class="pricing-highlight">
           <h3>⚡ Upgrade Your Experience</h3>
           <p>Unlock video compilation generation<br>and priority support!</p>
           <a href="/pricing.html" class="pricing-btn">View Pricing</a>
         </div>
-      </div>
+      </div> -->
     </div>
 
     <div class="footer-bottom">

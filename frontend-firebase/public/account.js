@@ -294,26 +294,26 @@ async function updateUsageStats() {
         if (!functions) {
             console.log('Firebase functions not available, using placeholder stats');
             updateUsageStatsUI({
-                searchesThisMonth: 'Unlimited',
                 videosGenerated: userSubscriptionData?.plan === 'pro' ? '0 this month' : 'Pro feature',
-                totalSearches: '-',
-                accountCreated: currentUser?.metadata?.creationTime
+                totalVideosGenerated: '-',
+                accountCreated: currentUser?.metadata?.creationTime,
+                generatedVideos: []
             });
             return;
         }
         
         const getUserUsage = functions.httpsCallable('getUserUsageStats');
         const result = await getUserUsage();
-        
+        console.log('Usage stats result:', result);
         if (result.data) {
             const stats = result.data;
             updateUsageStatsUI({
-                searchesThisMonth: stats.searchesThisMonth || 0,
                 videosGenerated: userSubscriptionData?.plan === 'pro' 
                     ? `${stats.videosGenerated || 0} this month` 
                     : 'Pro feature',
-                totalSearches: stats.totalSearches || 0,
-                accountCreated: stats.accountCreated
+                totalVideosGenerated: stats.totalSearches || 0,
+                accountCreated: stats.accountCreated,
+                generatedVideos: stats.generatedVideos || []
             });
         }
         
@@ -321,24 +321,61 @@ async function updateUsageStats() {
         console.error('Error loading usage statistics:', error);
         // Use fallback stats
         updateUsageStatsUI({
-            searchesThisMonth: 'Unlimited',
             videosGenerated: userSubscriptionData?.plan === 'pro' ? '0 this month' : 'Pro feature',
-            totalSearches: '-',
-            accountCreated: currentUser?.metadata?.creationTime
+            totalVideosGenerated: '-',
+            accountCreated: currentUser?.metadata?.creationTime,
+            generatedVideos: []
         });
     }
 }
 
 function updateUsageStatsUI(stats) {
-    const searchesCount = document.getElementById('searches-count');
     const videosGenerated = document.getElementById('videos-generated');
-    
-    if (searchesCount) {
-        searchesCount.textContent = stats.searchesThisMonth === 0 ? 'Unlimited' : stats.searchesThisMonth;
-    }
+    const totalVideosGenerated = document.getElementById('total-videos-generated');
+    const generatedVideosSection = document.getElementById('generated-videos-section');
+    const generatedVideosList = document.getElementById('generated-videos-list');
     
     if (videosGenerated) {
         videosGenerated.textContent = stats.videosGenerated;
+    }
+    
+    if (totalVideosGenerated) {
+        totalVideosGenerated.textContent = stats.totalVideosGenerated;
+    }
+    
+    // Handle generated videos list
+    if (generatedVideosSection && generatedVideosList) {
+        if (stats.generatedVideos && stats.generatedVideos.length > 0 && userSubscriptionData?.plan === 'pro') {
+            generatedVideosSection.classList.remove('hidden');
+            
+            // Create video items
+            let videosHtml = '';
+            stats.generatedVideos.forEach(video => {
+                const createdDate = new Date(video.createdAt).toLocaleDateString();
+                
+                videosHtml += `
+                    <div class="video-item">
+                        <div class="video-item-header">
+                            <div class="video-title">Video Compilation</div>
+                            <div class="video-date">Created on ${createdDate}</div>
+                        </div>
+                        <div class="video-stats">
+                            <div>Job ID: ${video.jobId}</div>
+                            <div>Segments: ${video.segmentCount} | Source Videos: ${video.totalVideos}</div>
+                        </div>
+                        <div class="video-actions">
+                            <a href="${video.finalVideoUrl}" target="_blank" class="btn-view-video">
+                                <span>🎬 Watch Video</span>
+                            </a>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            generatedVideosList.innerHTML = videosHtml || '<p>No videos found</p>';
+        } else {
+            generatedVideosSection.classList.add('hidden');
+        }
     }
 }
 
