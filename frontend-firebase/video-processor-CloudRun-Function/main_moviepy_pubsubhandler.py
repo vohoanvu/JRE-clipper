@@ -114,7 +114,8 @@ if not storage_client:
 # This file is a Pub/Sub consumer only - no publisher client needed here
 def process_video_segments(video_path, segments, temp_dir, job_id):
     """
-    Process video segments using MoviePy library with bundled FFmpeg
+    Process video segments using direct FFmpeg calls for both extraction and concatenation
+    Pure FFmpeg approach for better audio/video synchronization
     Enhanced version with better error handling and progress tracking
     """
     # Create unique output filename for this video
@@ -175,19 +176,81 @@ def process_video_segments(video_path, segments, temp_dir, job_id):
         if not os.path.exists(video_path):
             raise FileNotFoundError(f"Input video file not found: {video_path}")
 
-        # Test MoviePy availability by loading the input video
+        # Check FFmpeg availability and get video info using FFmpeg
         try:
-            logger.info(f"Job {job_id}: Loading input video with MoviePy...")
-            input_clip = VideoFileClip(video_path)
-            video_duration = input_clip.duration
-            video_fps = input_clip.fps
-            video_size = input_clip.size
+            logger.info(f"Job {job_id}: Getting video info with FFmpeg...")
+            
+            # Use FFprobe to get video duration and other metadata
+            ffprobe_cmd = [
+                "ffprobe", 
+                "-v", "error", 
+                "-show_entries", "format=duration", 
+                "-of", "default=noprint_wrappers=1:nokey=1", 
+                video_path
+            ]
+            
+            result = subprocess.run(
+                ffprobe_cmd,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                universal_newlines=True
+            )
+            
+            video_duration = float(result.stdout.strip())
+            
+            # Get video frame rate
+            ffprobe_fps_cmd = [
+                "ffprobe", 
+                "-v", "error", 
+                "-select_streams", "v:0", 
+                "-show_entries", "stream=r_frame_rate", 
+                "-of", "default=noprint_wrappers=1:nokey=1", 
+                video_path
+            ]
+            
+            result = subprocess.run(
+                ffprobe_fps_cmd,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                universal_newlines=True
+            )
+            
+            # Parse frame rate which is returned as a fraction (e.g., "24000/1001")
+            fps_fraction = result.stdout.strip()
+            if '/' in fps_fraction:
+                num, den = map(float, fps_fraction.split('/'))
+                video_fps = num / den
+            else:
+                video_fps = float(fps_fraction)
+                
+            # Get video dimensions
+            ffprobe_size_cmd = [
+                "ffprobe", 
+                "-v", "error", 
+                "-select_streams", "v:0", 
+                "-show_entries", "stream=width,height", 
+                "-of", "csv=s=x:p=0", 
+                video_path
+            ]
+            
+            result = subprocess.run(
+                ffprobe_size_cmd,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                universal_newlines=True
+            )
+            
+            video_size = tuple(map(int, result.stdout.strip().split('x')))
+            
             logger.info(
-                f"Job {job_id}: Video loaded successfully - Duration: {video_duration:.2f}s, FPS: {video_fps}, Size: {video_size}"
+                f"Job {job_id}: Video info retrieved successfully - Duration: {video_duration:.2f}s, FPS: {video_fps:.2f}, Size: {video_size}"
             )
         except Exception as e:
-            logger.error(f"Job {job_id}: MoviePy failed to load video: {e}")
-            raise Exception(f"MoviePy cannot process this video file: {str(e)}")
+            logger.error(f"Job {job_id}: FFmpeg failed to get video info: {e}")
+            raise Exception(f"FFmpeg cannot process this video file: {str(e)}")
 
         # Update job status
         update_job_status(
@@ -197,8 +260,8 @@ def process_video_segments(video_path, segments, temp_dir, job_id):
             f"Processing {len(valid_segments)} video segments...",
         )
 
-        # Process segments and create clips
-        segment_clips = []
+        # Process segments
+        segment_files = []
 
         for i, segment in enumerate(valid_segments):
             start_time = segment["start"]
@@ -239,13 +302,52 @@ def process_video_segments(video_path, segments, temp_dir, job_id):
                 end_time = video_duration
 
             try:
-                # Create subclip for this segment
-                segment_clip = input_clip.subclipped(start_time, end_time)
-                segment_clips.append(segment_clip)
-
-                logger.info(
-                    f"Job {job_id}: Segment {i+1} created successfully - Duration: {segment_clip.duration:.2f}s"
+                # Create segment using direct FFmpeg call
+                temp_segment_path = os.path.join(temp_dir, f"segment_{i}_{job_id}.mp4")
+                
+                # Format start and end times for FFmpeg (HH:MM:SS.mmm)
+                start_str = str(timedelta(seconds=start_time)).rstrip('0').rstrip('.')
+                if '.' not in start_str:
+                    start_str += '.0'
+                
+                duration_str = str(timedelta(seconds=end_time - start_time)).rstrip('0').rstrip('.')
+                if '.' not in duration_str:
+                    duration_str += '.0'
+                
+                logger.info(f"Job {job_id}: Extracting segment {i+1}/{len(valid_segments)} using FFmpeg to {temp_segment_path}")
+                
+                # Build FFmpeg command for segment extraction
+                ffmpeg_cmd = [
+                    "ffmpeg", "-y",
+                    "-ss", start_str,
+                    "-i", video_path,
+                    "-t", duration_str,
+                    "-c:v", "libx264",    # Use H.264 codec for video
+                    "-c:a", "aac",        # Use AAC codec for audio
+                    "-strict", "experimental",
+                    "-b:a", "192k",       # Good audio bitrate
+                    "-ac", "2",           # Stereo audio
+                    temp_segment_path
+                ]
+                
+                logger.info(f"Job {job_id}: FFmpeg command: {' '.join(ffmpeg_cmd)}")
+                
+                # Execute FFmpeg command
+                result = subprocess.run(
+                    ffmpeg_cmd,
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    universal_newlines=True
                 )
+                
+                # Verify the segment was created correctly
+                if os.path.exists(temp_segment_path) and os.path.getsize(temp_segment_path) > 0:
+                    segment_files.append(temp_segment_path)
+                    logger.info(f"Job {job_id}: Segment {i+1} extracted successfully to {temp_segment_path}")
+                else:
+                    logger.error(f"Job {job_id}: Segment extraction failed - empty or missing file: {temp_segment_path}")
+                    raise Exception(f"FFmpeg failed to create segment file: {temp_segment_path}")
 
                 # Update progress
                 progress = (
@@ -258,17 +360,20 @@ def process_video_segments(video_path, segments, temp_dir, job_id):
                     f"Processed segment {i+1}/{len(valid_segments)}",
                 )
 
+            except subprocess.CalledProcessError as e:
+                logger.error(f"Job {job_id}: FFmpeg failed to create segment {i+1}: {e.stderr}")
+                # Continue with other segments if one fails
+                continue
             except Exception as e:
                 logger.error(f"Job {job_id}: Failed to create segment {i+1}: {e}")
                 # Continue with other segments if one fails
                 continue
 
-        if not segment_clips:
-            input_clip.close()
+        if not segment_files:
             raise Exception("No valid video segments could be created")
 
         logger.info(
-            f"Job {job_id}: Created {len(segment_clips)} segment clips successfully"
+            f"Job {job_id}: Created {len(segment_files)} segment files successfully"
         )
 
         # Update progress
@@ -276,45 +381,9 @@ def process_video_segments(video_path, segments, temp_dir, job_id):
             job_id, "Processing", 75, "Combining segments and encoding final video..."
         )
 
-        # Concatenate all segments
-        logger.info(
-            f"Job {job_id}: Concatenating {len(segment_clips)} video segments..."
-        )
-        if len(segment_clips) > 1:
-            final_clip = concatenate_videoclips(segment_clips, method="compose")
-            logger.info(
-                f"Job {job_id}: Segments concatenated - Final duration: {final_clip.duration:.2f}s"
-            )
-        else:
-            final_clip = segment_clips[0]
-            logger.info(
-                f"Job {job_id}: Single segment - Duration: {final_clip.duration:.2f}s"
-            )
-
         try:
-            logger.info(
-                f"Job {job_id}: Writing final processed video to: {output_path}"
-            )
+            logger.info(f"Job {job_id}: Writing final processed video to: {output_path}")
             
-            # Create temporary files for extracted segments
-            segment_files = []
-            logger.info(f"Job {job_id}: Extracting segments using direct FFmpeg approach")
-            
-            for i, clip in enumerate(segment_clips):
-                temp_segment_path = os.path.join(temp_dir, f"segment_{i}_{job_id}.mp4")
-                logger.info(f"Job {job_id}: Extracting segment {i+1}/{len(segment_clips)} to {temp_segment_path}")
-                
-                # Use MoviePy just to extract the segment to file
-                clip.write_videofile(
-                    temp_segment_path,
-                    codec="libx264",
-                    audio_codec="aac",
-                    ffmpeg_params=["-y"],  # Force overwrite
-                    verbose=False,
-                    logger=None
-                )
-                segment_files.append(temp_segment_path)
-                
             # Create a file list for FFmpeg to use
             concat_file_path = os.path.join(temp_dir, f"segments_list_{job_id}.txt")
             with open(concat_file_path, 'w') as f:
@@ -352,23 +421,25 @@ def process_video_segments(video_path, segments, temp_dir, job_id):
                 f"Job {job_id}: Output file: {output_path} ({file_size / 1024 / 1024:.2f} MB)"
             )
             return output_path
-        except TimeoutError:
-            logger.error(f"Job {job_id}: Video encoding timeout after 10 minutes")
-            raise Exception("Video encoding timeout - try shorter segments")
         except Exception as e:
-            logger.error(f"Job {job_id}: MoviePy write_videofile failed: {e}")
+            logger.error(f"Job {job_id}: FFmpeg processing failed: {e}")
             raise Exception(f"Video encoding failed: {str(e)}")
         finally:
-            # Clean up clips ONLY after write_videofile completes
-            logger.info(f"Job {job_id}: Cleaning up clips from memory")
+            # Clean up temporary segment files
+            logger.info(f"Job {job_id}: Cleaning up temporary files")
             try:
-                if input_clip:
-                    input_clip.close()
-                for clip in segment_clips:
-                    if clip and clip != final_clip:
-                        clip.close()
-                if final_clip:
-                    final_clip.close()
+                for segment_path in segment_files:
+                    if os.path.exists(segment_path):
+                        try:
+                            os.remove(segment_path)
+                        except:
+                            pass
+                
+                if os.path.exists(concat_file_path):
+                    try:
+                        os.remove(concat_file_path)
+                    except:
+                        pass
             except Exception as cleanup_error:
                 logger.warning(f"Job {job_id}: Cleanup warning: {cleanup_error}")
 
@@ -378,8 +449,8 @@ def process_video_segments(video_path, segments, temp_dir, job_id):
         error_msg = str(e)
         suggestions = []
 
-        if "moviepy" in error_msg.lower():
-            suggestions.append("MoviePy processing failed - video encoding issue")
+        if "ffmpeg" in error_msg.lower():
+            suggestions.append("FFmpeg processing failed - video encoding issue")
             suggestions.append(
                 "Try selecting shorter segments or check video format compatibility"
             )
@@ -407,8 +478,8 @@ def process_video_segments(video_path, segments, temp_dir, job_id):
 
 def combine_multiple_videos(video_paths, temp_dir, job_id):
     """
-    Combine multiple processed video files into a single final video using MoviePy
-    with bundled FFmpeg from imageio-ffmpeg
+    Combine multiple processed video files into a single final video using direct FFmpeg calls
+    Pure FFmpeg approach for better audio/video synchronization
     """
     try:
         logger.info(f"Job {job_id}: Combining {len(video_paths)} video files")
@@ -421,46 +492,56 @@ def combine_multiple_videos(video_paths, temp_dir, job_id):
         )
 
         if len(video_paths) > 1:
-            # Load all video clips
-            clips = []
-            for i, video_path in enumerate(video_paths):
-                try:
-                    logger.info(
-                        f"Job {job_id}: Loading video {i+1}/{len(video_paths)}: {os.path.basename(video_path)}"
-                    )
-                    clip = VideoFileClip(video_path)
-                    clips.append(clip)
-                    logger.info(
-                        f"Job {job_id}: Video {i+1} loaded successfully - Duration: {clip.duration:.2f}s"
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"Job {job_id}: Failed to load video {video_path}: {e}"
-                    )
-                    # Continue with other videos if one fails
-                    continue
-
-            if not clips:
-                raise Exception("No valid video clips could be loaded for combination")
-
-            # Concatenate all video clips
-            logger.info(
-                f"Job {job_id}: Concatenating {len(clips)} video clips with MoviePy..."
-            )
-            final_clip = concatenate_videoclips(clips, method="compose")
-
-            # Calculate total duration for logging
-            total_duration = sum(clip.duration for clip in clips)
-            logger.info(
-                f"Job {job_id}: Total combined video duration: {total_duration:.2f}s"
-            )
-
-            logger.info(f"Job {job_id}: Writing combined video using FFmpeg direct approach")
+            logger.info(f"Job {job_id}: Validating {len(video_paths)} input videos")
             
+            # Validate that all video files exist and have content
+            valid_video_paths = []
+            for i, video_path in enumerate(video_paths):
+                if os.path.exists(video_path) and os.path.getsize(video_path) > 0:
+                    valid_video_paths.append(video_path)
+                    logger.info(f"Job {job_id}: Video {i+1}/{len(video_paths)} is valid: {os.path.basename(video_path)}")
+                else:
+                    logger.warning(f"Job {job_id}: Skipping invalid video file: {video_path}")
+            
+            if not valid_video_paths:
+                raise Exception("No valid video files could be found for combination")
+                
+            # Get duration info using FFprobe
+            total_duration = 0
+            for i, video_path in enumerate(valid_video_paths):
+                try:
+                    # Use FFprobe to get video duration
+                    ffprobe_cmd = [
+                        "ffprobe", 
+                        "-v", "error", 
+                        "-show_entries", "format=duration", 
+                        "-of", "default=noprint_wrappers=1:nokey=1", 
+                        video_path
+                    ]
+                    
+                    result = subprocess.run(
+                        ffprobe_cmd,
+                        check=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        universal_newlines=True
+                    )
+                    
+                    duration = float(result.stdout.strip())
+                    total_duration += duration
+                    logger.info(f"Job {job_id}: Video {i+1} duration: {duration:.2f}s")
+                except Exception as e:
+                    logger.warning(f"Job {job_id}: Could not get duration for video {video_path}: {e}")
+            
+            logger.info(f"Job {job_id}: Total combined duration (approx): {total_duration:.2f}s")
+            
+            # Prepare for FFmpeg concatenation
+            logger.info(f"Job {job_id}: Concatenating {len(valid_video_paths)} video files with FFmpeg...")
+
             # Create a file list for FFmpeg to use
             concat_file_path = os.path.join(temp_dir, f"combined_list_{job_id}.txt")
             with open(concat_file_path, 'w') as f:
-                for video_path in video_paths:
+                for video_path in valid_video_paths:
                     f.write(f"file '{video_path}'\n")
             
             # Use FFmpeg directly to concatenate the files (more reliable for audio sync)
@@ -487,16 +568,15 @@ def combine_multiple_videos(video_paths, temp_dir, job_id):
                 logger.error(f"Job {job_id}: FFmpeg concatenation failed: {e.stderr}")
                 raise Exception(f"FFmpeg error: {e.stderr}")
 
-            # Close all clips to free memory
-            logger.info(f"Job {job_id}: Cleaning up video clips from memory")
-            for clip in clips:
-                clip.close()
-            final_clip.close()
-
         else:
             # Only one video, just copy it
-            logger.info(f"Job {job_id}: Only one video to process, copying file...")
-            shutil.copy2(video_paths[0], output_path)
+            logger.info(f"Job {job_id}: Only one video to process, copying directly")
+            try:
+                shutil.copy2(video_paths[0], output_path)
+                logger.info(f"Job {job_id}: Video copied successfully to {output_path}")
+            except Exception as e:
+                logger.error(f"Job {job_id}: Failed to copy video: {e}")
+                raise Exception(f"Failed to copy video: {str(e)}")
 
         # Verify output
         if not os.path.exists(output_path):
@@ -508,9 +588,16 @@ def combine_multiple_videos(video_paths, temp_dir, job_id):
         )
 
         return output_path
-
     except Exception as e:
         logger.error(f"Job {job_id}: Failed to combine videos: {e}")
+        
+        # Clean up any temporary files
+        try:
+            if 'concat_file_path' in locals() and os.path.exists(concat_file_path):
+                os.remove(concat_file_path)
+        except:
+            pass
+            
         raise Exception(f"Video combination failed: {str(e)}")
 
 
