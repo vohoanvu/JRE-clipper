@@ -8,6 +8,7 @@ import time
 import shutil
 import re
 import uuid
+import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
 import logging
@@ -129,21 +130,30 @@ def process_video_segments(video_path, segments, temp_dir, job_id):
             try:
                 start = float(segment.get("startTimeSeconds", 0))
                 end = float(segment.get("endTimeSeconds", 0))
-                if start >= 0 and end > start:
+                
+                # Add padding of 2 seconds to both start and end times
+                padded_start = max(0, start - 2.0)  # Ensure we don't go below 0
+                padded_end = end + 2.0  # We'll check against video duration later
+                
+                if padded_start >= 0 and padded_end > padded_start:
                     valid_segments.append(
                         {
-                            "start": start,
-                            "end": end,
+                            "start": padded_start,
+                            "end": padded_end,
+                            "original_start": start,  # Keep original timestamps for reference
+                            "original_end": end,
                             "videoId": segment.get("videoId"),
-                            "duration": end - start,
+                            "duration": padded_end - padded_start,
                         }
                     )
                     logger.info(
-                        f"Job {job_id}: Valid segment {i+1}: {segment.get('videoId')} {start}s-{end}s (duration: {end-start:.2f}s)"
+                        f"Job {job_id}: Valid segment {i+1}: {segment.get('videoId')} original {start}s-{end}s, "
+                        f"padded {padded_start}s-{padded_end}s (duration: {padded_end-padded_start:.2f}s)"
                     )
                 else:
                     logger.warning(
-                        f"Job {job_id}: Invalid segment {i+1} skipped: start={start}, end={end}"
+                        f"Job {job_id}: Invalid segment {i+1} skipped: start={start}, end={end}, "
+                        f"padded_start={padded_start}, padded_end={padded_end}"
                     )
             except (ValueError, TypeError) as e:
                 logger.warning(
@@ -202,13 +212,29 @@ def process_video_segments(video_path, segments, temp_dir, job_id):
             # Validate segment times against video duration
             if start_time >= video_duration:
                 logger.warning(
-                    f"Job {job_id}: Segment {i+1} start time {start_time}s exceeds video duration {video_duration}s, skipping"
+                    f"Job {job_id}: Segment {i+1} padded start time {start_time}s exceeds video duration {video_duration}s, skipping"
                 )
                 continue
 
+            # Log if we had to reduce the padding for start time
+            original_start = segment.get("original_start", start_time + 2.0)
+            if start_time < original_start - 2.0 + 0.1:  # Add small epsilon for float comparison
+                logger.info(
+                    f"Job {job_id}: Segment {i+1} used full 2-second start padding: {original_start}s → {start_time}s"
+                )
+            else:
+                logger.info(
+                    f"Job {job_id}: Segment {i+1} used partial start padding: {original_start}s → {start_time}s (at video start)"
+                )
+                
             if end_time > video_duration:
                 logger.warning(
-                    f"Job {job_id}: Segment {i+1} end time {end_time}s exceeds video duration {video_duration}s, adjusting to {video_duration}s"
+                    f"Job {job_id}: Segment {i+1} padded end time {end_time}s exceeds video duration {video_duration}s, adjusting to {video_duration}s"
+                )
+                # Log the padding adjustment
+                original_end = segment.get("original_end", end_time - 2.0)
+                logger.info(
+                    f"Job {job_id}: Segment {i+1} padding reduced: was {original_end}s + 2s = {end_time}s, now {video_duration}s (video end)"
                 )
                 end_time = video_duration
 
@@ -269,38 +295,58 @@ def process_video_segments(video_path, segments, temp_dir, job_id):
             logger.info(
                 f"Job {job_id}: Writing final processed video to: {output_path}"
             )
-            final_clip.write_videofile(
-                output_path,
-                codec="libx264",
-                audio_codec="aac",
-                threads=1,
-                ffmpeg_params=[
-                    "-y",  # Force overwrite (prevents hanging on existing files)
-                    "-crf",
-                    "28",
-                    "-preset",
-                    "ultrafast",  # Fastest encoding to reduce hang risk
-                    "-movflags",
-                    "+faststart",
-                    "-pix_fmt",
-                    "yuv420p",
-                    "-f",
-                    "mp4",  # Force format
-                    "-avoid_negative_ts",
-                    "make_zero",  # Handle timestamp issues
-                    "-fflags",
-                    "+genpts",  # Generate presentation timestamps
-                    "-timeout",
-                    "600000000",  # 10 minute timeout (microseconds)
-                    "-nostdin",  # Don't wait for stdin input
-                    "-loglevel",
-                    "error",  # Reduce log verbosity
-                ],
-                temp_audiofile=f"/tmp/temp_audio_{job_id}.m4a",
-                remove_temp=True,
-                logger=None,
-            )
-            logger.info(f"Job {job_id}: MoviePy processing completed successfully")
+            
+            # Create temporary files for extracted segments
+            segment_files = []
+            logger.info(f"Job {job_id}: Extracting segments using direct FFmpeg approach")
+            
+            for i, clip in enumerate(segment_clips):
+                temp_segment_path = os.path.join(temp_dir, f"segment_{i}_{job_id}.mp4")
+                logger.info(f"Job {job_id}: Extracting segment {i+1}/{len(segment_clips)} to {temp_segment_path}")
+                
+                # Use MoviePy just to extract the segment to file
+                clip.write_videofile(
+                    temp_segment_path,
+                    codec="libx264",
+                    audio_codec="aac",
+                    ffmpeg_params=["-y"],  # Force overwrite
+                    verbose=False,
+                    logger=None
+                )
+                segment_files.append(temp_segment_path)
+                
+            # Create a file list for FFmpeg to use
+            concat_file_path = os.path.join(temp_dir, f"segments_list_{job_id}.txt")
+            with open(concat_file_path, 'w') as f:
+                for segment_path in segment_files:
+                    f.write(f"file '{segment_path}'\n")
+            
+            # Use FFmpeg directly to concatenate the files (more reliable for audio sync)
+            logger.info(f"Job {job_id}: Concatenating segments using FFmpeg directly")
+            ffmpeg_cmd = [
+                "ffmpeg", "-y",
+                "-f", "concat",
+                "-safe", "0",
+                "-i", concat_file_path,
+                "-c", "copy",  # Just copy streams without re-encoding
+                output_path
+            ]
+            
+            try:
+                logger.info(f"Job {job_id}: Running FFmpeg command: {' '.join(ffmpeg_cmd)}")
+                result = subprocess.run(
+                    ffmpeg_cmd, 
+                    check=True,
+                    stdout=subprocess.PIPE, 
+                    stderr=subprocess.PIPE,
+                    universal_newlines=True
+                )
+                logger.info(f"Job {job_id}: FFmpeg concatenation successful")
+            except subprocess.CalledProcessError as e:
+                logger.error(f"Job {job_id}: FFmpeg concatenation failed: {e.stderr}")
+                raise Exception(f"FFmpeg error: {e.stderr}")
+                
+            logger.info(f"Job {job_id}: Video processing completed successfully")
             file_size = os.path.getsize(output_path)
             logger.info(
                 f"Job {job_id}: Output file: {output_path} ({file_size / 1024 / 1024:.2f} MB)"
@@ -409,39 +455,37 @@ def combine_multiple_videos(video_paths, temp_dir, job_id):
                 f"Job {job_id}: Total combined video duration: {total_duration:.2f}s"
             )
 
-            # Write the final video with optimized settings
-            logger.info(f"Job {job_id}: Writing combined video to: {output_path}")
-            final_clip.write_videofile(
-                output_path,
-                codec="libx264",
-                audio_codec="aac",
-                threads=1,
-                ffmpeg_params=[
-                    "-y",  # Force overwrite (prevents hanging on existing files)
-                    "-crf",
-                    "28",
-                    "-preset",
-                    "ultrafast",  # Fastest encoding to reduce hang risk
-                    "-movflags",
-                    "+faststart",
-                    "-pix_fmt",
-                    "yuv420p",
-                    "-f",
-                    "mp4",  # Force format
-                    "-avoid_negative_ts",
-                    "make_zero",  # Handle timestamp issues
-                    "-fflags",
-                    "+genpts",  # Generate presentation timestamps
-                    "-timeout",
-                    "600000000",  # 10 minute timeout (microseconds)
-                    "-nostdin",  # Don't wait for stdin input
-                    "-loglevel",
-                    "error",  # Reduce log verbosity
-                ],
-                temp_audiofile=f"/tmp/temp_audio_{job_id}.m4a",
-                remove_temp=True,
-                logger=None,
-            )
+            logger.info(f"Job {job_id}: Writing combined video using FFmpeg direct approach")
+            
+            # Create a file list for FFmpeg to use
+            concat_file_path = os.path.join(temp_dir, f"combined_list_{job_id}.txt")
+            with open(concat_file_path, 'w') as f:
+                for video_path in video_paths:
+                    f.write(f"file '{video_path}'\n")
+            
+            # Use FFmpeg directly to concatenate the files (more reliable for audio sync)
+            ffmpeg_cmd = [
+                "ffmpeg", "-y",
+                "-f", "concat",
+                "-safe", "0",
+                "-i", concat_file_path,
+                "-c", "copy",  # Just copy streams without re-encoding
+                output_path
+            ]
+            
+            try:
+                logger.info(f"Job {job_id}: Running FFmpeg command: {' '.join(ffmpeg_cmd)}")
+                result = subprocess.run(
+                    ffmpeg_cmd, 
+                    check=True,
+                    stdout=subprocess.PIPE, 
+                    stderr=subprocess.PIPE,
+                    universal_newlines=True
+                )
+                logger.info(f"Job {job_id}: FFmpeg concatenation successful")
+            except subprocess.CalledProcessError as e:
+                logger.error(f"Job {job_id}: FFmpeg concatenation failed: {e.stderr}")
+                raise Exception(f"FFmpeg error: {e.stderr}")
 
             # Close all clips to free memory
             logger.info(f"Job {job_id}: Cleaning up video clips from memory")
