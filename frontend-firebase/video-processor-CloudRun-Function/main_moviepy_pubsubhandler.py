@@ -25,7 +25,7 @@ from google.auth.transport.requests import Request
 from google.oauth2 import service_account
 from google.cloud.exceptions import NotFound, GoogleCloudError
 import glob
-from moviepy import VideoFileClip, concatenate_videoclips
+# MoviePy imports removed as we now use FFmpeg directly
 
 # Set up logging to work in Cloud Run environment
 logging.basicConfig(
@@ -316,17 +316,19 @@ def process_video_segments(video_path, segments, temp_dir, job_id):
                 
                 logger.info(f"Job {job_id}: Extracting segment {i+1}/{len(valid_segments)} using FFmpeg to {temp_segment_path}")
                 
-                # Build FFmpeg command for segment extraction
+                # Build FFmpeg command for segment extraction - using accurate seeking (ss after -i)
                 ffmpeg_cmd = [
                     "ffmpeg", "-y",
-                    "-ss", start_str,
                     "-i", video_path,
+                    "-ss", start_str,
                     "-t", duration_str,
                     "-c:v", "libx264",    # Use H.264 codec for video
                     "-c:a", "aac",        # Use AAC codec for audio
                     "-strict", "experimental",
                     "-b:a", "192k",       # Good audio bitrate
                     "-ac", "2",           # Stereo audio
+                    "-vsync", "1",        # Maintain video sync
+                    "-async", "1",        # Maintain audio sync
                     temp_segment_path
                 ]
                 
@@ -390,14 +392,19 @@ def process_video_segments(video_path, segments, temp_dir, job_id):
                 for segment_path in segment_files:
                     f.write(f"file '{segment_path}'\n")
             
-            # Use FFmpeg directly to concatenate the files (more reliable for audio sync)
-            logger.info(f"Job {job_id}: Concatenating segments using FFmpeg directly")
+            # Use FFmpeg directly to concatenate the files (with re-encoding for better audio sync)
+            logger.info(f"Job {job_id}: Concatenating segments using FFmpeg with re-encoding for better sync")
             ffmpeg_cmd = [
                 "ffmpeg", "-y",
                 "-f", "concat",
                 "-safe", "0",
                 "-i", concat_file_path,
-                "-c", "copy",  # Just copy streams without re-encoding
+                "-c:v", "libx264",    # Re-encode video for better synchronization
+                "-c:a", "aac",        # Re-encode audio for better synchronization
+                "-strict", "experimental",
+                "-b:a", "192k",       # Maintain good audio quality
+                "-vsync", "1",        # Ensure video sync
+                "-async", "1",        # Ensure audio sync
                 output_path
             ]
             
@@ -544,13 +551,18 @@ def combine_multiple_videos(video_paths, temp_dir, job_id):
                 for video_path in valid_video_paths:
                     f.write(f"file '{video_path}'\n")
             
-            # Use FFmpeg directly to concatenate the files (more reliable for audio sync)
+            # Use FFmpeg directly to concatenate the files (with re-encoding for better audio sync)
             ffmpeg_cmd = [
                 "ffmpeg", "-y",
                 "-f", "concat",
                 "-safe", "0",
                 "-i", concat_file_path,
-                "-c", "copy",  # Just copy streams without re-encoding
+                "-c:v", "libx264",    # Re-encode video for better synchronization
+                "-c:a", "aac",        # Re-encode audio for better synchronization
+                "-strict", "experimental",
+                "-b:a", "192k",       # Maintain good audio quality
+                "-vsync", "1",        # Ensure video sync
+                "-async", "1",        # Ensure audio sync
                 output_path
             ]
             

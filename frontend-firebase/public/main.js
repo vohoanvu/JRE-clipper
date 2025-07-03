@@ -358,7 +358,7 @@ async function performSearch(query) {
     },
     body: JSON.stringify({
       query: query.toLowerCase(),
-      pageSize: 20,
+      pageSize: 30,
       queryExpansionSpec: { condition: "AUTO" },
       spellCorrectionSpec: { mode: "AUTO" },
       languageCode: "en-US",
