@@ -1,11 +1,52 @@
 # Project Status: "What would Joe Rogan say?" - Web App
 
-**Date:** 2025-06-30
-**Overall Status:** `ENHANCED - FFmpeg-Based Video Processing with Improved A/V Sync`
+**Date:** 2025-07-04
+**Overall Status:** `ENHANCED - Critical Video Processing Bug Fixes`
 
 ---
 
-## Latest Update (2025-06-30): FFmpeg-Based Video Processing with Improved A/V Sync ✅
+## Latest Update (2025-07-04): Critical Video Processing Bug Fixes ✅
+
+**CRITICAL BUG FIXES IMPLEMENTED**: Fixed major video processing issues causing corrupted segments and incorrect final video duration:
+
+### Major Issues Fixed:
+- ✅ **Fixed Segment Extraction**: Replaced unreliable seek/duration approach with precise trim filters
+- ✅ **Fixed Video Corruption**: Added comprehensive video stream validation to prevent empty/corrupted segments
+- ✅ **Fixed Duration Bug**: Corrected ffmpeg-python usage to ensure accurate final video duration
+- ✅ **Fixed Codec Compatibility**: Added codec validation and consistent encoding across all segments
+- ✅ **Fixed Concatenation Logic**: Updated to use proper concat demuxer in both functions
+- ✅ **Enhanced Error Handling**: Added robust ffmpeg error capture and validation
+
+### Technical Improvements:
+
+#### 🎬 **Robust Segment Extraction**:
+- ✅ **Precise Timing**: Uses trim/atrim filters with setpts for frame-accurate segment extraction
+- ✅ **Consistent Encoding**: All segments use libx264/aac with consistent parameters
+- ✅ **Stream Validation**: Validates each segment contains valid video and audio streams
+- ✅ **Frame Count Validation**: Ensures segments contain actual video frames, not empty data
+- ✅ **Error Capture**: Comprehensive ffmpeg stderr logging for debugging
+
+#### 🔗 **Improved Concatenation**:
+- ✅ **Codec Compatibility Check**: Validates all segments use compatible codecs before concatenation
+- ✅ **Smart Fallback**: Uses stream copy when possible, re-encoding when necessary
+- ✅ **Final Video Validation**: Validates concatenated video contains valid streams and correct duration
+- ✅ **Enhanced Error Handling**: Multiple fallback strategies for concatenation failures
+
+#### 🛠 **Code Quality Improvements**:
+- ✅ **Detailed Logging**: Enhanced logging at every step for better debugging
+- ✅ **Validation at Every Step**: Stream, duration, and frame validation throughout pipeline
+- ✅ **Proper Error Propagation**: Clear error messages with actionable suggestions
+- ✅ **Resource Cleanup**: Improved temporary file cleanup and error recovery
+
+### Root Cause Analysis:
+- **Wrong ffmpeg Usage**: Previous code used incorrect concat filter instead of concat demuxer
+- **Missing Validation**: No validation of extracted segments led to empty video data
+- **Codec Mismatches**: Inconsistent encoding parameters caused concatenation failures
+- **Silent Failures**: ffmpeg errors were suppressed, hiding critical issues
+
+---
+
+## Previous Update (2025-06-30): FFmpeg-Based Video Processing with Improved A/V Sync ✅
 
 **FFMPEG REFACTORING COMPLETED**: Completely refactored video processing to use FFmpeg directly for improved audio/video synchronization:
 
@@ -906,3 +947,38 @@ This fix resolves the critical threading issue that was preventing background vi
 - ✅ **requestManualVideoGeneration**: Includes authentication context in requests
 
 **FRONTEND FULLY ALIGNED WITH FIREBASE AUTH BACKEND** ✅
+
+---
+
+## Latest Update (2025-07-04): Migration to C#/.NET Cloud Functions ⚠️
+
+**DECISION**: Due to persistent resource management issues with the Python implementation (memory limits, hanging processes, inefficient cleanup), we are migrating to a C#/.NET solution for Google Cloud Run Functions.
+
+### Issues with Current Python Implementation:
+- ❌ **Memory Limit Exceeded**: 16GB limit exceeded with 28+ segments across 20 videos
+- ❌ **Process Hanging**: Functions timeout after 15+ minutes on large jobs
+- ❌ **Poor Resource Management**: Temporary files accumulate, no immediate cleanup
+- ❌ **Sequential Processing**: No efficient batch processing or parallel execution
+- ❌ **Complex FFmpeg Integration**: ffmpeg-python wrapper adds complexity and memory overhead
+
+### Migration Strategy:
+- ✅ **C#/.NET Core**: Better memory management and performance
+- ✅ **Google Cloud Functions Framework**: Native .NET support for Pub/Sub triggers
+- ✅ **FFMpegCore**: More efficient .NET wrapper for FFmpeg operations
+- ✅ **Batch Processing**: Built-in resource monitoring and adaptive batch sizes
+- ✅ **Memory Optimization**: Streaming processing, immediate cleanup, GC management
+- ✅ **Better Error Handling**: Comprehensive exception handling and logging
+
+### Migration Plan Created:
+- 📋 **Complete 6-week migration plan** documented in `docs/migration-plan-dotnet.md`
+- 🏗️ **Architecture**: Clean Architecture with Core/Infrastructure separation
+- 🧪 **Testing Strategy**: Unit tests, integration tests, performance benchmarks
+- 📊 **Success Metrics**: 40% memory reduction, 30% speed improvement, 99.9% reliability
+- 🚀 **Deployment**: Docker-based deployment to Google Cloud Functions
+
+### Next Steps:
+1. Set up .NET project structure and dependencies
+2. Implement core video processing services with resource monitoring
+3. Create Cloud Functions with Pub/Sub triggers
+4. Integrate FFMpegCore for optimized video processing
+5. Deploy and test with comprehensive performance monitoring
