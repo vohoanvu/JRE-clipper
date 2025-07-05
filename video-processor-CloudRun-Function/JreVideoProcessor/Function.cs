@@ -17,7 +17,7 @@ using System.Net.Http;
 using System.Text.Json.Serialization;
 using FFMpegCore;
 
-namespace HelloPubSub;
+namespace JreVideoProcessor;
 
 public class Function : ICloudEventFunction<MessagePublishedData>
 {

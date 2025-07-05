@@ -1,0 +1,13 @@
+**/.dockerignore
+**/.env
+**/.git
+**/.gitignore
+**/.vs
+**/.vscode
+**/bin/
+**/obj/
+
+**/main.py
+**/main_moviepy.py
+**/main_moviepy__pubsubhandler.py
+**/requirements.txt
