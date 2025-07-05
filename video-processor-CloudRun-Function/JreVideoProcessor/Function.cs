@@ -12,10 +12,14 @@ using System;
 using System.IO;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
 using System.Net.Http;
 using System.Text.Json.Serialization;
+using System.Diagnostics;
 using FFMpegCore;
+using FFMpegCore.Enums;
+using FFMpegCore.Pipes;
 
 namespace JreVideoProcessor;
 
@@ -51,6 +55,9 @@ public class Function : ICloudEventFunction<MessagePublishedData>
     public Function(ILogger<Function> logger)
     {
         _logger = logger;
+        // Verify that ffmpeg is available before doing anything else.
+        CheckFfmpegInstallation();
+
         _storageClient = StorageClient.Create();
 
         // Create FirestoreDb with custom database name using FirestoreDbBuilder
@@ -117,7 +124,6 @@ public class Function : ICloudEventFunction<MessagePublishedData>
             throw;
         }
     }
-
 
     private async Task ProcessSegmentsForJob(string jobId, JobData jobData, CancellationToken cancellationToken)
     {
@@ -450,23 +456,63 @@ public class Function : ICloudEventFunction<MessagePublishedData>
 
     private async Task<bool> ExtractSegmentWithFFmpeg(string inputPath, string outputPath, double startTime, double endTime, string jobId)
     {
+        var success = false;
+        var errorMessages = new StringBuilder();
+
         try
         {
             var startTimeSpan = TimeSpan.FromSeconds(startTime);
             var duration = TimeSpan.FromSeconds(endTime - startTime);
 
-            _logger.LogDebug($"Job {jobId}: Extracting segment from {startTimeSpan} for {duration} duration using FFMpeg.SubVideo");
+            _logger.LogInformation($"Job {jobId}: Preparing to extract segment. Input: '{inputPath}', Output: '{outputPath}'");
 
-            // Use FFMpeg.SubVideo for simple segment extraction
-            await Task.Run(() => FFMpeg.SubVideo(inputPath, outputPath, startTimeSpan, duration));
+            var arguments = FFMpegArguments
+                .FromFileInput(inputPath)
+                .OutputToFile(outputPath, true, options => options
+                    .Seek(startTimeSpan)
+                    .WithDuration(duration)
+                    .CopyChannel());
 
-            return true;
+            arguments.NotifyOnError(message =>
+            {
+                // Log any real errors from ffmpeg
+                errorMessages.AppendLine(message);
+                _logger.LogError($"Job {jobId} [FFMPEG RAW ERROR]: {message}");
+            });
+
+            // --- THIS IS THE FIX ---
+            // The 'progress' variable is a TimeSpan. We format it correctly as a string.
+            arguments.NotifyOnProgress(progress =>
+            {
+                // The 'c' format specifier formats a TimeSpan as "d.hh:mm:ss.fffffff"
+                _logger.LogInformation($"Job {jobId} [FFMPEG PROGRESS]: Processed up to {progress:c}");
+            });
+            // --- END OF FIX ---
+
+            await arguments.ProcessAsynchronously();
+
+            // Check if the output file was created and has content.
+            if (!File.Exists(outputPath) || new FileInfo(outputPath).Length == 0)
+            {
+                _logger.LogError($"Job {jobId}: FFMpeg command failed. The output file is missing or empty. Path: {outputPath}. Errors captured: {errorMessages.ToString()}");
+                success = false;
+            }
+            else
+            {
+                if (errorMessages.Length > 0)
+                {
+                    _logger.LogWarning($"Job {jobId}: FFMpeg process completed and created a file, but reported non-fatal errors: {errorMessages.ToString()}");
+                }
+                success = true;
+            }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"Job {jobId}: Error extracting segment with FFMpeg.SubVideo");
-            return false;
+            _logger.LogError(ex, $"Job {jobId}: An exception occurred in ExtractSegmentWithFFmpeg. Input: '{inputPath}'. Captured FFMPEG errors: {errorMessages.ToString()}");
+            success = false;
         }
+
+        return success;
     }
 
     private async Task<bool> ConcatenateSegments(List<string> segmentFiles, string outputPath, string jobId)
@@ -697,6 +743,51 @@ public class Function : ICloudEventFunction<MessagePublishedData>
                 // Wait before retrying
                 await Task.Delay(1000 * attempt);
             }
+        }
+    }
+
+    private void CheckFfmpegInstallation()
+    {
+        try
+        {
+            _logger.LogInformation("Verifying ffmpeg installation by running 'ffmpeg -version'...");
+            var process = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = "ffmpeg",
+                    Arguments = "-version",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                }
+            };
+
+            process.Start();
+            string output = process.StandardOutput.ReadToEnd();
+            string err = process.StandardError.ReadToEnd();
+            process.WaitForExit();
+
+            if (process.ExitCode == 0)
+            {
+                // Log the first line of the output which usually contains the version.
+                var versionLine = output.Split('\n').FirstOrDefault()?.Trim() ?? "Unknown version";
+                _logger.LogInformation($"ffmpeg verification successful. Version info: {versionLine}");
+            }
+            else
+            {
+                // This will be triggered if ffmpeg returns an error.
+                _logger.LogCritical($"ffmpeg verification failed. Exit Code: {process.ExitCode}. Stderr: {err}");
+                throw new Exception($"ffmpeg executable returned an error. Stderr: {err}");
+            }
+        }
+        catch (Exception ex)
+        {
+            // This catch block is crucial. On Linux, if 'ffmpeg' is not found, an exception is thrown.
+            _logger.LogCritical(ex, "FATAL: ffmpeg executable not found or failed to run. " +
+                                    "Please ensure ffmpeg is installed in the container and accessible via the PATH environment variable.");
+            throw;
         }
     }
 }
