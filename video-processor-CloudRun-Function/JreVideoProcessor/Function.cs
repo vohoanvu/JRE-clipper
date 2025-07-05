@@ -17,6 +17,7 @@ using System.Text.Json;
 using System.Net.Http;
 using System.Text.Json.Serialization;
 using System.Diagnostics;
+using System.Globalization;
 using FFMpegCore;
 using FFMpegCore.Enums;
 using FFMpegCore.Pipes;
@@ -312,130 +313,92 @@ public class Function : ICloudEventFunction<MessagePublishedData>
         var videoId = segments.FirstOrDefault()?.VideoId ?? "unknown";
         var outputPath = Path.Combine(tempDir, $"processed_{videoId}_{jobId}.mp4");
 
+        // --- FIX: Track segment files created by this specific method call ---
+        var createdSegmentFiles = new List<string>();
+
         try
         {
-            _logger.LogInformation($"Job {jobId}: Starting segment processing");
+            _logger.LogInformation($"Job {jobId}: Starting segment processing for video {videoId}");
 
-            // Validate segments
             var validSegments = new List<VideoSegment>();
+            // (Validation logic remains the same...)
             for (int i = 0; i < segments.Count; i++)
             {
                 var segment = segments[i];
-                try
+                if (segment.StartTimeSeconds.HasValue && segment.EndTimeSeconds.HasValue &&
+                    segment.StartTimeSeconds >= 0 && segment.EndTimeSeconds > segment.StartTimeSeconds)
                 {
-                    if (segment.StartTimeSeconds.HasValue && segment.EndTimeSeconds.HasValue &&
-                        segment.StartTimeSeconds >= 0 && segment.EndTimeSeconds > segment.StartTimeSeconds)
-                    {
-                        validSegments.Add(segment);
-                        _logger.LogInformation($"Job {jobId}: Valid segment {i + 1}: {segment.VideoId} {segment.StartTimeSeconds}s-{segment.EndTimeSeconds}s (duration: {segment.EndTimeSeconds - segment.StartTimeSeconds:F2}s)");
-                    }
-                    else
-                    {
-                        _logger.LogWarning($"Job {jobId}: Invalid segment {i + 1} skipped: start={segment.StartTimeSeconds}, end={segment.EndTimeSeconds}");
-                    }
+                    validSegments.Add(segment);
                 }
-                catch (Exception ex)
+                else
                 {
-                    _logger.LogWarning(ex, $"Job {jobId}: Skipping segment {i + 1} due to format error");
+                    _logger.LogWarning($"Job {jobId}: Invalid segment {i + 1} for video {videoId} skipped.");
                 }
             }
 
             if (!validSegments.Any())
             {
-                throw new ArgumentException("No valid segments to process");
+                throw new ArgumentException($"No valid segments to process for video {videoId}");
             }
 
-            var totalSegmentDuration = validSegments.Sum(s => s.EndTimeSeconds - s.StartTimeSeconds);
             _logger.LogInformation($"Job {jobId}: Processing {validSegments.Count} valid segments from video: {Path.GetFileName(videoPath)}");
-            _logger.LogInformation($"Job {jobId}: Total segments duration: {totalSegmentDuration:F2}s");
 
-            // Verify input video exists
             if (!File.Exists(videoPath))
             {
                 throw new FileNotFoundException($"Input video file not found: {videoPath}");
             }
 
-            // Remove the GetVideoInfo call - we'll let FFMpeg handle video validation
-            _logger.LogInformation($"Job {jobId}: Processing video file: {Path.GetFileName(videoPath)}");
-
-            // Update job status
             await UpdateJobStatus(jobId, "Processing", 60, $"Processing {validSegments.Count} video segments...");
 
-            // Process segments
-            var segmentFiles = new List<string>();
+            // Process and extract segments
             for (int i = 0; i < validSegments.Count; i++)
             {
                 var segment = validSegments[i];
-                var startTime = segment.StartTimeSeconds.Value;
-                var endTime = segment.EndTimeSeconds.Value;
-                var duration = endTime - startTime;
+                var tempSegmentPath = Path.Combine(tempDir, $"segment_{videoId}_{i}_{jobId}.mp4");
 
-                _logger.LogInformation($"Job {jobId}: Processing segment {i + 1}/{validSegments.Count}: {startTime}s-{endTime}s (duration: {duration:F2}s)");
+                // --- FIX: Add created file to our tracked list ---
+                createdSegmentFiles.Add(tempSegmentPath);
 
-                try
+                var success = await ExtractSegmentWithFFmpeg(videoPath, tempSegmentPath, segment.StartTimeSeconds.Value, segment.EndTimeSeconds.Value, jobId);
+                if (!success)
                 {
-                    var tempSegmentPath = Path.Combine(tempDir, $"segment_{i}_{jobId}.mp4");
-                    _logger.LogInformation($"Job {jobId}: Extracting segment {i + 1}/{validSegments.Count} using FFMpeg to {tempSegmentPath}");
-
-                    // Extract segment using FFMpeg.SubVideo - it will handle validation internally
-                    var success = await ExtractSegmentWithFFmpeg(videoPath, tempSegmentPath, startTime, endTime, jobId);
-                    if (success && File.Exists(tempSegmentPath) && new FileInfo(tempSegmentPath).Length > 0)
-                    {
-                        segmentFiles.Add(tempSegmentPath);
-                        _logger.LogInformation($"Job {jobId}: Successfully extracted segment {i + 1}");
-                    }
-                    else
-                    {
-                        _logger.LogError($"Job {jobId}: Failed to extract segment {i + 1}");
-                    }
-
-                    // Update progress
-                    var progress = (int)(60 + (i + 1) / (double)validSegments.Count * 15);
-                    await UpdateJobStatus(jobId, "Processing", progress, $"Processed segment {i + 1}/{validSegments.Count}");
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, $"Job {jobId}: Error processing segment {i + 1}");
-                    continue;
+                    _logger.LogError($"Job {jobId}: Failed to extract segment {i + 1} for video {videoId}.");
+                    // Optional: decide if you want to continue or fail the whole video
                 }
             }
 
-            if (!segmentFiles.Any())
+            // Filter out any files that failed to be created
+            var existingSegmentFiles = createdSegmentFiles.Where(File.Exists).ToList();
+            if (!existingSegmentFiles.Any())
             {
-                throw new Exception("No valid video segments could be created");
+                throw new Exception($"No video segments could be created for video {videoId}");
             }
 
-            _logger.LogInformation($"Job {jobId}: Created {segmentFiles.Count} segment files successfully");
+            _logger.LogInformation($"Job {jobId}: Created {existingSegmentFiles.Count} segment files for video {videoId}.");
+            await UpdateJobStatus(jobId, "Processing", 75, "Combining segments...");
 
-            // Update progress
-            await UpdateJobStatus(jobId, "Processing", 75, "Combining segments and encoding final video...");
-
-            // Concatenate segments
-            var concatenationSuccess = await ConcatenateSegments(segmentFiles, outputPath, jobId);
+            // Concatenate the segments for this video
+            var concatenationSuccess = await ConcatenateSegments(existingSegmentFiles, outputPath, jobId);
             if (!concatenationSuccess || !File.Exists(outputPath))
             {
-                throw new Exception("Failed to concatenate video segments");
+                throw new Exception($"Failed to concatenate segments for video {videoId}");
             }
 
-            _logger.LogInformation($"Job {jobId}: Video processing completed successfully");
-            var fileSize = new FileInfo(outputPath).Length;
-            _logger.LogInformation($"Job {jobId}: Output file: {outputPath} ({fileSize / 1024.0 / 1024.0:F2} MB)");
-
+            _logger.LogInformation($"Job {jobId}: Video processing for {videoId} completed successfully.");
             return outputPath;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"Job {jobId}: Video processing failed");
+            _logger.LogError(ex, $"Job {jobId}: Video processing failed for {videoId}");
             throw;
         }
         finally
         {
-            // Clean up temporary segment files
-            _logger.LogInformation($"Job {jobId}: Cleaning up temporary files");
-            try
+            // --- FIX: Clean up only the files created by this method ---
+            _logger.LogInformation($"Job {jobId}: Cleaning up {createdSegmentFiles.Count} temporary segment files for video {videoId}.");
+            foreach (var file in createdSegmentFiles)
             {
-                var segmentFiles = Directory.GetFiles(tempDir, $"segment_*_{jobId}.mp4");
-                foreach (var file in segmentFiles)
+                if (File.Exists(file))
                 {
                     try
                     {
@@ -447,126 +410,242 @@ public class Function : ICloudEventFunction<MessagePublishedData>
                     }
                 }
             }
-            catch (Exception cleanupEx)
-            {
-                _logger.LogWarning(cleanupEx, $"Error during cleanup for job {jobId}");
-            }
         }
     }
 
     private async Task<bool> ExtractSegmentWithFFmpeg(string inputPath, string outputPath, double startTime, double endTime, string jobId)
     {
-        var success = false;
-        var errorMessages = new StringBuilder();
+        var duration = endTime - startTime;
+
+        // Use InvariantCulture to ensure '.' is the decimal separator, regardless of the system's locale.
+        // Quote file paths to handle spaces and other special characters robustly.
+        var arguments = $"-ss {startTime.ToString(CultureInfo.InvariantCulture)} -i \"{inputPath}\" -t {duration.ToString(CultureInfo.InvariantCulture)} -c copy -y \"{outputPath}\"";
+
+        _logger.LogInformation($"Job {jobId}: Preparing to execute direct ffmpeg command.");
+        _logger.LogInformation($"Job {jobId}: > ffmpeg {arguments}");
+
+        var processStartInfo = new ProcessStartInfo
+        {
+            FileName = "ffmpeg", // Assumes 'ffmpeg' is in the system's PATH, which it is in your container.
+            Arguments = arguments,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
 
         try
         {
-            var startTimeSpan = TimeSpan.FromSeconds(startTime);
-            var duration = TimeSpan.FromSeconds(endTime - startTime);
-
-            _logger.LogInformation($"Job {jobId}: Preparing to extract segment. Input: '{inputPath}', Output: '{outputPath}'");
-
-            var arguments = FFMpegArguments
-                .FromFileInput(inputPath)
-                .OutputToFile(outputPath, true, options => options
-                    .Seek(startTimeSpan)
-                    .WithDuration(duration)
-                    .CopyChannel());
-
-            arguments.NotifyOnError(message =>
+            using (var process = new Process { StartInfo = processStartInfo })
             {
-                // Log any real errors from ffmpeg
-                errorMessages.AppendLine(message);
-                _logger.LogError($"Job {jobId} [FFMPEG RAW ERROR]: {message}");
-            });
+                var stdOut = new StringBuilder();
+                var stdErr = new StringBuilder();
 
-            // --- THIS IS THE FIX ---
-            // The 'progress' variable is a TimeSpan. We format it correctly as a string.
-            arguments.NotifyOnProgress(progress =>
-            {
-                // The 'c' format specifier formats a TimeSpan as "d.hh:mm:ss.fffffff"
-                _logger.LogInformation($"Job {jobId} [FFMPEG PROGRESS]: Processed up to {progress:c}");
-            });
-            // --- END OF FIX ---
+                // Use TaskCompletionSource to await the process exit event.
+                var tcs = new TaskCompletionSource<bool>();
+                process.EnableRaisingEvents = true;
+                process.Exited += (sender, args) => tcs.TrySetResult(true);
 
-            await arguments.ProcessAsynchronously();
+                // Asynchronously capture the output and error streams.
+                process.OutputDataReceived += (sender, args) => { if (args.Data != null) stdOut.AppendLine(args.Data); };
+                process.ErrorDataReceived += (sender, args) => { if (args.Data != null) stdErr.AppendLine(args.Data); };
 
-            // Check if the output file was created and has content.
-            if (!File.Exists(outputPath) || new FileInfo(outputPath).Length == 0)
-            {
-                _logger.LogError($"Job {jobId}: FFMpeg command failed. The output file is missing or empty. Path: {outputPath}. Errors captured: {errorMessages.ToString()}");
-                success = false;
-            }
-            else
-            {
-                if (errorMessages.Length > 0)
+                process.Start();
+
+                process.BeginOutputReadLine();
+                process.BeginErrorReadLine();
+
+                // Wait for the process to exit.
+                await tcs.Task;
+
+                // Check the exit code. 0 means success.
+                if (process.ExitCode == 0)
                 {
-                    _logger.LogWarning($"Job {jobId}: FFMpeg process completed and created a file, but reported non-fatal errors: {errorMessages.ToString()}");
+                    // Final check to ensure the file was created and is not empty.
+                    if (File.Exists(outputPath) && new FileInfo(outputPath).Length > 0)
+                    {
+                        _logger.LogInformation($"Job {jobId}: ffmpeg command executed successfully.");
+                        // Log the standard error stream, as ffmpeg writes progress and summary here.
+                        _logger.LogInformation($"Job {jobId}: ffmpeg output:\n{stdErr.ToString()}");
+                        return true;
+                    }
+                    else
+                    {
+                        _logger.LogError($"Job {jobId}: ffmpeg process exited with code 0, but the output file is missing or empty. Path: {outputPath}.\nffmpeg output:\n{stdErr.ToString()}");
+                        return false;
+                    }
                 }
-                success = true;
+                else
+                {
+                    _logger.LogError($"Job {jobId}: ffmpeg process failed with exit code {process.ExitCode}.\nffmpeg output:\n{stdErr.ToString()}");
+                    return false;
+                }
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"Job {jobId}: An exception occurred in ExtractSegmentWithFFmpeg. Input: '{inputPath}'. Captured FFMPEG errors: {errorMessages.ToString()}");
-            success = false;
-        }
-
-        return success;
-    }
-
-    private async Task<bool> ConcatenateSegments(List<string> segmentFiles, string outputPath, string jobId)
-    {
-        try
-        {
-            if (segmentFiles.Count == 1)
-            {
-                // Single segment, just copy
-                File.Copy(segmentFiles[0], outputPath, true);
-                return true;
-            }
-
-            _logger.LogDebug($"Job {jobId}: Joining {segmentFiles.Count} segments using FFMpeg.Join");
-
-            // Use FFMpeg.Join for simple concatenation
-            await Task.Run(() => FFMpeg.Join(outputPath, segmentFiles.ToArray()));
-
-            return true;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, $"Job {jobId}: Error joining segments with FFMpeg.Join");
+            _logger.LogError(ex, $"Job {jobId}: An unhandled exception occurred while trying to execute the ffmpeg process. Command: ffmpeg {arguments}");
             return false;
         }
     }
 
+    private async Task<bool> ConcatenateSegments(List<string> segmentFiles, string outputPath, string jobId)
+    {
+        if (segmentFiles.Count == 1)
+        {
+            File.Copy(segmentFiles[0], outputPath, true);
+            return true;
+        }
+
+        _logger.LogInformation($"Job {jobId}: Normalizing and concatenating {segmentFiles.Count} segments into '{outputPath}'.");
+
+        // --- START: ROBUST NORMALIZATION AND CONCATENATION LOGIC ---
+        var inputs = string.Join(" ", segmentFiles.Select(f => $"-i \"{f}\""));
+        var filterComplex = new StringBuilder();
+
+        // Step 1: Create a filter chain for each input to normalize it to a standard format.
+        for (int i = 0; i < segmentFiles.Count; i++)
+        {
+            // This chain standardizes resolution, aspect ratio, pixel format, and frame rate for the video.
+            filterComplex.Append($"[{i}:v]scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p,fps=30[v{i}];");
+
+            // This chain standardizes the audio sample rate.
+            filterComplex.Append($"[{i}:a]aresample=44100[a{i}];");
+        }
+
+        // Step 2: Chain the now-normalized streams into the final concat filter.
+        for (int i = 0; i < segmentFiles.Count; i++)
+        {
+            filterComplex.Append($"[v{i}][a{i}]");
+        }
+        filterComplex.Append($"concat=n={segmentFiles.Count}:v=1:a=1[outv][outa]");
+
+        // Use standard, highly compatible codecs for the output file.
+        var ffmpegArguments = $"{inputs} -filter_complex \"{filterComplex.ToString()}\" -map \"[outv]\" -map \"[outa]\" -c:v libx264 -preset veryfast -crf 23 -c:a aac -y \"{outputPath}\"";
+        // --- END: ROBUST NORMALIZATION AND CONCATENATION LOGIC ---
+
+        _logger.LogInformation($"Job {jobId}: > ffmpeg {ffmpegArguments}");
+
+        var processStartInfo = new ProcessStartInfo("ffmpeg", ffmpegArguments)
+        {
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+
+        try
+        {
+            using (var process = new Process { StartInfo = processStartInfo })
+            {
+                var stdErr = new StringBuilder();
+                var tcs = new TaskCompletionSource<bool>();
+                process.EnableRaisingEvents = true;
+                process.Exited += (sender, args) => tcs.TrySetResult(true);
+                process.ErrorDataReceived += (sender, args) => { if (args.Data != null) stdErr.AppendLine(args.Data); };
+
+                process.Start();
+                process.BeginErrorReadLine();
+                await tcs.Task;
+
+                if (process.ExitCode == 0 && File.Exists(outputPath) && new FileInfo(outputPath).Length > 0)
+                {
+                    _logger.LogInformation($"Job {jobId}: Concatenation successful. ffmpeg output:\n{stdErr.ToString()}");
+                    return true;
+                }
+                else
+                {
+                    _logger.LogError($"Job {jobId}: Concatenation failed. ffmpeg exit code: {process.ExitCode}. Output:\n{stdErr.ToString()}");
+                    return false;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, $"Job {jobId}: An unhandled exception occurred during concatenation.");
+            return false;
+        }
+    }
 
     private async Task<string> CombineMultipleVideos(List<string> videoPaths, string tempDir, string jobId)
     {
         var outputPath = Path.Combine(tempDir, "combined_final_video.mp4");
 
+        if (videoPaths.Count == 1)
+        {
+            File.Copy(videoPaths[0], outputPath, true);
+            return outputPath;
+        }
+
+        _logger.LogInformation($"Job {jobId}: Normalizing and combining {videoPaths.Count} video files into '{outputPath}'.");
+        await UpdateJobStatus(jobId, "Processing", 80, "Normalizing and combining video segments...");
+
+        // --- START: CORRECT ROBUST CONCATENATION LOGIC ---
+        var inputs = string.Join(" ", videoPaths.Select(f => $"-i \"{f}\""));
+        var filterComplex = new StringBuilder();
+
+        // Step 1: Create a filter chain for each input to normalize it to a standard format.
+        for (int i = 0; i < videoPaths.Count; i++)
+        {
+            // [i:v] = video stream from input i
+            // [i:a] = audio stream from input i
+            // This chain standardizes resolution, aspect ratio, pixel format, and frame rate.
+            filterComplex.Append($"[{i}:v]scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p,fps=30[v{i}];");
+
+            // This chain standardizes the audio sample rate.
+            filterComplex.Append($"[{i}:a]aresample=44100[a{i}];");
+        }
+
+        // Step 2: Chain the normalized streams into the concat filter.
+        for (int i = 0; i < videoPaths.Count; i++)
+        {
+            filterComplex.Append($"[v{i}][a{i}]");
+        }
+        filterComplex.Append($"concat=n={videoPaths.Count}:v=1:a=1[outv][outa]");
+
+        // Use standard, highly compatible codecs for the output.
+        var ffmpegArguments = $"{inputs} -filter_complex \"{filterComplex.ToString()}\" -map \"[outv]\" -map \"[outa]\" -c:v libx264 -preset veryfast -crf 23 -c:a aac -y \"{outputPath}\"";
+        // --- END: CORRECT ROBUST CONCATENATION LOGIC ---
+
+        _logger.LogInformation($"Job {jobId}: > ffmpeg {ffmpegArguments}");
+
+        var processStartInfo = new ProcessStartInfo("ffmpeg", ffmpegArguments)
+        {
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+
         try
         {
-            _logger.LogInformation($"Job {jobId}: Combining {videoPaths.Count} video files using FFMpeg.Join");
-            await UpdateJobStatus(jobId, "Processing", 80, "Combining multiple video segments...");
-
-            if (videoPaths.Count == 1)
+            using (var process = new Process { StartInfo = processStartInfo })
             {
-                File.Copy(videoPaths[0], outputPath, true);
-                return outputPath;
+                var stdErr = new StringBuilder();
+                var tcs = new TaskCompletionSource<bool>();
+                process.EnableRaisingEvents = true;
+                process.Exited += (sender, args) => tcs.TrySetResult(true);
+                process.ErrorDataReceived += (sender, args) => { if (args.Data != null) stdErr.AppendLine(args.Data); };
+
+                process.Start();
+                process.BeginErrorReadLine();
+                await tcs.Task;
+
+                if (process.ExitCode == 0 && File.Exists(outputPath) && new FileInfo(outputPath).Length > 0)
+                {
+                    var fileSize = new FileInfo(outputPath).Length;
+                    _logger.LogInformation($"Job {jobId}: Video combination completed: {outputPath} ({fileSize / 1024.0 / 1024.0:F2} MB)");
+                    return outputPath;
+                }
+                else
+                {
+                    var errorMessage = $"Job {jobId}: ffmpeg process for combining videos failed with exit code {process.ExitCode}. Output:\n{stdErr.ToString()}";
+                    _logger.LogError(errorMessage);
+                    throw new Exception(errorMessage);
+                }
             }
-
-            // Use FFMpeg.Join for simple video combination
-            await Task.Run(() => FFMpeg.Join(outputPath, videoPaths.ToArray()));
-
-            var fileSize = new FileInfo(outputPath).Length;
-            _logger.LogInformation($"Job {jobId}: Video combination completed: {outputPath} ({fileSize / 1024.0 / 1024.0:F2} MB)");
-
-            return outputPath;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"Job {jobId}: Error combining videos with FFMpeg.Join");
+            _logger.LogError(ex, $"Job {jobId}: An unhandled exception occurred while combining videos.");
             throw;
         }
     }

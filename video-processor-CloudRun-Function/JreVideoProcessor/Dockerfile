@@ -3,7 +3,7 @@ FROM mcr.microsoft.com/dotnet/sdk:8.0-alpine AS build
 WORKDIR /src
 
 # Install ffmpeg using Alpine's package manager 'apk'
-RUN apk add --no-cache ffmpeg
+RUN apk add --no-cache ffmpeg libgdiplus
 
 # Copy the project file first to leverage Docker's layer caching
 COPY *.csproj .
@@ -22,7 +22,7 @@ FROM mcr.microsoft.com/dotnet/aspnet:8.0-alpine
 WORKDIR /app
 
 # Install ffmpeg in the final image using apk
-RUN apk add --no-cache ffmpeg
+RUN apk add --no-cache ffmpeg libgdiplus
 
 # Copy the published files from the build stage
 # The source path is /app/publish, matching the output of the publish command
