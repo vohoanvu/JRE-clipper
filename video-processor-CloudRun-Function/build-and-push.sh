@@ -8,8 +8,7 @@ export PROJECT_ID="gen-lang-client-demo"
 export REGION="us-central1"
 export REPOSITORY="cloud-run-source-deploy"
 export IMAGE_NAME="video-processor-service-dotnet"
-# Use a unique tag based on the current timestamp
-export TAG=$(date +%Y%m%d-%H%M%S)
+export TAG='latest'
 export IMAGE_URI="$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$IMAGE_NAME:$TAG"
 
 # Configure gcloud to use your project
