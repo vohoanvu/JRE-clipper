@@ -2,7 +2,8 @@
 
 ## 1. Project Overview
 
-The "What would Joe Rogan say?" app enables users to input a topic and discover relevant discussions from Joe Rogan Experience (JRE) podcast episodes. The app searches all available JRE episodes, identifies relevant discussions by Joe Rogan or his guests, and presents the results through embedded YouTube players with clickable timestamp navigation. Users can watch specific segments directly in the browser without needing to download videos, providing a seamless and legal viewing experience that respects YouTube's terms of service. Premium subscribers can generate custom video compilations of relevant segments across multiple episodes.
+The "What would Joe Rogan say?" app enables users to input a topic and discover relevant discussions from Joe Rogan Experience (JRE) podcast episodes. The app searches all available JRE episodes, identifies relevant discussions by Joe Rogan or his guests, and presents the results through embedded YouTube players with clickable timestamp navigation. Users can watch specific segments directly in the browser without needing to download videos, providing a seamless and legal viewing experience that respects YouTube's terms of service. Additionaly, this tool allows users to select segments that they like, and submit a request for Compilation clips, which automates the entire process of downloading, editing, and combining clips from various JRE episodes into a single compilation video.
+Premium subscribers can generate custom video compilations of relevant segments across multiple episodes.
 
 ## 2. Functional Requirements
 
