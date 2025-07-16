@@ -83,13 +83,13 @@ function initializeAuth() {
     if (user) {
       // User is signed in
       console.log('User signed in:', user.email);
-      
+
       if (authButtonsContainer) authButtonsContainer.style.display = 'none';
       if (userInfoContainer) userInfoContainer.style.display = 'flex';
 
       const userPhoto = document.getElementById('user-photo');
       const userEmail = document.getElementById('user-email');
-      
+
       if (userPhoto) userPhoto.src = user.photoURL || 'https://via.placeholder.com/40';
       if (userEmail) userEmail.textContent = user.email;
 
@@ -108,7 +108,7 @@ function initializeAuth() {
 
       // Update session to use Firebase Auth UID
       userSessionId = user.uid;
-      
+
       // Get user plan from custom claims
       try {
         const tokenResult = await user.getIdTokenResult(true); // Force refresh
@@ -116,7 +116,7 @@ function initializeAuth() {
         userPlan = customClaims.plan || 'free';
         localStorage.setItem('jre_user_plan', userPlan);
         console.log('User plan from custom claims:', userPlan);
-        
+
         // Update video generation button if it exists
         updateGenerateVideoButton();
       } catch (error) {
@@ -130,18 +130,18 @@ function initializeAuth() {
     } else {
       // User is signed out - show sign-in button
       console.log('User signed out or not authenticated');
-      
+
       if (authButtonsContainer) authButtonsContainer.style.display = 'block';
       if (userInfoContainer) userInfoContainer.style.display = 'none';
 
       // Reset to anonymous session
       userSessionId = null;
       initializeSession(); // Will create new anonymous session
-      
+
       // Set user as free
       userPlan = 'free';
       localStorage.setItem('jre_user_plan', 'free');
-      
+
       // Update video generation button for unauthenticated user
       updateGenerateVideoButton();
     }
@@ -196,7 +196,7 @@ function toggleInstructionField() {
 function initializeSession() {
   // Check if user is authenticated with Firebase
   const currentUser = firebase.auth().currentUser;
-  
+
   if (currentUser) {
     // Use Firebase Auth UID as the primary identifier
     userSessionId = currentUser.uid;
@@ -222,16 +222,16 @@ async function refreshUserClaims() {
     // Force token refresh to get latest custom claims
     const tokenResult = await currentUser.getIdTokenResult(true);
     const customClaims = tokenResult.claims;
-    
+
     // Update global user plan
     userPlan = customClaims.plan || 'free';
     localStorage.setItem('jre_user_plan', userPlan);
-    
+
     console.log('User claims refreshed:', {
       plan: customClaims.plan,
       subscriptionStatus: customClaims.subscriptionStatus
     });
-    
+
     return customClaims;
   } catch (error) {
     console.error('Error refreshing user claims:', error);
@@ -242,7 +242,7 @@ async function refreshUserClaims() {
 // Helper function to get current user identification
 function getCurrentUserIdentification() {
   const currentUser = firebase.auth().currentUser;
-  
+
   return {
     userId: currentUser ? currentUser.uid : null,
     sessionId: currentUser ? null : userSessionId, // Only use sessionId for anonymous users
@@ -281,12 +281,12 @@ async function checkUserStatus() {
         subscriptionStatus: subscriptionStatus
       });
     }
-    
+
     return {
       allowed: true, // All users have unlimited searches now
       plan: plan,
       canGenerateVideos: userInfo.isAuthenticated && plan === 'pro' && subscriptionStatus === 'active',
-      message: userInfo.isAuthenticated 
+      message: userInfo.isAuthenticated
         ? (plan === 'pro' ? 'Pro user - unlimited searches and video generation.' : 'Unlimited searches available. Upgrade to Pro for video generation.')
         : 'Unlimited searches available. Sign in for premium features.',
       subscriptionStatus: subscriptionStatus,
@@ -299,13 +299,13 @@ async function checkUserStatus() {
   } catch (error) {
     console.error('Error checking user status:', error);
     const userInfo = getCurrentUserIdentification();
-    
+
     // Fallback to free user status
     return {
       allowed: true,
       plan: 'free',
       canGenerateVideos: false,
-      message: userInfo.isAuthenticated 
+      message: userInfo.isAuthenticated
         ? 'Unlimited searches available. Upgrade to Pro for video generation.'
         : 'Unlimited searches available. Sign in for premium features.',
       isAuthenticated: userInfo.isAuthenticated,
@@ -349,6 +349,8 @@ async function performSearch(query) {
   searchResultsContainer.innerHTML = '';
   answerSection.innerHTML = '';
   videoPlayersContainer.innerHTML = '';
+
+  recordSearchActivity(query);
 
   fetch(searchApiUrl, {
     method: 'POST',
@@ -443,6 +445,30 @@ function displaySearchSummary(results) {
   searchResultsContainer.innerHTML = html;
 }
 
+async function recordSearchActivity(query) {
+  try {
+    // Only record if we have functions available
+    if (!firebase.functions) {
+      console.log('Firebase functions not available, skipping search recording');
+      return;
+    }
+
+    const functions = firebase.functions();
+    const recordSearch = functions.httpsCallable('recordSearchActivity');
+
+    await recordSearch({
+      searchQuery: query,
+      sessionId: userSessionId,
+      userAgent: navigator.userAgent,
+      ipAddress: null // Will be populated on server side if needed
+    });
+
+    console.log('Search activity recorded successfully');
+  } catch (error) {
+    console.error('Failed to record search activity:', error);
+  }
+}
+
 // ===== AI ANSWER GENERATION =====
 function generateAnswer(originalQuery) {
   if (!currentSession || !currentQueryId) {
@@ -470,7 +496,7 @@ function generateAnswer(originalQuery) {
   // Get custom instruction or use default
   const customInstruction = instructionInput.value.trim();
   const defaultJoeRoganStyle = "Response in Joe Rogan style, make the response funny using Joe sense of humor, use emoji if necessary.";
-  
+
   let finalInstruction;
   if (customInstruction) {
     // Prepend the default Joe Rogan style to any custom instruction
@@ -784,13 +810,13 @@ function updateGenerateVideoButton() {
 
   const count = selectedSegments.length;
   const currentUser = firebase.auth().currentUser;
-  
+
   // Check user authentication and subscription status from Firebase Auth
   if (!currentUser) {
     // User not authenticated
     button.textContent = `🔒 Generate Compilation Video (Sign In Required) - ${count} segment${count !== 1 ? 's' : ''} selected`;
     button.disabled = count === 0;
-    button.title = count === 0 
+    button.title = count === 0
       ? 'Select segments and sign in to access video generation'
       : `Sign in to generate compilation video from ${count} selected segment${count !== 1 ? 's' : ''}`;
     button.style.background = 'linear-gradient(135deg, #6c757d, #5a6268)';
@@ -803,12 +829,12 @@ function updateGenerateVideoButton() {
     const customClaims = tokenResult.claims;
     const plan = customClaims.plan || 'free';
     const subscriptionStatus = customClaims.subscriptionStatus || null;
-    
+
     if (plan === 'pro' && subscriptionStatus === 'active') {
       // Pro user - normal functionality
       button.textContent = `📹 Generate Compilation Video (${count} segment${count !== 1 ? 's' : ''} selected)`;
       button.disabled = count === 0;
-      button.title = count === 0 
+      button.title = count === 0
         ? 'Select at least one segment to generate compilation video'
         : `Generate compilation video from ${count} selected segment${count !== 1 ? 's' : ''}`;
       button.style.background = ''; // Reset to default CSS styling
@@ -817,7 +843,7 @@ function updateGenerateVideoButton() {
       // Free user - show upgrade messaging
       button.textContent = `🔒 Generate Compilation Video (Premium Only) - ${count} segment${count !== 1 ? 's' : ''} selected`;
       button.disabled = count === 0;
-      button.title = count === 0 
+      button.title = count === 0
         ? 'Select segments and upgrade to Pro to generate compilation videos'
         : `Upgrade to Pro to generate compilation video from ${count} selected segment${count !== 1 ? 's' : ''}`;
       button.style.background = 'linear-gradient(135deg, #ffa500, #ff6b35)';
@@ -894,7 +920,7 @@ async function initiateVideoGeneration() {
   }
 
   const currentUser = firebase.auth().currentUser;
-  
+
   // Check if user is authenticated
   if (!currentUser) {
     showAuthRequiredModal({
@@ -1011,7 +1037,7 @@ async function initiateVideoGeneration() {
 
   } catch (error) {
     console.error('Error checking user subscription status:', error);
-    
+
     // Fallback to requiring upgrade
     showUpgradeRequiredModal({
       requiresUpgrade: true,
@@ -1146,7 +1172,7 @@ function showAuthRequiredModal(permission) {
       </div>
     </div>
   `;
-  
+
   addModalStyles();
   document.body.appendChild(modal);
 }
@@ -1201,7 +1227,7 @@ function showUpgradeRequiredModal(permission) {
       </div>
     </div>
   `;
-  
+
   addModalStyles();
   document.body.appendChild(modal);
 }
@@ -1210,7 +1236,7 @@ function showUpgradeRequiredModal(permission) {
 function showManualRequestForm() {
   // Close any existing modals
   document.querySelectorAll('.auth-modal, .upgrade-modal').forEach(modal => modal.remove());
-  
+
   const modal = document.createElement('div');
   modal.className = 'manual-request-modal';
   modal.innerHTML = `
@@ -1255,7 +1281,7 @@ function showManualRequestForm() {
       </div>
     </div>
   `;
-  
+
   addModalStyles();
   document.body.appendChild(modal);
 }
@@ -1265,26 +1291,26 @@ async function submitManualRequest() {
   const email = document.getElementById('request-email').value;
   const name = document.getElementById('request-name').value;
   const agreeTerms = document.getElementById('agree-terms').checked;
-  
+
   if (!email || !agreeTerms) {
     alert('Please fill in your email and agree to the terms.');
     return;
   }
-  
+
   if (selectedSegments.length === 0) {
     alert('No segments selected. Please select some segments first.');
     return;
   }
-  
+
   try {
     // Show loading state
     const submitBtn = document.querySelector('.manual-request-modal .btn-primary');
     const originalText = submitBtn.textContent;
     submitBtn.textContent = 'Submitting...';
     submitBtn.disabled = true;
-    
+
     const userInfo = getCurrentUserIdentification();
-    
+
     const requestManual = firebase.functions().httpsCallable('requestManualVideoGeneration');
     const result = await requestManual({
       userEmail: email,
@@ -1295,15 +1321,15 @@ async function submitManualRequest() {
       sessionId: userInfo.sessionId,
       isAuthenticated: userInfo.isAuthenticated
     });
-    
+
     // Show success message
     document.querySelector('.manual-request-modal').remove();
     showSuccessModal(result.data);
-    
+
   } catch (error) {
     console.error('Error submitting manual request:', error);
     alert('Error submitting request. Please try again.');
-    
+
     // Reset button
     const submitBtn = document.querySelector('.manual-request-modal .btn-primary');
     if (submitBtn) {
@@ -1337,7 +1363,7 @@ function showSuccessModal(data) {
       </div>
     </div>
   `;
-  
+
   addModalStyles();
   document.body.appendChild(modal);
 }
@@ -1366,18 +1392,18 @@ async function initiateProUpgrade() {
       upgradeButton.disabled = true;
       upgradeButton.textContent = 'Creating checkout session...';
     }
-    
+
     // Call Firebase Function to create checkout session
     const createCheckout = firebase.functions().httpsCallable('createCheckoutSessionAuth');
     const result = await createCheckout();
-    
+
     if (!result.data?.sessionId) {
       throw new Error('No session ID returned from server');
     }
 
     // Initialize Stripe and redirect to checkout
     const stripe = Stripe('pk_test_51Rco8nR9HLu4Z6TSlSjCZypyASEmikaanI10fX2UA0tQSYJZy5A2rQU7eaMNB0jATz9NHNDTPO47cXBoLGsfAnuR00GC3QLQwi');
-    
+
     // Redirect to Stripe checkout
     const { error } = await stripe.redirectToCheckout({
       sessionId: result.data.sessionId
@@ -1386,10 +1412,10 @@ async function initiateProUpgrade() {
     if (error) {
       throw new Error(`Stripe checkout error: ${error.message}`);
     }
-    
+
   } catch (error) {
     console.error('Error creating checkout session:', error);
-    
+
     // Reset button state
     const upgradeButton = event?.target;
     if (upgradeButton) {
@@ -1414,7 +1440,7 @@ async function initiateProUpgrade() {
 // Add modal styles
 function addModalStyles() {
   if (document.getElementById('modal-styles')) return;
-  
+
   const style = document.createElement('style');
   style.id = 'modal-styles';
   style.textContent = `

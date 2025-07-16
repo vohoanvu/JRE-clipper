@@ -1398,3 +1398,132 @@ export const getUserUsageStats = onCall({
         };
     }
 });
+
+export const recordSearchActivity = onCall({
+    enforceAppCheck: false,
+    memory: "256MiB",
+    timeoutSeconds: 10,
+    maxInstances: 10,
+    minInstances: 0,
+}, async (request) => {
+    try {
+        const { searchQuery, sessionId, userAgent, ipAddress } = request.data;
+        
+        if (!searchQuery || typeof searchQuery !== 'string') {
+            throw new HttpsError("invalid-argument", "Search query is required");
+        }
+
+        const userId = request.auth?.uid || null;
+        const isAuthenticated = !!request.auth;
+        const now = new Date();
+        const dateString = now.toISOString().split('T')[0]; // YYYY-MM-DD format
+        
+        // Record individual search
+        const searchRecord = {
+            searchQuery: searchQuery.toLowerCase().trim(),
+            userId: userId,
+            sessionId: sessionId || null,
+            isAuthenticated: isAuthenticated,
+            timestamp: now,
+            date: dateString,
+            userAgent: userAgent || null,
+            ipAddress: ipAddress || null,
+            createdAt: now
+        };
+
+        // Store individual search record
+        await db.collection('searchActivity').add(searchRecord);
+        
+        // Update daily search statistics
+        const dailyStatsRef = db.collection('dailySearchStats').doc(dateString);
+        
+        await db.runTransaction(async (transaction) => {
+            const dailyStatsDoc = await transaction.get(dailyStatsRef);
+            
+            if (dailyStatsDoc.exists) {
+                const currentStats = dailyStatsDoc.data();
+                const updates = {
+                    totalSearches: (currentStats.totalSearches || 0) + 1,
+                    lastUpdated: now
+                };
+                
+                if (isAuthenticated) {
+                    updates.authenticatedSearches = (currentStats.authenticatedSearches || 0) + 1;
+                    
+                    // Track unique authenticated users
+                    const authenticatedUsers = new Set(currentStats.authenticatedUserIds || []);
+                    authenticatedUsers.add(userId);
+                    updates.authenticatedUserIds = Array.from(authenticatedUsers);
+                    updates.uniqueAuthenticatedUsers = authenticatedUsers.size;
+                } else {
+                    updates.anonymousSearches = (currentStats.anonymousSearches || 0) + 1;
+                    
+                    // Track unique anonymous sessions
+                    if (sessionId) {
+                        const anonymousSessions = new Set(currentStats.anonymousSessionIds || []);
+                        anonymousSessions.add(sessionId);
+                        updates.anonymousSessionIds = Array.from(anonymousSessions);
+                        updates.uniqueAnonymousUsers = anonymousSessions.size;
+                    }
+                }
+                
+                // Update popular search terms (top 20)
+                const searchTerms = currentStats.searchTerms || {};
+                const normalizedQuery = searchQuery.toLowerCase().trim();
+                searchTerms[normalizedQuery] = (searchTerms[normalizedQuery] || 0) + 1;
+                
+                // Keep only top 20 search terms
+                const sortedTerms = Object.entries(searchTerms)
+                    .sort(([,a], [,b]) => b - a)
+                    .slice(0, 20)
+                    .reduce((obj, [term, count]) => {
+                        obj[term] = count;
+                        return obj;
+                    }, {});
+                
+                updates.searchTerms = sortedTerms;
+                
+                transaction.update(dailyStatsRef, updates);
+            } else {
+                // Create new daily stats document
+                const newStats = {
+                    date: dateString,
+                    totalSearches: 1,
+                    authenticatedSearches: isAuthenticated ? 1 : 0,
+                    anonymousSearches: isAuthenticated ? 0 : 1,
+                    authenticatedUserIds: isAuthenticated ? [userId] : [],
+                    anonymousSessionIds: (!isAuthenticated && sessionId) ? [sessionId] : [],
+                    uniqueAuthenticatedUsers: isAuthenticated ? 1 : 0,
+                    uniqueAnonymousUsers: (!isAuthenticated && sessionId) ? 1 : 0,
+                    searchTerms: {
+                        [searchQuery.toLowerCase().trim()]: 1
+                    },
+                    createdAt: now,
+                    lastUpdated: now
+                };
+                
+                transaction.set(dailyStatsRef, newStats);
+            }
+        });
+        
+        logger.info(`Search activity recorded: ${searchQuery} (authenticated: ${isAuthenticated})`);
+        
+        return {
+            success: true,
+            recorded: true
+        };
+        
+    } catch (error) {
+        logger.error("Error recording search activity:", error);
+        
+        if (error instanceof HttpsError) {
+            throw error;
+        }
+        
+        // Don't fail the search if logging fails
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
