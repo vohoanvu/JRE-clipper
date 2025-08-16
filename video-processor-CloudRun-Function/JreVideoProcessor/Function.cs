@@ -59,7 +59,21 @@ public class Function : ICloudEventFunction<MessagePublishedData>
         // Verify that ffmpeg is available before doing anything else.
         CheckFfmpegInstallation();
 
-        _storageClient = StorageClient.Create();
+        // Initialize storage client with explicit credential handling
+        try
+        {
+            // Try to get credential from environment or default
+            var credential = Google.Apis.Auth.OAuth2.GoogleCredential.GetApplicationDefault()
+                .CreateScoped("https://www.googleapis.com/auth/cloud-platform");
+
+            _storageClient = StorageClient.Create(credential);
+            _logger.LogInformation("Storage client initialized with explicit credentials for signed URL support");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to initialize with explicit credentials, falling back to default");
+            _storageClient = StorageClient.Create();
+        }
 
         // Create FirestoreDb with custom database name using FirestoreDbBuilder
         var firestoreDbBuilder = new FirestoreDbBuilder
@@ -658,21 +672,32 @@ public class Function : ICloudEventFunction<MessagePublishedData>
             await UpdateJobStatus(jobId, "Uploading", 85, "Uploading final video to cloud storage...");
 
             var blobName = $"edited-clips/{jobId}/final_video.mp4";
-            var bucket = await _storageClient.GetBucketAsync(BUCKET_NAME);
 
             using var fileStream = File.OpenRead(localPath);
             var obj = await _storageClient.UploadObjectAsync(BUCKET_NAME, blobName, "video/mp4", fileStream);
 
             _logger.LogInformation($"Upload successful to gs://{BUCKET_NAME}/{blobName}");
 
-            // Generate signed URL
-            var urlSigner = UrlSigner.FromCredential(_storageClient.Service.HttpClientInitializer as Google.Apis.Auth.OAuth2.GoogleCredential);
-            var signedUrl = await urlSigner.SignAsync(BUCKET_NAME, blobName, TimeSpan.FromDays(7), HttpMethod.Get);
+            // Try to generate signed URL, fallback to simple URL if it fails
+            string signedUrl;
+            try
+            {
+                _logger.LogInformation("Attempting to generate signed URL...");
 
-            _logger.LogInformation("Signed URL generated successfully");
+                var credential = Google.Apis.Auth.OAuth2.GoogleCredential.GetApplicationDefault();
+                var urlSigner = Google.Cloud.Storage.V1.UrlSigner.FromCredential(credential);
+                signedUrl = await urlSigner.SignAsync(BUCKET_NAME, blobName, TimeSpan.FromDays(7), HttpMethod.Get);
+
+                _logger.LogInformation("Signed URL generated successfully");
+            }
+            catch (Exception signUrlEx)
+            {
+                _logger.LogError(signUrlEx, "Failed to generate signed URL, using public storage URL");
+                // Use the public Google Cloud Storage URL format
+                signedUrl = $"https://storage.googleapis.com/{BUCKET_NAME}/{blobName}";
+            }
 
             await UpdateJobStatus(jobId, "Complete", 100, "Video ready for download!", videoUrl: signedUrl);
-
             return signedUrl;
         }
         catch (Exception ex)
@@ -680,7 +705,7 @@ public class Function : ICloudEventFunction<MessagePublishedData>
             _logger.LogError(ex, $"GCS upload failed for job {jobId}");
             var errorMsg = $"Failed to upload video: {ex.Message}";
             await UpdateJobStatus(jobId, "Failed", error: errorMsg,
-                suggestions: new[] { "Upload to cloud storage failed", "Please try generating the video again" });
+                suggestions: ["Upload to cloud storage failed", "Please try generating the video again"]);
             throw new Exception(errorMsg);
         }
     }

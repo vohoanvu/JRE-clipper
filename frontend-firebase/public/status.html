@@ -50,6 +50,10 @@
       border-left-color: #F44336;
     }
 
+    .stepper-step.warning {
+      border-left-color: #FF9800;
+    }
+
     .stepper-icon {
       position: absolute;
       left: -3rem;
@@ -86,10 +90,24 @@
       color: white;
     }
 
+    .stepper-step.warning .stepper-icon {
+      background-color: #FF9800;
+      border-color: #FF9800;
+      color: white;
+    }
+
     @keyframes pulse {
-      0% { transform: scale(1); }
-      50% { transform: scale(1.1); }
-      100% { transform: scale(1); }
+      0% {
+        transform: scale(1);
+      }
+
+      50% {
+        transform: scale(1.1);
+      }
+
+      100% {
+        transform: scale(1);
+      }
     }
 
     .stepper-content {
@@ -113,6 +131,10 @@
 
     .stepper-step.failed .stepper-title {
       color: #F44336;
+    }
+
+    .stepper-step.warning .stepper-title {
+      color: #FF9800;
     }
 
     .stepper-description {
@@ -139,6 +161,11 @@
       border: 1px solid #2196F3;
     }
 
+    .stepper-step.warning .stepper-details {
+      background-color: #fff3cd;
+      border: 1px solid #FF9800;
+    }
+
     .loading-spinner {
       display: inline-block;
       width: 1rem;
@@ -151,8 +178,13 @@
     }
 
     @keyframes spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
+      0% {
+        transform: rotate(0deg);
+      }
+
+      100% {
+        transform: rotate(360deg);
+      }
     }
 
     /* Enhanced progress indicator for long tasks */
@@ -180,19 +212,15 @@
     }
 
     @keyframes progressPulse {
-      0%, 100% { opacity: 0.7; }
-      50% { opacity: 1; }
-    }
 
-    /* Enhanced progress indicator for real-time updates */
-    .progress-indicator.realtime .progress-fill {
-      background: linear-gradient(90deg, #4CAF50, #81C784);
-      animation: realtimePulse 1.5s ease-in-out infinite;
-    }
+      0%,
+      100% {
+        opacity: 0.7;
+      }
 
-    @keyframes realtimePulse {
-      0%, 100% { opacity: 0.8; box-shadow: 0 0 0 rgba(76, 175, 80, 0.4); }
-      50% { opacity: 1; box-shadow: 0 0 10px rgba(76, 175, 80, 0.6); }
+      50% {
+        opacity: 1;
+      }
     }
 
     .time-estimate {
@@ -235,6 +263,53 @@
       color: #856404;
     }
 
+    /* Warning styles for missing videos */
+    .warning-notice {
+      background: #fff3cd;
+      border: 1px solid #FF9800;
+      border-radius: 6px;
+      padding: 1rem;
+      margin: 1rem 0;
+      font-size: 0.85rem;
+    }
+
+    .warning-notice h4 {
+      margin: 0 0 0.5rem 0;
+      color: #e65100;
+      font-size: 0.9rem;
+    }
+
+    /* Resume/retry styles */
+    .resume-container {
+      background: #e3f2fd;
+      border: 1px solid #2196F3;
+      border-radius: 6px;
+      padding: 1rem;
+      margin: 1rem 0;
+      text-align: center;
+    }
+
+    .resume-button {
+      background-color: #2196F3;
+      color: white;
+      border: none;
+      padding: 0.75rem 1.5rem;
+      border-radius: 4px;
+      font-size: 0.9rem;
+      cursor: pointer;
+      margin: 0.5rem;
+      transition: background-color 0.2s;
+    }
+
+    .resume-button:hover {
+      background-color: #1976D2;
+    }
+
+    .resume-button:disabled {
+      background-color: #ccc;
+      cursor: not-allowed;
+    }
+
     /* Animated dots for long loading */
     .loading-dots::after {
       content: '';
@@ -242,10 +317,24 @@
     }
 
     @keyframes dots {
-      0%, 20% { content: ''; }
-      40% { content: '.'; }
-      60% { content: '..'; }
-      80%, 100% { content: '...'; }
+
+      0%,
+      20% {
+        content: '';
+      }
+
+      40% {
+        content: '.';
+      }
+
+      60% {
+        content: '..';
+      }
+
+      80%,
+      100% {
+        content: '...';
+      }
     }
 
     .job-info {
@@ -345,10 +434,25 @@
         <p><strong id="job-id-display">Job ID: Loading...</strong></p>
         <p><strong>Status:</strong> <span id="job-status">Initializing...</span></p>
         <p id="job-metrics"></p>
-        <div style="margin-top: 1rem; padding: 0.75rem; background: #e8f4fd; border-radius: 4px; border-left: 4px solid #2196F3;">
-          <strong>⏰ Expected Total Time:</strong> 25-45 minutes<br>
-          <small style="color: #666;">This page will automatically update as your job progresses. You can safely close this tab and return later.</small>
+        <div
+          style="margin-top: 1rem; padding: 0.75rem; background: #e8f4fd; border-radius: 4px; border-left: 4px solid #2196F3;">
+          <strong>⏰ Expected Total Time:</strong> 5-15 minutes<br>
+          <small style="color: #666;">Using pre-downloaded videos from storage. This page will automatically update as
+            your job progresses.</small>
         </div>
+      </div>
+
+      <!-- Resume/Retry Container (shown when job needs to be resumed) -->
+      <div class="resume-container" id="resume-container" style="display: none;">
+        <h4>🔄 Job Resume Options</h4>
+        <p id="resume-message">This job appears to be incomplete or failed. You can resume processing or start fresh.
+        </p>
+        <button id="resume-button" class="resume-button" onclick="resumeVideoJob()">
+          🚀 Resume/Retry Processing
+        </button>
+        <button class="resume-button" onclick="goBackToSelection()" style="background-color: #757575;">
+          ← Start New Job
+        </button>
       </div>
 
       <!-- Vertical Stepper -->
@@ -361,24 +465,16 @@
           </div>
         </div>
 
-        <div class="stepper-step" id="step-downloading">
+        <div class="stepper-step" id="step-verified">
           <div class="stepper-icon">2</div>
           <div class="stepper-content">
-            <div class="stepper-title">Downloading Videos</div>
-            <div class="stepper-description">Downloading source videos from YouTube (This may take 20-30 minutes)</div>
-          </div>
-        </div>
-
-        <div class="stepper-step" id="step-downloaded">
-          <div class="stepper-icon">3</div>
-          <div class="stepper-content">
-            <div class="stepper-title">Videos Downloaded</div>
-            <div class="stepper-description">Full source videos are now available for export</div>
+            <div class="stepper-title">Videos Verified</div>
+            <div class="stepper-description">Checking video availability in storage</div>
           </div>
         </div>
 
         <div class="stepper-step" id="step-processing">
-          <div class="stepper-icon">4</div>
+          <div class="stepper-icon">3</div>
           <div class="stepper-content">
             <div class="stepper-title">Processing Segments</div>
             <div class="stepper-description">Extracting and compiling selected video segments</div>
@@ -386,7 +482,7 @@
         </div>
 
         <div class="stepper-step" id="step-uploading">
-          <div class="stepper-icon">5</div>
+          <div class="stepper-icon">4</div>
           <div class="stepper-content">
             <div class="stepper-title">Uploading Result</div>
             <div class="stepper-description">Uploading final video to cloud storage</div>
@@ -413,7 +509,7 @@
     </div>
 
   </main>
-  
+
   <script>
     document.addEventListener('DOMContentLoaded', () => {
       const jobIdDisplay = document.getElementById('job-id-display');
@@ -421,16 +517,18 @@
       const jobMetrics = document.getElementById('job-metrics');
       const downloadContainer = document.getElementById('download-container');
       const downloadButton = document.getElementById('download-button');
+      const resumeContainer = document.getElementById('resume-container');
+      const resumeButton = document.getElementById('resume-button');
+      const resumeMessage = document.getElementById('resume-message');
 
       const videoProcessorUrl = 'https://jre-video-processor-py-408323719521.us-central1.run.app';
-      
+
       // Store current job data and timing
       let currentJobData = null;
       let pollInterval = null;
       let eventSource = null;
-      let downloadStartTime = null;
-      let apifyProgressInterval = null;
-      let lastApifyProgress = null;
+      let isResuming = false;
+      let autoResumeAttempted = false;
 
       // 1. Get Job ID from URL
       const params = new URLSearchParams(window.location.search);
@@ -438,56 +536,287 @@
 
       if (jobId) {
         jobIdDisplay.textContent = `Job ID: ${jobId}`;
-        startStatusStream(jobId);
+        // First check job status immediately, then decide next action
+        checkJobStatusAndInitialize(jobId);
       } else {
         jobStatus.textContent = 'No Job ID provided in the URL.';
         jobIdDisplay.textContent = 'Job ID: Not Found';
         updateStepperUI({ status: 'Error', error: 'No job ID provided' });
       }
 
-      // 2. Start Server-Sent Events for real-time status updates
+      // 2. Check job status first, then decide whether to stream, auto-resume, or show manual resume
+      function checkJobStatusAndInitialize(id) {
+        console.log("Initial job status check for:", id);
+
+        // Show loading state while checking
+        jobStatus.textContent = 'Checking job status...';
+        updateStepperUI({ status: 'Initializing' });
+
+        fetch(`${videoProcessorUrl}/getJobStatus?jobId=${id}`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          }
+        })
+          .then(response => {
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            return response.json();
+          })
+          .then(data => {
+            console.log("Initial job status response:", data);
+            currentJobData = data;
+
+            // Update UI with current job data
+            updateUI(data);
+
+            // Decide what to do based on job status
+            if (shouldAutoResume(data)) {
+              console.log("Job needs auto-resume - starting automatic resume");
+              autoResumeJob(id);
+            } else if (data.status === 'Complete') {
+              console.log("Job is complete - no streaming needed");
+              // Job is complete, no need to stream
+            } else if (data.status === 'Processing' || data.status === 'Queued' || data.status === 'Uploading') {
+              console.log("Job is active - starting status stream");
+              // Job is actively processing, start streaming
+              startStatusStream(id);
+            } else {
+              console.log("Job status unclear - starting polling as fallback");
+              // Fallback to polling for unclear states
+              startStatusPolling(id);
+            }
+          })
+          .catch(error => {
+            console.error("Error in initial job status check:", error);
+
+            // If job not found (404), try auto-resume if we have segments data
+            if (error.message.includes('404')) {
+              console.log("Job not found - cannot auto-resume without existing data");
+              updateUI({
+                status: 'Error',
+                error: 'Job not found in database',
+              });
+            } else {
+              // For other errors, try polling as fallback
+              console.log("Status check failed - trying polling fallback");
+              startStatusPolling(id);
+            }
+          });
+      }
+
+      // 3. Determine if job should be automatically resumed
+      function shouldAutoResume(jobData) {
+        if (!jobData || autoResumeAttempted || isResuming) return false;
+
+        const status = jobData.status || '';
+        const hasSegments = jobData.segments && jobData.segments.length > 0;
+        const hasOriginalSegments = jobData.originalSegments && jobData.originalSegments.length > 0;
+
+        // Auto-resume if job has failed/error status and has segment data
+        return (
+          (status === 'Failed' ||
+            status === 'Error' ||
+            status === '' ||
+            status === 'Downloading' ||
+            status === 'Initializing' ||
+            !status) &&
+          (hasSegments || hasOriginalSegments)
+        );
+      }
+
+      // 4. Automatically resume job without user interaction
+      function autoResumeJob(id) {
+        if (autoResumeAttempted || isResuming) return;
+
+        autoResumeAttempted = true;
+        isResuming = true;
+
+        console.log("Auto-resuming job:", id);
+
+        // Update UI to show auto-resume in progress
+        jobStatus.textContent = 'Auto-resuming job...';
+        updateStepperUI({
+          status: 'Processing',
+          progressMessage: 'Automatically resuming job...'
+        });
+
+        // Call the resume endpoint with the existing job ID
+        fetch(`${videoProcessorUrl}/resumeVideoJob`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            jobId: id
+          })
+        })
+          .then(response => {
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            return response.json();
+          })
+          .then(data => {
+            console.log('Auto-resume job response:', data);
+
+            if (data.jobId && data.jobId === id) {
+              // Job resumed successfully with same ID
+              console.log('Job auto-resumed successfully');
+
+              // Update UI with resumed job data
+              updateUI({
+                status: data.status || 'Queued',
+                totalVideos: data.totalVideos,
+                totalSegments: data.totalSegments,
+                progressMessage: 'Job auto-resumed and queued for processing...',
+                missingVideos: data.missingVideos
+              });
+
+              // Start monitoring the resumed job
+              startStatusStream(id);
+
+            } else {
+              throw new Error('Resume response missing job ID or ID mismatch');
+            }
+          })
+          .catch(error => {
+            console.error('Auto-resume failed:', error);
+            autoResumeAttempted = false;
+            isResuming = false;
+
+            // Show manual resume options as fallback
+            updateUI({
+              status: 'Error',
+              error: `Auto-resume failed: ${error.message}`,
+              segments: currentJobData?.segments || currentJobData?.originalSegments || []
+            });
+
+            if (currentJobData && (currentJobData.segments || currentJobData.originalSegments)) {
+              showResumeOptions(currentJobData);
+            }
+          });
+      }
+
+      // 5. Manual resume function (fallback)
+      window.resumeVideoJob = function () {
+        if (!currentJobData) {
+          alert('No job data available to resume');
+          return;
+        }
+
+        // Disable resume button and show loading state
+        resumeButton.disabled = true;
+        resumeButton.textContent = '🔄 Resuming Job...';
+        isResuming = true;
+
+        // Hide resume container
+        resumeContainer.style.display = 'none';
+
+        console.log('Manually resuming job:', jobId);
+
+        // Call the resume endpoint
+        fetch(`${videoProcessorUrl}/resumeVideoJob`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            jobId: jobId
+          })
+        })
+          .then(response => {
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            return response.json();
+          })
+          .then(data => {
+            console.log('Manual resume job response:', data);
+
+            if (data.jobId && data.jobId === jobId) {
+              // Job resumed successfully with same ID
+              updateUI({
+                status: data.status || 'Queued',
+                totalVideos: data.totalVideos,
+                totalSegments: data.totalSegments,
+                progressMessage: 'Job resumed and queued for processing...',
+                missingVideos: data.missingVideos
+              });
+
+              // Start monitoring the resumed job
+              startStatusStream(jobId);
+
+              console.log('Job manually resumed successfully');
+            } else {
+              throw new Error('Resume response missing job ID or ID mismatch');
+            }
+          })
+          .catch(error => {
+            console.error('Error resuming job:', error);
+
+            // Re-enable resume button and show error
+            resumeButton.disabled = false;
+            resumeButton.textContent = '❌ Resume Failed - Retry';
+            isResuming = false;
+
+            // Show resume container again
+            resumeContainer.style.display = 'block';
+            resumeMessage.textContent = `Failed to resume job: ${error.message}. You can try again or start a new job.`;
+
+            // Reset resume button after 3 seconds
+            setTimeout(() => {
+              if (resumeButton.textContent.includes('Failed')) {
+                resumeButton.textContent = '🚀 Resume/Retry Processing';
+              }
+            }, 3000);
+          });
+      };
+
+      // 6. Start Server-Sent Events for real-time status updates
       function startStatusStream(id) {
         console.log("Starting SSE stream for job:", id);
 
         // Set up Server-Sent Events connection
         const sseUrl = `https://us-central1-gen-lang-client-demo.cloudfunctions.net/streamJobStatus/${id}`;
-        
+
         try {
           eventSource = new EventSource(sseUrl);
-          
-          eventSource.onopen = function(event) {
+
+          eventSource.onopen = function (event) {
             console.log("SSE connection opened for job:", id);
             updateConnectionStatus('connected');
           };
 
-          eventSource.onmessage = function(event) {
+          eventSource.onmessage = function (event) {
             try {
               const data = JSON.parse(event.data);
               console.log("Received SSE update:", data);
-              
+
               switch (data.type) {
                 case 'connected':
                   console.log("SSE connection confirmed for job:", data.jobId);
                   break;
-                  
+
                 case 'status':
                   currentJobData = data;
                   updateUI(data);
                   break;
-                  
+
                 case 'complete':
                   console.log("Job completed, SSE connection will close:", data.finalStatus);
                   break;
-                  
+
                 case 'ping':
                   // Keep-alive ping, no action needed
                   break;
-                  
+
                 case 'error':
                   console.error("SSE error:", data.error);
                   updateUI({ status: 'Error', error: data.error });
                   break;
-                  
+
                 default:
                   console.log("Unknown SSE message type:", data.type);
               }
@@ -496,10 +825,10 @@
             }
           };
 
-          eventSource.onerror = function(event) {
+          eventSource.onerror = function (event) {
             console.error("SSE connection error:", event);
             updateConnectionStatus('error');
-            
+
             // Implement reconnection logic with exponential backoff
             if (eventSource.readyState === EventSource.CLOSED) {
               console.log("SSE connection closed, attempting to reconnect...");
@@ -520,238 +849,91 @@
         }
       }
 
-      // Fallback polling function (for browsers that don't support SSE)
+      // 7. Fallback polling function
       function startStatusPolling(id) {
         console.log("Starting fallback polling for job:", id);
 
         // Initial check
         checkJobStatus(id);
 
-        // Start with frequent polling, then reduce frequency for long downloads
-        let pollFrequency = 3000; // 3 seconds initially
+        // Poll every 5 seconds for quick processing jobs
         pollInterval = setInterval(() => {
           checkJobStatus(id);
-          
-          // If downloading for more than 5 minutes, reduce polling frequency
-          if (currentJobData && currentJobData.status === 'Downloading' && downloadStartTime) {
-            const downloadDuration = (Date.now() - downloadStartTime) / 1000 / 60;
-            if (downloadDuration > 5) {
-              // Reduce to polling every 10 seconds for long downloads
-              if (pollFrequency === 3000) {
-                clearInterval(pollInterval);
-                pollFrequency = 10000;
-                pollInterval = setInterval(() => checkJobStatus(id), pollFrequency);
-                console.log("Reduced polling frequency for long download");
-              }
-            }
-          }
-        }, pollFrequency);
+        }, 5000);
       }
 
       function updateConnectionStatus(status) {
-        // You can add visual indicators for connection status here
         console.log("Connection status:", status);
       }
 
-      // Function to poll Apify download progress
-      function startApifyProgressPolling(jobId) {
-        console.log("Starting Apify progress polling for job:", jobId);
-        
-        // Poll every 3 seconds during download phase
-        apifyProgressInterval = setInterval(() => {
-          pollApifyProgress(jobId);
-        }, 10000);
-        
-        // Initial check
-        pollApifyProgress(jobId);
-      }
-
-      function stopApifyProgressPolling() {
-        if (apifyProgressInterval) {
-          clearInterval(apifyProgressInterval);
-          apifyProgressInterval = null;
-          console.log("Stopped Apify progress polling");
-        }
-      }
-
-      function pollApifyProgress(jobId) {
-        fetch(`${videoProcessorUrl}/getApifyProgress?jobId=${jobId}`, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-          }
-        })
-        .then(response => {
-          if (!response.ok) {
-            // If endpoint returns 400, job might not have Apify run or be past download phase
-            if (response.status === 400) {
-              console.log("Job doesn't have Apify progress or is past download phase");
-              stopApifyProgressPolling();
-              return null;
-            }
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-          }
-          return response.json();
-        })
-        .then(data => {
-          if (data) {
-            console.log("Apify progress response:", data);
-            lastApifyProgress = data;
-            
-            // Update download progress in UI
-            updateDownloadProgress(data);
-            
-            // Stop polling if download is complete
-            if (data.isDownloadComplete) {
-              stopApifyProgressPolling();
-            }
-          }
-        })
-        .catch(error => {
-          console.error("Error fetching Apify progress:", error);
-          // Don't stop polling on temporary errors, but log them
-        });
-      }
-
-      function updateDownloadProgress(progressData) {
-        const downloadStep = document.getElementById('step-downloading');
-        if (!downloadStep) return;
-        
-        // Only update if we're in downloading phase
-        if (!currentJobData || currentJobData.status !== 'Downloading') return;
-        
-        // Find existing details or create new ones
-        let details = downloadStep.querySelector('.stepper-details');
-        if (!details) {
-          details = document.createElement('div');
-          details.className = 'stepper-details';
-          downloadStep.querySelector('.stepper-content').appendChild(details);
-        }
-        
-        const progress = progressData.downloadProgress || 0;
-        const totalVideos = progressData.totalVideos || 1;
-        const progressDetails = progressData.progressDetails || {};
-        const apifyDetails = progressData.apifyDetails || {};
-        
-        // Create enhanced progress display with new structure
-        details.innerHTML = `
-          <div class="progress-indicator realtime">
-            <span style="min-width: 50px; font-weight: bold; color: #2196F3;">${progress.toFixed(1)}%</span>
-            <div class="progress-bar">
-              <div class="progress-fill" style="width: ${progress}%; transition: width 0.5s ease;"></div>
-            </div>
-            <span style="min-width: 80px; text-align: right; font-size: 0.85rem; color: #666;">
-              ${totalVideos} video${totalVideos !== 1 ? 's' : ''}
-            </span>
-          </div>
-          
-          <div class="time-estimate">
-            <span class="icon">⏱️</span>
-            <strong>${progressDetails.userFriendlyStatus || 'Downloading'}:</strong> ${progress.toFixed(1)}% complete
-            ${progressDetails.elapsedTime ? `<br><small><strong>Elapsed:</strong> ${progressDetails.elapsedTime}</small>` : ''}
-            ${progressDetails.estimatedCompletion ? `<br><small><strong>Remaining:</strong> ${progressDetails.estimatedCompletion}</small>` : ''}
-          </div>
-          
-          ${progressDetails.statusMessage ? `
-            <div style="background: #e3f2fd; padding: 0.75rem; border-radius: 4px; margin: 0.5rem 0; border-left: 4px solid #2196F3;">
-              <small><strong>📊 Current Status:</strong> ${progressDetails.statusMessage}</small>
-            </div>
-          ` : ''}
-          
-          ${progress > 0 ? `
-            <div style="background: #e8f5e8; padding: 0.75rem; border-radius: 4px; margin: 0.5rem 0; border-left: 4px solid #4caf50;">
-              <small><strong>✅ Progress Update:</strong> ${progressData.message || 'Downloading in progress...'}</small>
-            </div>
-          ` : ''}
-          
-          ${progressDetails.dataDownloaded || progressDetails.memoryUsage ? `
-            <div class="helpful-tips">
-              <h4>📈 Resource Usage</h4>
-              <ul>
-                ${progressDetails.dataDownloaded ? `<li><strong>Data Downloaded:</strong> ${progressDetails.dataDownloaded}</li>` : ''}
-                ${progressDetails.memoryUsage ? `<li><strong>Memory Usage:</strong> ${progressDetails.memoryUsage}</li>` : ''}
-                ${apifyDetails.stats && apifyDetails.stats.computeUnits ? `<li><strong>Compute Units:</strong> ${apifyDetails.stats.computeUnits}</li>` : ''}
-              </ul>
-            </div>
-          ` : ''}
-          
-          <p class="loading-dots"><strong>Downloading videos from YouTube</strong></p>
-          
-          ${apifyDetails.runId ? `
-            <div style="font-size: 0.8rem; color: #666; margin-top: 0.5rem; padding: 0.5rem; background: #f8f9fa; border-radius: 4px;">
-              <strong>Technical Details:</strong><br>
-              <strong>Apify Status:</strong> ${apifyDetails.status || 'Running'}<br>
-              ${apifyDetails.startedAt ? `<strong>Started:</strong> ${new Date(apifyDetails.startedAt).toLocaleTimeString()}<br>` : ''}
-              ${apifyDetails.stats && apifyDetails.stats.runTimeSecs ? `<strong>Runtime:</strong> ${Math.round(apifyDetails.stats.runTimeSecs / 60)}m ${Math.round(apifyDetails.stats.runTimeSecs % 60)}s<br>` : ''}
-              <strong>Run ID:</strong> <code style="font-size: 0.7rem;">${apifyDetails.runId}</code>
-            </div>
-          ` : ''}
-        `;
-      }
-
       function isJobFinished() {
-        return currentJobData && 
-               (currentJobData.status === 'Complete' || 
-                (currentJobData.status && currentJobData.status.startsWith('Failed') && 
-                 !currentJobData.status.includes('Retry')));
+        return currentJobData &&
+          (currentJobData.status === 'Complete' ||
+            (currentJobData.status && currentJobData.status.startsWith('Failed') &&
+              !currentJobData.status.includes('Retry')));
       }
 
       function checkJobStatus(id) {
         console.log("Checking job status for:", id);
 
-        // Use Python Cloud Run getJobStatus endpoint
         fetch(`${videoProcessorUrl}/getJobStatus?jobId=${id}`, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
           }
         })
-        .then(response => {
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-          }
-          return response.json();
-        })
-        .then(data => {
-          console.log("Job status response:", data);
-          currentJobData = data;
-          updateUI(data);
-        })
-        .catch(error => {
-          console.error("Error checking job status:", error);
-          updateUI({
-            status: 'Error',
-            error: `Failed to check job status: ${error.message}`
+          .then(response => {
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            return response.json();
+          })
+          .then(data => {
+            console.log("Job status response:", data);
+            currentJobData = data;
+            updateUI(data);
+          })
+          .catch(error => {
+            console.error("Error checking job status:", error);
+            updateUI({
+              status: 'Error',
+              error: `Failed to check job status: ${error.message}`
+            });
           });
-        });
       }
 
       function updateUI(jobData) {
         // Update basic info
         jobStatus.textContent = jobData.status || 'Unknown';
-        
+
         // Update page title with status
         document.title = `${jobData.status || 'Processing'} - Video Generation Status - JRE Clipper`;
-        
+
+        // Update metrics with missing video information
         if (jobData.totalVideos || jobData.totalSegments) {
-          jobMetrics.innerHTML = `
+          let metricsHtml = `
             <strong>Videos:</strong> ${jobData.totalVideos || 'N/A'} | 
             <strong>Segments:</strong> ${jobData.totalSegments || 'N/A'}
           `;
+
+          // Add missing video information if available
+          if (jobData.missingVideos && jobData.missingVideos.length > 0) {
+            metricsHtml += ` | <strong style="color: #FF9800;">Missing:</strong> ${jobData.missingVideos.length}`;
+          }
+
+          // Add original counts if different
+          if (jobData.originalTotalVideos && jobData.originalTotalVideos !== jobData.totalVideos) {
+            metricsHtml += ` (Originally: ${jobData.originalTotalVideos} videos, ${jobData.originalTotalSegments || 'N/A'} segments)`;
+          }
+
+          jobMetrics.innerHTML = metricsHtml;
         }
 
-        // Start Apify progress polling if we're in downloading phase
-        if (jobData.status === 'Downloading' && !apifyProgressInterval) {
-          const params = new URLSearchParams(window.location.search);
-          const jobId = params.get('jobId');
-          if (jobId) {
-            startApifyProgressPolling(jobId);
-          }
-        }
-        
-        // Stop Apify progress polling if we're no longer downloading
-        if (jobData.status !== 'Downloading' && apifyProgressInterval) {
-          stopApifyProgressPolling();
+        // Only show manual resume options if auto-resume failed and we're not actively processing
+        if (!autoResumeAttempted && !isResuming && needsManualResume(jobData)) {
+          showResumeOptions(jobData);
+        } else {
+          hideResumeOptions();
         }
 
         // Update stepper UI
@@ -764,8 +946,8 @@
         }
 
         // Close SSE connection if job is complete or permanently failed
-        if (jobData.status === 'Complete' || 
-            (jobData.status && jobData.status.startsWith('Failed') && !jobData.status.includes('Retry'))) {
+        if (jobData.status === 'Complete' ||
+          (jobData.status && jobData.status.startsWith('Failed') && !jobData.status.includes('Retry'))) {
           if (eventSource) {
             eventSource.close();
             eventSource = null;
@@ -776,49 +958,51 @@
             pollInterval = null;
             console.log("Stopped polling - job finished");
           }
-          // Also stop Apify polling
-          stopApifyProgressPolling();
         }
       }
 
+      function needsManualResume(jobData) {
+        if (!jobData) return false;
+
+        const status = jobData.status || '';
+        const hasSegments = jobData.segments && jobData.segments.length > 0;
+        const hasOriginalSegments = jobData.originalSegments && jobData.originalSegments.length > 0;
+
+        // Show manual resume only if auto-resume was not attempted or failed
+        return (
+          (status === 'Failed' || status === 'Error') &&
+          (hasSegments || hasOriginalSegments) &&
+          !isResuming
+        );
+      }
+
+      function showResumeOptions(jobData) {
+        const segmentCount = (jobData.segments && jobData.segments.length) ||
+          (jobData.originalSegments && jobData.originalSegments.length) || 0;
+        const videoCount = (jobData.videoIds && jobData.videoIds.length) ||
+          (jobData.originalVideoIds && jobData.originalVideoIds.length) || 0;
+
+        let message = `This job (${segmentCount} segments from ${videoCount} videos) failed to auto-resume.`;
+        message += ' You can manually retry the processing.';
+
+        resumeMessage.textContent = message;
+        resumeContainer.style.display = 'block';
+      }
+
+      function hideResumeOptions() {
+        resumeContainer.style.display = 'none';
+      }
+
+      // Rest of the functions remain the same...
       function updateStepperUI(jobData) {
         const status = jobData.status || 'Unknown';
         const progressMessage = jobData.progressMessage || '';
-        
-        // Detect cache optimization scenarios
-        const videosAlreadyAvailable = jobData.videosAlreadyAvailable || [];
-        const videosNeedingDownload = jobData.videosNeedingDownload || [];
-        const skipDownload = jobData.skipDownload || false;
-        const totalVideos = jobData.totalVideos || 0;
-        
-        // Special handling for different cache scenarios
-        let displayStatus = status;
-        let cacheOptimized = false;
-        
-        if (skipDownload && videosAlreadyAvailable.length > 0) {
-          // All videos were cached - processing started immediately
-          cacheOptimized = true;
-          if (status === 'Processing') {
-            displayStatus = 'CachedProcessing';
-          }
-        } else if (videosAlreadyAvailable.length > 0 && videosNeedingDownload.length > 0) {
-          // Partial cache - some videos cached, some downloading
-          cacheOptimized = true;
-          if (status === 'Downloading') {
-            displayStatus = 'PartialCacheDownloading';
-          }
-        } else if (status === 'Processing' && 
-                   (progressMessage.includes('download successful') || 
-                    progressMessage.includes('Download completed') ||
-                    progressMessage.includes('processing segments'))) {
-          // Traditional flow - show downloaded state
-          displayStatus = 'Downloaded';
-        }
-        
+        const missingVideos = jobData.missingVideos || [];
+        const hasWarnings = missingVideos.length > 0;
+
         const steps = {
           'step-initiated': document.getElementById('step-initiated'),
-          'step-downloading': document.getElementById('step-downloading'),
-          'step-downloaded': document.getElementById('step-downloaded'),
+          'step-verified': document.getElementById('step-verified'),
           'step-processing': document.getElementById('step-processing'),
           'step-uploading': document.getElementById('step-uploading'),
           'step-complete': document.getElementById('step-complete')
@@ -832,252 +1016,45 @@
         });
 
         // Update steps based on status
-        switch (displayStatus) {
-          case 'CachedProcessing':
-            // All videos were cached - skip download phase entirely
-            steps['step-initiated'].className = 'stepper-step completed';
-            steps['step-downloading'].className = 'stepper-step completed';
-            steps['step-downloaded'].className = 'stepper-step completed';
-            steps['step-processing'].className = 'stepper-step active';
-            
-            addStepDetails(steps['step-downloading'], `
-              <div class="time-estimate">
-                <span class="icon">⚡</span>
-                <strong>Download skipped!</strong> All ${videosAlreadyAvailable.length} videos were already in storage
-              </div>
-              <div class="helpful-tips">
-                <h4>🚀 Cache Optimization Active</h4>
-                <ul>
-                  <li>Videos were previously downloaded and cached</li>
-                  <li>Skipping 20-30 minute download phase</li>
-                  <li>Processing segments immediately</li>
-                </ul>
-              </div>
-            `, 'completed');
-            
-            addStepDetails(steps['step-processing'], `
-              <div class="progress-indicator">
-                <div class="loading-spinner"></div>
-                <div class="progress-bar">
-                  <div class="progress-fill" style="width: 75%"></div>
-                </div>
-                <span>Processing</span>
-              </div>
-              <div class="time-estimate">
-                <span class="icon">⚡</span>
-                <strong>Fast processing!</strong> Extracting and compiling your selected segments
-              </div>
-              <p>${progressMessage || 'Processing cached video segments...'}</p>
-            `, 'active');
-            break;
-
-          case 'PartialCacheDownloading':
-            // Some videos cached, some downloading
-            steps['step-initiated'].className = 'stepper-step completed';
-            steps['step-downloading'].className = 'stepper-step active';
-            
-            // Track download start time
-            if (!downloadStartTime) {
-              downloadStartTime = Date.now();
-            }
-            
-            const partialDownloadDuration = Math.floor((Date.now() - downloadStartTime) / 1000 / 60); // minutes
-            const partialEstimatedTotal = Math.max(15, partialDownloadDuration + 10); // Reduced estimate due to partial cache
-            
-            // Use Apify progress data if available for partial downloads too
-            let partialDownloadContent = '';
-            if (lastApifyProgress && lastApifyProgress.downloadProgress !== undefined) {
-              const apifyProgress = lastApifyProgress.downloadProgress;
-              partialDownloadContent = `
-                <div class="progress-indicator">
-                  <span style="min-width: 50px; font-weight: bold; color: #2196F3;">${apifyProgress.toFixed(1)}%</span>
-                  <div class="progress-bar">
-                    <div class="progress-fill" style="width: ${apifyProgress}%; transition: width 0.5s ease;"></div>
-                  </div>
-                  <span style="min-width: 80px; text-align: right; font-size: 0.85rem; color: #666;">
-                    ${videosNeedingDownload.length}/${totalVideos} videos
-                  </span>
-                </div>
-                <div class="time-estimate">
-                  <span class="icon">⚡</span>
-                  <strong>Smart Download:</strong> ${apifyProgress.toFixed(1)}% complete
-                  <br><small>Downloading ${videosNeedingDownload.length} of ${totalVideos} videos (${videosAlreadyAvailable.length} cached)</small>
-                </div>
-                <div style="background: #e8f5e8; padding: 0.75rem; border-radius: 4px; margin: 0.5rem 0; border-left: 4px solid #4caf50;">
-                  <strong>🚀 Cache Optimization:</strong> ${videosAlreadyAvailable.length} videos already available, downloading ${videosNeedingDownload.length} remaining
-                </div>
-                ${lastApifyProgress.message ? `
-                  <div style="background: #e3f2fd; padding: 0.75rem; border-radius: 4px; margin: 0.5rem 0; border-left: 4px solid #2196F3;">
-                    <small><strong>📊 Status:</strong> ${lastApifyProgress.message}</small>
-                  </div>
-                ` : ''}
-                <p class="loading-dots"><strong>Downloading ${videosNeedingDownload.length} remaining videos</strong></p>
-              `;
-            } else {
-              // Fallback content
-              partialDownloadContent = `
-                <div class="progress-indicator">
-                  <div class="loading-spinner"></div>
-                  <div class="progress-bar">
-                    <div class="progress-fill" style="width: ${Math.min(85, (partialDownloadDuration / partialEstimatedTotal) * 100)}%"></div>
-                  </div>
-                  <span>${partialDownloadDuration} min</span>
-                </div>
-                <div class="time-estimate">
-                  <span class="icon">⚡</span>
-                  <strong>Optimized download:</strong> ${videosNeedingDownload.length} of ${totalVideos} videos downloading
-                  ${partialDownloadDuration > 0 ? ` | Running for ${partialDownloadDuration} minutes` : ''}
-                </div>
-                <div style="background: #e8f5e8; padding: 0.75rem; border-radius: 4px; margin: 0.5rem 0; border-left: 4px solid #4caf50;">
-                  <strong>🚀 Cache Hit:</strong> ${videosAlreadyAvailable.length} videos already available, only downloading ${videosNeedingDownload.length} missing videos
-                </div>
-                <div class="helpful-tips">
-                  <h4>💡 Why is this faster?</h4>
-                  <ul>
-                    <li>Some videos were cached from previous requests</li>
-                    <li>Estimated time: 10-20 minutes (reduced from 20-30)</li>
-                    <li>Only downloading missing content</li>
-                  </ul>
-                </div>
-                <p class="loading-dots"><strong>Downloading ${videosNeedingDownload.length} remaining videos</strong></p>
-              `;
-            }
-            
-            addStepDetails(steps['step-downloading'], partialDownloadContent, 'active');
-            break;
-
+        switch (status) {
+          case 'Queued':
+          case 'Processing':
           case 'Downloading':
             steps['step-initiated'].className = 'stepper-step completed';
-            steps['step-downloading'].className = 'stepper-step active';
-            
-            // Track download start time
-            if (!downloadStartTime) {
-              downloadStartTime = Date.now();
-            }
-            
-            const regDownloadDuration = Math.floor((Date.now() - downloadStartTime) / 1000 / 60); // minutes
-            const regEstimatedTotal = Math.max(20, regDownloadDuration + 15); // At least 20 minutes estimate
-            
-            // Use Apify progress data if available, otherwise fall back to time-based estimation
-            let downloadContent = '';
-            if (lastApifyProgress && lastApifyProgress.downloadProgress !== undefined) {
-              const apifyProgress = lastApifyProgress.downloadProgress;
-              downloadContent = `
-                <div class="progress-indicator">
-                  <span style="min-width: 50px; font-weight: bold; color: #2196F3;">${apifyProgress.toFixed(1)}%</span>
-                  <div class="progress-bar">
-                    <div class="progress-fill" style="width: ${apifyProgress}%; transition: width 0.5s ease;"></div>
-                  </div>
-                  <span style="min-width: 80px; text-align: right; font-size: 0.85rem; color: #666;">
-                    ${lastApifyProgress.totalVideos || 'N/A'} video${(lastApifyProgress.totalVideos || 1) !== 1 ? 's' : ''}
-                  </span>
-                </div>
-                <div class="time-estimate">
-                  <span class="icon">📊</span>
-                  <strong>Real-time Progress:</strong> ${apifyProgress.toFixed(1)}% complete
-                  ${apifyProgress > 0 && apifyProgress < 100 ? `<br><small>Downloading ${lastApifyProgress.totalVideos || 'multiple'} video${(lastApifyProgress.totalVideos || 1) !== 1 ? 's' : ''} from YouTube...</small>` : ''}
-                </div>
-                ${lastApifyProgress.message ? `
-                  <div style="background: #e8f5e8; padding: 0.75rem; border-radius: 4px; margin: 0.5rem 0; border-left: 4px solid #4caf50;">
-                    <small><strong>✅ Status:</strong> ${lastApifyProgress.message}</small>
-                  </div>
-                ` : ''}
-                <div class="helpful-tips">
-                  <h4>💡 Live Download Progress:</h4>
-                  <ul>
-                    <li>Real-time progress from YouTube download engine</li>
-                    <li>High-quality video files being processed</li>
-                    <li>You can close this tab and return later - progress is saved</li>
-                  </ul>
-                </div>
-                <p class="loading-dots"><strong>Downloading videos from YouTube</strong></p>
-                ${lastApifyProgress.apifyDetails ? `
-                  <div style="font-size: 0.8rem; color: #666; margin-top: 0.5rem; padding: 0.5rem; background: #f8f9fa; border-radius: 4px;">
-                    <strong>Download Engine:</strong> ${lastApifyProgress.apifyDetails.status || 'Running'}
-                    ${lastApifyProgress.apifyDetails.startedAt ? `<br><strong>Started:</strong> ${new Date(lastApifyProgress.apifyDetails.startedAt).toLocaleTimeString()}` : ''}
-                  </div>
-                ` : ''}
-              `;
-            } else {
-              // Fallback to time-based progress estimation
-              const progressPercent = Math.min(85, (regDownloadDuration / regEstimatedTotal) * 100); // Cap at 85% until complete
-              downloadContent = `
-                <div class="progress-indicator">
-                  <div class="loading-spinner"></div>
-                  <div class="progress-bar">
-                    <div class="progress-fill" style="width: ${progressPercent}%"></div>
-                  </div>
-                  <span>${regDownloadDuration} min</span>
-                </div>
-                <div class="time-estimate">
-                  <span class="icon">⏱️</span>
-                  <strong>Estimated time:</strong> 20-30 minutes total
-                  ${regDownloadDuration > 0 ? `| Running for ${regDownloadDuration} minutes` : ''}
-                </div>
-                <div class="helpful-tips">
-                  <h4>💡 Why does this take so long?</h4>
-                  <ul>
-                    <li>Downloading high-quality video files from YouTube</li>
-                    <li>Processing ${jobData.totalVideos || 'multiple'} videos simultaneously</li>
-                    <li>Your videos will be ready soon - feel free to close this tab and return later</li>
-                  </ul>
-                </div>
-                <p class="loading-dots"><strong>Downloading videos</strong></p>
-                <div style="background: #fff3cd; padding: 0.75rem; border-radius: 4px; margin: 0.5rem 0; border-left: 4px solid #ffc107;">
-                  <small><strong>💡 Getting detailed progress...</strong> Connecting to download engine for real-time updates.</small>
-                </div>
-              `;
-            }
-            
-            addStepDetails(steps['step-downloading'], downloadContent, 'active');
-            break;
-
-          case 'Downloaded':
-            steps['step-initiated'].className = 'stepper-step completed';
-            steps['step-downloading'].className = 'stepper-step completed';
-            steps['step-downloaded'].className = 'stepper-step completed';
-            
-            addStepDetails(steps['step-downloaded'], `
-              <div class="time-estimate">
-                <span class="icon">✅</span>
-                <strong>Download complete!</strong> Full source videos are now available
-              </div>
-              <div class="export-info">
-                💡 You can now export the full source videos while segment processing continues in the background
-              </div>
-              <button id="export-source-videos-btn" class="export-button" onclick="exportSourceVideos()">
-                📁 Export Full Source Videos
-              </button>
-              <p style="margin-top: 0.5rem; font-size: 0.85rem; color: #666;">
-                Segment processing will continue automatically...
-              </p>
-            `, 'completed');
-            
-            // Also show step-processing as active if segments are being processed
-            if (jobData.progressMessage && jobData.progressMessage.includes('processing segments')) {
-              steps['step-processing'].className = 'stepper-step active';
-              addStepDetails(steps['step-processing'], `
-                <div class="progress-indicator">
-                  <div class="loading-spinner"></div>
-                  <div class="progress-bar">
-                    <div class="progress-fill" style="width: 40%"></div>
-                  </div>
-                  <span>Processing</span>
-                </div>
-                <div class="time-estimate">
-                  <span class="icon">⚡</span>
-                  <strong>Processing segments...</strong> Extracting your selected clips
-                </div>
-              `, 'active');
-            }
-            break;
-
-          case 'Processing':
-            steps['step-initiated'].className = 'stepper-step completed';
-            steps['step-downloading'].className = 'stepper-step completed';
-            steps['step-downloaded'].className = 'stepper-step completed';
+            steps['step-verified'].className = hasWarnings ? 'stepper-step warning' : 'stepper-step completed';
             steps['step-processing'].className = 'stepper-step active';
-            
+
+            // Add verification step details
+            if (hasWarnings) {
+              addStepDetails(steps['step-verified'], `
+                <div class="warning-notice">
+                  <h4>⚠️ Some Videos Missing</h4>
+                  <p><strong>${missingVideos.length} videos</strong> were not found in storage and will be skipped:</p>
+                  <ul>
+                    ${missingVideos.slice(0, 5).map(videoId => `<li><code>${videoId}</code></li>`).join('')}
+                    ${missingVideos.length > 5 ? `<li><em>... and ${missingVideos.length - 5} more</em></li>` : ''}
+                  </ul>
+                  <p><strong>Processing will continue</strong> with the ${jobData.totalVideos || 0} available videos.</p>
+                </div>
+              `, 'warning');
+            } else {
+              addStepDetails(steps['step-verified'], `
+                <div class="time-estimate">
+                  <span class="icon">✅</span>
+                  <strong>All videos verified!</strong> Found ${jobData.totalVideos || 0} videos in storage
+                </div>
+                <div class="helpful-tips">
+                  <h4>🚀 Storage Optimization</h4>
+                  <ul>
+                    <li>All required videos are pre-downloaded in cloud storage</li>
+                    <li>No download time needed - processing immediately</li>
+                    <li>Estimated processing time: 5-15 minutes</li>
+                  </ul>
+                </div>
+              `, 'completed');
+            }
+
+            // Add processing step details
             addStepDetails(steps['step-processing'], `
               <div class="progress-indicator">
                 <div class="loading-spinner"></div>
@@ -1088,19 +1065,23 @@
               </div>
               <div class="time-estimate">
                 <span class="icon">⚡</span>
-                <strong>Almost done!</strong> Extracting and compiling your selected segments
+                <strong>Fast processing!</strong> Extracting and compiling selected segments
               </div>
-              <p>${jobData.progressMessage || 'Processing video segments...'}</p>
+              <p>${progressMessage || 'Processing video segments from pre-downloaded files...'}</p>
+              ${hasWarnings ? `
+                <div style="background: #fff3cd; padding: 0.75rem; border-radius: 4px; margin: 0.5rem 0; border-left: 4px solid #ffc107;">
+                  <small><strong>ℹ️ Note:</strong> Processing ${jobData.totalVideos || 0} available videos (${missingVideos.length} skipped)</small>
+                </div>
+              ` : ''}
             `, 'active');
             break;
 
           case 'Uploading':
             steps['step-initiated'].className = 'stepper-step completed';
-            steps['step-downloading'].className = 'stepper-step completed';
-            steps['step-downloaded'].className = 'stepper-step completed';
+            steps['step-verified'].className = hasWarnings ? 'stepper-step warning' : 'stepper-step completed';
             steps['step-processing'].className = 'stepper-step completed';
             steps['step-uploading'].className = 'stepper-step active';
-            
+
             addStepDetails(steps['step-uploading'], `
               <div class="progress-indicator">
                 <div class="loading-spinner"></div>
@@ -1111,7 +1092,7 @@
               </div>
               <div class="time-estimate">
                 <span class="icon">☁️</span>
-                <strong>Final step:</strong> Uploading your video to cloud storage
+                <strong>Final step:</strong> Uploading your compiled video to cloud storage
               </div>
               <p class="loading-dots">Uploading final video</p>
             `, 'active');
@@ -1119,17 +1100,21 @@
 
           case 'Complete':
             Object.values(steps).forEach(step => {
-              step.className = 'stepper-step completed';
+              if (step.id === 'step-verified' && hasWarnings) {
+                step.className = 'stepper-step warning';
+              } else {
+                step.className = 'stepper-step completed';
+              }
             });
-            
-            // Create complete step content with final video URL
+
+            // Create complete step content
             let completeContent = `
               <div class="time-estimate">
                 <span class="icon">🎉</span>
                 <strong>Video generation completed successfully!</strong>
               </div>
             `;
-            
+
             // Add final video download section if available
             if (jobData.finalVideoUrl) {
               completeContent += `
@@ -1144,34 +1129,23 @@
                   </p>
                 </div>
               `;
-            } else {
-              completeContent += `
-                <div style="background: #fff3cd; padding: 1rem; border-radius: 4px; border: 1px solid #ffc107; margin: 1rem 0;">
-                  <p style="margin: 0; color: #856404;">
-                    ⏳ Final video URL is being prepared. Please refresh the page in a moment.
-                  </p>
-                </div>
-              `;
             }
-            
-            // Add cache optimization summary if applicable
-            if (cacheOptimized) {
-              const totalCached = videosAlreadyAvailable.length;
-              const totalDownloaded = videosNeedingDownload.length;
-              
+
+            // Add warning summary if videos were skipped
+            if (hasWarnings) {
               completeContent += `
-                <div style="background: #e3f2fd; padding: 1rem; border-radius: 4px; border: 1px solid #2196f3; margin: 1rem 0;">
-                  <h4 style="margin: 0 0 0.5rem 0; color: #1976d2;">⚡ Cache Optimization Summary</h4>
-                  <ul style="margin: 0.5rem 0; padding-left: 1.25rem;">
-                    ${totalCached > 0 ? `<li><strong>${totalCached} videos</strong> were already cached (saved ~${Math.floor(totalCached * 2.5)} minutes)</li>` : ''}
-                    ${totalDownloaded > 0 ? `<li><strong>${totalDownloaded} videos</strong> were downloaded fresh</li>` : ''}
-                    <li>Total processing time was significantly reduced</li>
+                <div class="warning-notice">
+                  <h4>⚠️ Processing Summary</h4>
+                  <ul>
+                    <li><strong>${jobData.totalVideos || 0} videos</strong> were successfully processed</li>
+                    <li><strong>${missingVideos.length} videos</strong> were missing from storage and skipped</li>
+                    <li>Your compilation includes all available content from your selection</li>
                   </ul>
                 </div>
               `;
             }
-            
-            // Add helpful next steps
+
+            // Add next steps
             completeContent += `
               <div class="helpful-tips">
                 <h4>🎯 What's Next?</h4>
@@ -1179,6 +1153,7 @@
                   <li>Your personalized JRE compilation video is ready to download</li>
                   <li>Share it with friends or save it for later viewing</li>
                   <li>Create more compilations by searching for different topics</li>
+                  ${hasWarnings ? '<li>Try searching for alternative content to replace missing videos</li>' : ''}
                 </ul>
               </div>
               <div style="text-align: center; margin-top: 1rem;">
@@ -1187,38 +1162,36 @@
                 </button>
               </div>
             `;
-            
+
             addStepDetails(steps['step-complete'], completeContent, 'completed');
+
+            // Also update verification step if there were warnings
+            if (hasWarnings) {
+              addStepDetails(steps['step-verified'], `
+                <div class="warning-notice">
+                  <h4>⚠️ Some Videos Missing</h4>
+                  <p><strong>${missingVideos.length} videos</strong> were not found in storage and were skipped.</p>
+                  <p><strong>Processing completed successfully</strong> with the ${jobData.totalVideos || 0} available videos.</p>
+                </div>
+              `, 'warning');
+            }
             break;
 
           case 'Failed':
           case 'Error':
-            // Mark current step as failed based on progress (use original status for error detection)
-            let failedStep = steps['step-initiated'];
-            if (status.includes('download') || jobData.error?.includes('download')) {
-              failedStep = steps['step-downloading'];
-              steps['step-initiated'].className = 'stepper-step completed';
-            } else if (status.includes('process') || jobData.error?.includes('process')) {
-              failedStep = steps['step-processing'];
-              steps['step-initiated'].className = 'stepper-step completed';
-              steps['step-downloading'].className = 'stepper-step completed';
-              steps['step-downloaded'].className = 'stepper-step completed';
-            } else if (status.includes('upload') || jobData.error?.includes('upload')) {
-              failedStep = steps['step-uploading'];
-              steps['step-initiated'].className = 'stepper-step completed';
-              steps['step-downloading'].className = 'stepper-step completed';
-              steps['step-downloaded'].className = 'stepper-step completed';
-              steps['step-processing'].className = 'stepper-step completed';
-            }
-            
+            // Determine which step failed
+            let failedStep = steps['step-processing']; // Default to processing step for most errors
+            steps['step-initiated'].className = 'stepper-step completed';
+            steps['step-verified'].className = hasWarnings ? 'stepper-step warning' : 'stepper-step completed';
+
             failedStep.className = 'stepper-step failed';
             const errorMsg = jobData.error || 'An unknown error occurred';
-            addStepDetails(failedStep, 
-              `❌ ${errorMsg}${getErrorSuggestions(errorMsg)}`, 
+            addStepDetails(failedStep,
+              `❌ ${errorMsg}${getErrorSuggestions(errorMsg)}`,
               'failed');
             break;
 
-          default: // Queued, Unknown, etc.
+          default: // Initializing, Unknown, etc.
             steps['step-initiated'].className = 'stepper-step active';
             addStepDetails(steps['step-initiated'], `
               <div class="progress-indicator">
@@ -1235,10 +1208,9 @@
               <div class="helpful-tips">
                 <h4>📋 What happens next:</h4>
                 <ul>
-                  <li><strong>Step 1:</strong> Download videos from YouTube (20-30 min)</li>
-                  <li><strong>Step 2:</strong> Videos ready - export option available</li>
-                  <li><strong>Step 3:</strong> Extract your selected segments (5-10 min)</li>
-                  <li><strong>Step 4:</strong> Upload final video (2-5 min)</li>
+                  <li><strong>Step 1:</strong> Verify videos in storage (instant)</li>
+                  <li><strong>Step 2:</strong> Extract your selected segments (5-10 min)</li>
+                  <li><strong>Step 3:</strong> Upload final video (2-5 min)</li>
                 </ul>
               </div>
               <p class="loading-dots">Initializing job</p>
@@ -1249,7 +1221,7 @@
       function addStepDetails(stepElement, content, type) {
         const existingDetails = stepElement.querySelector('.stepper-details');
         if (existingDetails) existingDetails.remove();
-        
+
         const details = document.createElement('div');
         details.className = 'stepper-details';
         details.innerHTML = content;
@@ -1257,28 +1229,14 @@
       }
 
       function getErrorSuggestions(errorMsg) {
-        if (errorMsg.includes('bot') || errorMsg.includes('rate limit')) {
+        if (errorMsg.includes('missing') || errorMsg.includes('not found')) {
           return `
             <div class="error-actions">
               <p><strong>💡 Suggestions:</strong></p>
               <ul>
-                <li>Try selecting fewer video segments</li>
-                <li>Wait 10-15 minutes before retrying</li>
-                <li>YouTube may be blocking automated requests</li>
-              </ul>
-              <button onclick="goBackToSelection()" style="background: #2196F3; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer;">
-                ← Select Different Segments
-              </button>
-            </div>
-          `;
-        } else if (errorMsg.includes('private') || errorMsg.includes('unavailable')) {
-          return `
-            <div class="error-actions">
-              <p><strong>💡 Suggestions:</strong></p>
-              <ul>
-                <li>One or more videos may be private or deleted</li>
+                <li>The requested videos may not be available in storage</li>
                 <li>Try searching for different content</li>
-                <li>Check if the original videos are still available</li>
+                <li>Contact support if you believe this is an error</li>
               </ul>
               <button onclick="goBackToSelection()" style="background: #2196F3; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer;">
                 ← Try Different Videos
@@ -1289,7 +1247,7 @@
           return `
             <div class="error-actions">
               <p><strong>💡 You can:</strong></p>
-              <button onclick="location.reload()" style="background: #ff9800; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; margin-right: 0.5rem;">
+              <button onclick="resumeVideoJob()" style="background: #ff9800; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; margin-right: 0.5rem;">
                 🔄 Retry Job
               </button>
               <button onclick="goBackToSelection()" style="background: #2196F3; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer;">
@@ -1301,31 +1259,31 @@
       }
 
       // Global function to go back to selection
-      window.goBackToSelection = function() {
+      window.goBackToSelection = function () {
         const searchQuery = localStorage.getItem('lastSearchQuery') || '';
         window.location.href = `index.html?showSelection=true&query=${encodeURIComponent(searchQuery)}`;
       };
 
       // Global function to export source videos
-      window.exportSourceVideos = function() {
+      window.exportSourceVideos = function () {
         // Get jobId from URL
         const params = new URLSearchParams(window.location.search);
         const jobId = params.get('jobId');
-        
+
         if (!jobId) {
           alert('No job ID found');
           return;
         }
-        
+
         const button = event.target;
         const originalText = button.textContent;
-        
+
         // Disable button and show loading state
         button.disabled = true;
         button.textContent = '🔄 Preparing Export...';
-        
+
         console.log('Requesting source video export for job:', jobId);
-        
+
         // Call the backend endpoint to get source video URLs
         fetch(`${videoProcessorUrl}/getSourceVideos?jobId=${jobId}`, {
           method: 'GET',
@@ -1333,20 +1291,20 @@
             'Content-Type': 'application/json',
           }
         })
-        .then(response => {
-          if (!response.ok) {
-            throw new Error(`Failed to get source videos: ${response.status}`);
-          }
-          return response.json();
-        })
-        .then(data => {
-          console.log('Source videos response:', data);
-          
-          if (data.sourceVideos && data.sourceVideos.length > 0) {
-            // Create download links for each video
-            const downloadContainer = document.createElement('div');
-            downloadContainer.style.marginTop = '1rem';
-            downloadContainer.innerHTML = `
+          .then(response => {
+            if (!response.ok) {
+              throw new Error(`Failed to get source videos: ${response.status}`);
+            }
+            return response.json();
+          })
+          .then(data => {
+            console.log('Source videos response:', data);
+
+            if (data.sourceVideos && data.sourceVideos.length > 0) {
+              // Create download links for each video
+              const downloadContainer = document.createElement('div');
+              downloadContainer.style.marginTop = '1rem';
+              downloadContainer.innerHTML = `
               <div style="background: #e8f5e8; padding: 1rem; border-radius: 4px; border: 1px solid #4caf50;">
                 <h4 style="margin: 0 0 0.5rem 0; color: #2e7d32;">📁 Full Source Videos Available:</h4>
                 ${data.sourceVideos.map((video, index) => `
@@ -1362,31 +1320,31 @@
                 </p>
               </div>
             `;
-            
-            // Replace the export button with download links
-            button.parentNode.replaceChild(downloadContainer, button);
-            
-            // Show success message
-            console.log('Source video export prepared successfully');
-            
-          } else {
-            throw new Error('No source videos available for export');
-          }
-        })
-        .catch(error => {
-          console.error('Error exporting source videos:', error);
-          
-          // Re-enable button and show error
-          button.disabled = false;
-          button.textContent = originalText;
-          button.style.backgroundColor = '#f44336';
-          button.textContent = '❌ Export Failed';
-          
-          setTimeout(() => {
-            button.style.backgroundColor = '#2196F3';
+
+              // Replace the export button with download links
+              button.parentNode.replaceChild(downloadContainer, button);
+
+              // Show success message
+              console.log('Source video export prepared successfully');
+
+            } else {
+              throw new Error('No source videos available for export');
+            }
+          })
+          .catch(error => {
+            console.error('Error exporting source videos:', error);
+
+            // Re-enable button and show error
+            button.disabled = false;
             button.textContent = originalText;
-          }, 3000);
-        });
+            button.style.backgroundColor = '#f44336';
+            button.textContent = '❌ Export Failed';
+
+            setTimeout(() => {
+              button.style.backgroundColor = '#2196F3';
+              button.textContent = originalText;
+            }, 3000);
+          });
       };
 
       // Cleanup on page unload
@@ -1396,9 +1354,6 @@
         }
         if (pollInterval) {
           clearInterval(pollInterval);
-        }
-        if (apifyProgressInterval) {
-          clearInterval(apifyProgressInterval);
         }
       });
     });

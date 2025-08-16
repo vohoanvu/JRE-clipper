@@ -27,10 +27,6 @@ from google.oauth2 import service_account
 from google.cloud.exceptions import NotFound, GoogleCloudError
 import glob
 
-# MoviePy imports instead of ffmpeg-python
-from moviepy import VideoFileClip, concatenate_videoclips
-from apify_client import ApifyClient
-
 # Set up logging to work in Cloud Run environment
 logging.basicConfig(
     level=logging.INFO,
@@ -50,18 +46,9 @@ if not logger.handlers:
 BUCKET_NAME = "jre-processed-clips-bucker"
 FIRESTORE_DB = "jre-clipper-db"
 
-apify_token = os.environ.get("APIFY_KEY")
-if not apify_token:
-    logger.error("APIFY_KEY environment variable is not set")
-    apify_client = None
-else:
-    apify_client = ApifyClient(apify_token)
-    logger.info("Apify client initialized successfully")
-
 storage_client = None
 firestore_client = None
 project_id = None
-gcs_service_account_json_apify = os.environ.get("GCS_SERVICE_ACCOUNT_JSON_APIFY")
 gcs_service_account_json = os.environ.get("GCS_SERVICE_ACCOUNT_JSON")
 
 try:
@@ -132,7 +119,7 @@ def update_job_status(
     error=None,
     video_url=None,
     suggestions=None,
-    download_progress=None,
+    missing_videos=None,
 ):
     """
     Update job status in Firestore with enhanced error information
@@ -152,8 +139,8 @@ def update_job_status(
             update_data["finalVideoUrl"] = video_url
         if suggestions:
             update_data["suggestions"] = suggestions
-        if download_progress is not None:
-            update_data["download_progress"] = download_progress
+        if missing_videos is not None:
+            update_data["missingVideos"] = missing_videos
 
         job_ref.update(update_data)
         logger.info(f"Updated job {job_id} status: {status}")
@@ -194,12 +181,12 @@ def main_handler(request):
 
     if path == "processVideoJob":
         return processVideoJob(request)
-    elif path == "handleVideoDownloadSuccess":
-        return handleVideoDownloadSuccess(request)
     elif path == "getSourceVideos":
         return getSourceVideos(request)
-    elif path == "getApifyProgress":
-        return getApifyProgress(request)
+    elif path == "getJobStatus":
+        return getJobStatus(request)
+    elif path == "resumeVideoJob":
+        return resumeVideoJob(request)
     else:
         return (
             jsonify({"error": f"Unknown endpoint: /{path}"}),
@@ -232,36 +219,10 @@ def processVideoJob(request):
         segments = request_json.get("segments")
         user_session_id = request_json.get("user_session_id")
 
-        # Check if Apify client is available
-        if not apify_client:
-            return (
-                jsonify(
-                    {
-                        "error": "Apify client not initialized - APIFY_KEY environment variable is required"
-                    }
-                ),
-                500,
-                headers,
-            )
-
-        # Validate required environment variable
-        if not gcs_service_account_json_apify:
-            return (
-                jsonify(
-                    {
-                        "error": "GCS_SERVICE_ACCOUNT_JSON_APIFY environment variable is not set"
-                    }
-                ),
-                500,
-                headers,
-            )
-
         # Validate segments data
         if not segments or not isinstance(segments, list) or len(segments) == 0:
             error_msg = f"Invalid segments data: {segments}"
-            print(error_msg)  # Fallback logging
-            if logger:
-                logger.error(error_msg)
+            logger.error(error_msg)
             return (
                 jsonify(
                     {
@@ -272,10 +233,7 @@ def processVideoJob(request):
                 headers,
             )
 
-        info_msg = f"Received request to process {len(segments)} segments for user session {user_session_id}"
-        print(info_msg)  # Fallback logging
-        if logger:
-            logger.info(info_msg)
+        logger.info(f"Received request to process {len(segments)} segments for user session {user_session_id}")
 
         # Extract unique video IDs from all segments
         unique_video_ids = []
@@ -301,42 +259,34 @@ def processVideoJob(request):
                 headers,
             )
 
-        info_msg = f"Found {len(unique_video_ids)} unique videos to process: {unique_video_ids}"
-        print(info_msg)  # Fallback logging
-        if logger:
-            logger.info(info_msg)
+        logger.info(f"Found {len(unique_video_ids)} unique videos to process: {unique_video_ids}")
 
-        # Check for existing videos in GCS to avoid unnecessary downloads
+        # Check for existing videos in GCS
         existing_videos = check_existing_videos_in_gcs(unique_video_ids)
 
-        # Separate videos that need downloading from those already available
-        videos_needing_download = []
-        videos_already_available = []
+        # Separate videos that are available from those that are missing
+        videos_available = []
+        videos_missing = []
 
         for video_id in unique_video_ids:
             if existing_videos.get(video_id):
-                videos_already_available.append(video_id)
-                logger.info(
-                    f"Video {video_id} already exists in GCS: {existing_videos[video_id]}"
-                )
+                videos_available.append(video_id)
+                logger.info(f"Video {video_id} found in GCS: {existing_videos[video_id]}")
             else:
-                videos_needing_download.append(video_id)
-                logger.info(f"Video {video_id} needs to be downloaded")
+                videos_missing.append(video_id)
+                logger.warning(f"Video {video_id} not found in GCS - will be skipped")
 
-        info_msg = f"GCS optimization results: {len(videos_already_available)} videos exist, {len(videos_needing_download)} need downloading"
-        print(info_msg)  # Fallback logging
-        if logger:
-            logger.info(info_msg)
+        logger.info(f"GCS check results: {len(videos_available)} videos available, {len(videos_missing)} videos missing")
 
         # Generate a job ID for this processing request
         job_id = str(uuid.uuid4())
 
         # Determine processing strategy based on video availability
-        if len(videos_needing_download) == 0:
-            # All videos are already available - skip download and go straight to processing
-            logger.info("All videos already exist in GCS - skipping download phase")
+        if len(videos_available) == 0:
+            # No videos are available - cannot proceed
+            logger.error("No videos available in GCS - cannot process job")
 
-            # Create job document in Firestore (no Apify run needed)
+            # Create job document in Firestore to track the failure
             firestore_client.collection("videoJobs").document(job_id).set(
                 {
                     "userSessionId": user_session_id,
@@ -344,42 +294,104 @@ def processVideoJob(request):
                     "videoIds": unique_video_ids,
                     "totalVideos": len(unique_video_ids),
                     "segmentCount": len(segments),
-                    "status": "Processing",  # Skip download phase
+                    "status": "Failed",
                     "segments": segments,
-                    "videosAlreadyAvailable": videos_already_available,
-                    "videosNeedingDownload": [],
-                    "skipDownload": True,
+                    "videosAvailable": [],
+                    "videosMissing": videos_missing,
+                    "error": f"All {len(videos_missing)} required videos are missing from storage",
+                    "missingVideos": videos_missing,
                 }
             )
 
-            # Update status to indicate we're queueing for processing
-            update_job_status(
-                job_id,
-                "Queued",
-                40,
-                f"All {len(videos_already_available)} videos found in storage - queueing for processing...",
+            return (
+                jsonify(
+                    {
+                        "error": f"All {len(videos_missing)} required videos are missing from storage",
+                        "jobId": job_id,
+                        "status": "Failed",
+                        "missingVideos": videos_missing,
+                        "suggestions": [
+                            "The requested videos are not available in storage",
+                            "Try searching for different content",
+                            "Contact support if you believe this is an error"
+                        ]
+                    }
+                ),
+                400,
+                headers,
             )
 
-            # Publish job to Pub/Sub for background processing
+        else:
+            # Some or all videos are available - proceed with processing
+            logger.info(f"Proceeding with {len(videos_available)} available videos")
+
+            # Filter segments to only include those with available videos
+            available_segments = [
+                segment for segment in segments 
+                if segment.get("videoId") in videos_available
+            ]
+
+            logger.info(f"Filtered segments: {len(available_segments)} out of {len(segments)} segments can be processed")
+
+            # Create job document in Firestore
             job_data = {
-                "videoIds": unique_video_ids, 
-                "segments": segments,
                 "userSessionId": user_session_id,
-                "videosAlreadyAvailable": videos_already_available,
-                "videosNeedingDownload": [],
-                "skipDownload": True
+                "createdAt": datetime.now(),
+                "videoIds": videos_available,  # Only include available videos
+                "originalVideoIds": unique_video_ids,  # Track original request
+                "totalVideos": len(videos_available),
+                "originalTotalVideos": len(unique_video_ids),
+                "segmentCount": len(available_segments),
+                "originalSegmentCount": len(segments),
+                "status": "Processing",
+                "segments": available_segments,  # Only include processable segments
+                "originalSegments": segments,  # Track original request
+                "videosAvailable": videos_available,
+                "videosMissing": videos_missing,
+                "skipDownload": True,  # No download needed - videos are pre-downloaded
             }
-            
+
+            # Add missing video information if any
+            if videos_missing:
+                job_data["missingVideos"] = videos_missing
+                job_data["warningMessage"] = f"{len(videos_missing)} videos were missing from storage and will be skipped"
+
+            firestore_client.collection("videoJobs").document(job_id).set(job_data)
+
+            # Update status message based on missing videos
+            if videos_missing:
+                warning_msg = f"Processing {len(videos_available)} available videos - {len(videos_missing)} videos missing from storage"
+                update_job_status(
+                    job_id,
+                    "Processing",
+                    20,
+                    warning_msg,
+                    missing_videos=videos_missing,
+                )
+                logger.warning(f"Job {job_id}: {warning_msg}")
+            else:
+                update_job_status(
+                    job_id,
+                    "Processing",
+                    20,
+                    f"All {len(videos_available)} videos found in storage - processing segments...",
+                )
+
+            # Publish job to Pub/Sub for background processing
             try:
                 message_id = publish_video_processing_job(job_id, job_data)
                 logger.info(f"Published video processing job {job_id} to Pub/Sub with message ID: {message_id}")
                 
                 # Update status to indicate job has been queued
+                final_status_msg = f"Job queued for processing with {len(videos_available)} videos"
+                if videos_missing:
+                    final_status_msg += f" ({len(videos_missing)} videos skipped due to missing files)"
+                
                 update_job_status(
                     job_id,
                     "Queued",
-                    45,
-                    "Job queued for background processing...",
+                    25,
+                    final_status_msg,
                 )
             except Exception as pub_error:
                 logger.error(f"Failed to publish job to Pub/Sub: {pub_error}")
@@ -391,229 +403,202 @@ def processVideoJob(request):
                 )
                 return jsonify({"error": f"Failed to queue job for processing: {str(pub_error)}"}), 500, headers
 
-            # Return immediately without waiting for processing to complete
-            logger.info(
-                f"Queued background processing for job {job_id} via Pub/Sub - returning immediately"
-            )
-
-            return (
-                jsonify(
-                    {
-                        "message": f"Video processing queued - all videos were pre-downloaded",
-                        "jobId": job_id,
-                        "status": "Queued",
-                        "totalVideos": len(unique_video_ids),
-                        "totalSegments": len(segments),
-                        "videosSkipped": len(videos_already_available),
-                        "finalVideoUrl": None,  # Will be available once processing completes
-                        "note": "Processing queued via message queue due to existing videos in storage. Check job status for updates.",
-                    }
-                ),
-                201,
-                headers,
-            )
-
-        else:
-            # Some or all videos need downloading - use Apify
-            logger.info(
-                f"Starting Apify download for {len(videos_needing_download)} videos"
-            )
-
-            # Prepare the Actor input with videos that need downloading
-            videos_list = []
-            for video_id in videos_needing_download:
-                videos_list.append(
-                    {
-                        "url": f"https://www.youtube.com/watch?v={video_id}",
-                        "method": "GET",
-                    }
-                )
-
-            run_input = {
-                "videos": videos_list,
-                "preferredFormat": "mp4",
-                "preferredQuality": "480p",
-                "filenameTemplateParts": ["title"],
-                "googleCloudBucketName": "jre-all-episodes",
-                "googleCloudServiceKey": gcs_service_account_json_apify,
+            # Return response
+            response_data = {
+                "message": f"Video processing job started with {len(videos_available)} available videos",
+                "jobId": job_id,
+                "status": "Queued",
+                "totalVideos": len(videos_available),
+                "totalSegments": len(available_segments),
+                "originalTotalVideos": len(unique_video_ids),
+                "originalTotalSegments": len(segments),
+                "note": "Job queued for background processing using pre-downloaded videos from storage."
             }
 
-            # Start the Actor asynchronously (non-blocking)
-            run = apify_client.actor("UUhJDfKJT2SsXdclR").start(run_input=run_input)
-
-            # Check if the actor was started successfully
-            if not run or "id" not in run:
-                return jsonify({"error": "Failed to start Apify actor"}), 500, headers
-
-            # Use Apify run ID as the job ID for tracking
-            job_id = run["id"]
-
-            # Create a new job document in Firestore with enhanced tracking
-            firestore_client.collection("videoJobs").document(job_id).set(
-                {
-                    "apifyRunId": job_id,
-                    "userSessionId": user_session_id,
-                    "createdAt": datetime.now(),
-                    "videoIds": unique_video_ids,  # Store all video IDs
-                    "totalVideos": len(unique_video_ids),  # Total videos in request
-                    "segmentCount": len(
-                        segments
-                    ),  # Track total segments across all videos
-                    "status": "Downloading",  # Current state
-                    "segments": segments,  # Store full segment data for later processing
-                    "videosAlreadyAvailable": videos_already_available,  # Videos that were pre-downloaded
-                    "videosNeedingDownload": videos_needing_download,  # Videos being downloaded now
-                    "skipDownload": False,
-                }
-            )
-
-            info_msg = f"Started Apify actor for job ID: {job_id} with {len(videos_needing_download)} videos (skipped {len(videos_already_available)} existing)"
-            print(info_msg)  # Fallback logging
-            if logger:
-                logger.info(info_msg)
+            # Add warning information if videos are missing
+            if videos_missing:
+                response_data["warning"] = f"{len(videos_missing)} videos were missing from storage"
+                response_data["missingVideos"] = videos_missing
+                response_data["videosSkipped"] = len(videos_missing)
 
             return (
-                jsonify(
-                    {
-                        "message": f"Video processing job started with ID {job_id} for {len(unique_video_ids)} unique videos",
-                        "jobId": job_id,
-                        "status": "Downloading",
-                        "totalVideos": len(unique_video_ids),
-                        "totalSegments": len(segments),
-                        "videosSkipped": len(videos_already_available),
-                        "videosDownloading": len(videos_needing_download),
-                        "note": "Job is running in background. Use the webhook or check job status for updates.",
-                    }
-                ),
+                jsonify(response_data),
                 201,
                 headers,
             )
 
     except Exception as e:
         error_msg = f"Error processing video job request: {e}"
-        print(error_msg)  # Fallback logging
-        if logger:
-            logger.error(error_msg)
+        logger.error(error_msg)
         return jsonify({"error": "Internal server error"}), 500, headers
 
-# HTTP webhook endpoint to signal successful YT Download operation from Apify actor run
-def handleVideoDownloadSuccess(request):
+def resumeVideoJob(request):
     """
-    Webhook endpoint called by Apify when video download is successful.
-    Expected payload: 
+    Resume an existing video job by job ID
+    Request format: POST /resumeVideoJob
     {
-        "runId": {{resource.id}},
-        "runStatus": {{resource.status}}
+        "jobId": "existing_job_id"
     }
     """
     headers = {"Access-Control-Allow-Origin": "*"}
 
     try:
+        # Parse request JSON
         request_json = request.get_json(silent=True)
-        if not request_json or "runId" not in request_json:
-            error_msg = "Invalid webhook payload: missing runId"
-            print(error_msg)  # Fallback logging
-            if logger:
-                logger.error(error_msg)
-            return jsonify({"error": "runId is required"}), 400, headers
+        if not request_json:
+            return jsonify({"error": "Invalid JSON payload"}), 400, headers
 
-        job_run_id = request_json["runId"]
-        info_msg = f"Received download success webhook for job: {job_run_id}"
-        print(info_msg)  # Fallback logging
-        if logger:
-            logger.info(info_msg)
+        job_id = request_json.get("jobId")
+        if not job_id:
+            return jsonify({"error": "jobId is required"}), 400, headers
 
-        # Check if job exists
-        job_ref = firestore_client.collection("videoJobs").document(job_run_id)
+        # Get existing job from Firestore
+        job_ref = firestore_client.collection("videoJobs").document(job_id)
         job_doc = job_ref.get()
 
         if not job_doc.exists:
-            error_msg = f"Job {job_run_id} not found in database"
-            print(error_msg)  # Fallback logging
-            if logger:
-                logger.error(error_msg)
-            return jsonify({"error": "Run Job not found"}), 404, headers
+            return jsonify({"error": "Job not found"}), 404, headers
 
         job_data = job_doc.to_dict()
-        current_status = job_data.get("status", "Processing")
+        
+        # Extract segments from the existing job
+        segments = job_data.get("originalSegments") or job_data.get("segments")
+        if not segments:
+            return jsonify({"error": "No segments found in existing job"}), 400, headers
 
-        # Update job status to indicate successful download and queueing for processing
-        update_job_status(
-            job_run_id,
-            "Queued",
-            50,
-            "Videos downloaded successfully, queueing for segment processing...",
-        )
+        user_session_id = job_data.get("userSessionId", f"resumed_{job_id}")
 
-        info_msg = f"Successfully updated job {job_run_id} to Queued status"
-        print(info_msg)  # Fallback logging
-        if logger:
-            logger.info(info_msg)
+        logger.info(f"Resuming job {job_id} with {len(segments)} segments")
 
-        # Publish to Pub/Sub for background processing instead of direct processing
-        try:
-            logger.info(f"Publishing segment processing job {job_run_id} to Pub/Sub")
+        # Extract unique video IDs from segments
+        unique_video_ids = []
+        seen_video_ids = set()
 
-            message_id = publish_video_processing_job(job_run_id, job_data)
-            logger.info(f"Published video processing job {job_run_id} to Pub/Sub with message ID: {message_id}")
-            
-            # Update status to indicate job has been queued
+        for segment in segments:
+            video_id = segment.get("videoId")
+            if video_id and video_id not in seen_video_ids:
+                unique_video_ids.append(video_id)
+                seen_video_ids.add(video_id)
+
+        # Check for existing videos in GCS
+        existing_videos = check_existing_videos_in_gcs(unique_video_ids)
+
+        # Separate available and missing videos
+        videos_available = []
+        videos_missing = []
+
+        for video_id in unique_video_ids:
+            if existing_videos.get(video_id):
+                videos_available.append(video_id)
+            else:
+                videos_missing.append(video_id)
+
+        logger.info(f"Resume job {job_id}: {len(videos_available)} videos available, {len(videos_missing)} videos missing")
+
+        if len(videos_available) == 0:
+            # Update existing job with failure status
             update_job_status(
-                job_run_id,
-                "Queued",
-                55,
-                "Job queued for background processing...",
-            )
-
-        except Exception as pub_error:
-            logger.error(f"Failed to publish job to Pub/Sub after download: {pub_error}")
-
-            # Update job status with error
-            suggestions = [
-                "Video download succeeded but failed to queue for processing",
-                "This could be due to messaging system issues",
-                "Please try submitting the job again",
-            ]
-
-            update_job_status(
-                job_run_id,
+                job_id,
                 "Failed",
-                error=f"Failed to queue for processing: {str(pub_error)}",
-                suggestions=suggestions,
+                error=f"All {len(videos_missing)} required videos are missing from storage",
+                missing_videos=videos_missing,
             )
 
-            # Still return success for webhook (download succeeded, processing failed)
-            return (
-                jsonify(
-                    {
-                        "message": "Download succeeded but failed to queue for processing",
-                        "jobId": job_run_id,
-                        "downloadStatus": "Complete",
-                        "error": str(pub_error),
-                    }
-                ),
-                500,
-                headers,
+            return jsonify({
+                "error": f"All {len(videos_missing)} required videos are missing from storage",
+                "jobId": job_id,
+                "status": "Failed",
+                "missingVideos": videos_missing,
+            }), 400, headers
+
+        # Filter segments to only include those with available videos
+        available_segments = [
+            segment for segment in segments 
+            if segment.get("videoId") in videos_available
+        ]
+
+        # Update existing job document with new data
+        updated_job_data = {
+            "videoIds": videos_available,
+            "totalVideos": len(videos_available),
+            "segmentCount": len(available_segments),
+            "status": "Processing",
+            "segments": available_segments,
+            "videosAvailable": videos_available,
+            "videosMissing": videos_missing,
+            "updatedAt": datetime.now(),
+            "resumedAt": datetime.now(),
+        }
+
+        # Add missing video information if any
+        if videos_missing:
+            updated_job_data["missingVideos"] = videos_missing
+            updated_job_data["warningMessage"] = f"{len(videos_missing)} videos were missing from storage and will be skipped"
+
+        # Update the existing job document
+        job_ref.update(updated_job_data)
+
+        # Update status message
+        if videos_missing:
+            warning_msg = f"Resumed processing {len(videos_available)} available videos - {len(videos_missing)} videos missing from storage"
+            update_job_status(
+                job_id,
+                "Processing",
+                20,
+                warning_msg,
+                missing_videos=videos_missing,
+            )
+        else:
+            update_job_status(
+                job_id,
+                "Processing",
+                20,
+                f"Resumed - all {len(videos_available)} videos found in storage",
             )
 
-        return (
-            jsonify(
-                {
-                    "message": "Job download completed and queued for processing",
-                    "jobId": job_run_id,
-                    "status": "Queued",
-                    "messageId": message_id,
-                }
-            ),
-            200,
-            headers,
-        )
+        # Publish job to Pub/Sub for background processing
+        try:
+            # Get the updated job data for pub/sub
+            combined_job_data = {**job_data, **updated_job_data}
+            message_id = publish_video_processing_job(job_id, combined_job_data)
+            logger.info(f"Published resumed video processing job {job_id} to Pub/Sub with message ID: {message_id}")
+            
+            update_job_status(
+                job_id,
+                "Queued",
+                25,
+                f"Job resumed and queued for processing with {len(videos_available)} videos",
+            )
+        except Exception as pub_error:
+            logger.error(f"Failed to publish resumed job to Pub/Sub: {pub_error}")
+            update_job_status(
+                job_id,
+                "Failed",
+                error=str(pub_error),
+                suggestions=["Failed to queue resumed job for processing", "Please try again"]
+            )
+            return jsonify({"error": f"Failed to queue resumed job for processing: {str(pub_error)}"}), 500, headers
+
+        # Return response with same job ID
+        response_data = {
+            "message": f"Video job resumed with {len(videos_available)} available videos",
+            "jobId": job_id,  # Same job ID!
+            "status": "Queued",
+            "totalVideos": len(videos_available),
+            "totalSegments": len(available_segments),
+            "note": "Job resumed and queued for background processing."
+        }
+
+        if videos_missing:
+            response_data["warning"] = f"{len(videos_missing)} videos were missing from storage"
+            response_data["missingVideos"] = videos_missing
+            response_data["videosSkipped"] = len(videos_missing)
+
+        return jsonify(response_data), 200, headers
 
     except Exception as e:
-        error_msg = f"Error handling video download success webhook: {e}"
-        print(error_msg)  # Fallback logging
-        if logger:
-            logger.error(error_msg)
+        error_msg = f"Error resuming video job: {e}"
+        logger.error(error_msg)
         return jsonify({"error": "Internal server error"}), 500, headers
 
 def getSourceVideos(request):
@@ -638,17 +623,17 @@ def getSourceVideos(request):
 
         job_data = job_doc.to_dict()
 
-        # Check if job has downloaded source videos
+        # Check if job has available videos
         if job_data.get("status") not in [
-            "Downloaded",
             "Processing",
+            "Queued",
             "Uploading",
             "Complete",
         ]:
             return (
                 jsonify(
                     {
-                        "error": "Source videos not yet available. Job must be in Downloaded status or later."
+                        "error": "Source videos not yet available. Job must be in Processing status or later."
                     }
                 ),
                 400,
@@ -657,42 +642,24 @@ def getSourceVideos(request):
 
         source_videos = []
 
-        # Get source video information from job data
-        segments = job_data.get("segments", [])
-        if not segments:
-            return jsonify({"error": "No segments found for this job"}), 404, headers
-
-        # Get unique video IDs from segments
-        video_ids = list(
-            set(
-                segment.get("videoId") for segment in segments if segment.get("videoId")
-            )
-        )
+        # Get available video information from job data
+        video_ids = job_data.get("videosAvailable", job_data.get("videoIds", []))
+        if not video_ids:
+            return jsonify({"error": "No available videos found for this job"}), 404, headers
 
         # For each video ID, generate GCS download URL
         for video_id in video_ids:
             try:
-                # Source videos are stored in jre-all-episodes bucket by Apify
-                # Pattern: {videoId}_{VideoTitle}.mp4.mp4
-                bucket = storage_client.bucket(
-                    "jre-all-episodes"
-                )  # Source videos bucket
+                # Source videos are stored in jre-all-episodes bucket
+                bucket = storage_client.bucket("jre-all-episodes")
 
-                # Use regex to find the actual blob name
-                import re
+                # Find the actual blob using enhanced patterns
+                existing_videos = check_existing_videos_in_gcs([video_id])
+                blob_name = existing_videos.get(video_id)
 
-                video_pattern = rf"^{re.escape(video_id)}_.*\.mp4\.mp4$"
-
-                # List all blobs and find matching one
-                blobs_list = list(bucket.list_blobs())
-                video_blob = None
-
-                for blob in blobs_list:
-                    if re.match(video_pattern, blob.name):
-                        video_blob = blob
-                        break
-
-                if video_blob:
+                if blob_name:
+                    video_blob = bucket.blob(blob_name)
+                    
                     # Generate a signed URL for download (valid for 1 hour)
                     download_url = video_blob.generate_signed_url(
                         expiration=datetime.utcnow() + timedelta(hours=1), method="GET"
@@ -703,13 +670,11 @@ def getSourceVideos(request):
                             "videoId": video_id,
                             "url": download_url,
                             "title": f"Source Video {video_id}",
-                            "filename": video_blob.name,  # Use actual filename from GCS
+                            "filename": blob_name,
                         }
                     )
                 else:
-                    logger.warning(
-                        f"Source video not found in GCS for pattern: {video_id}_*.mp4.mp4"
-                    )
+                    logger.warning(f"Source video not found in GCS for video ID: {video_id}")
 
             except Exception as e:
                 logger.error(f"Error getting source video for {video_id}: {e}")
@@ -732,80 +697,13 @@ def getSourceVideos(request):
 
     except Exception as e:
         error_msg = f"Error getting source videos: {e}"
-        print(error_msg)  # Fallback logging
-        if logger:
-            logger.error(error_msg)
+        logger.error(error_msg)
         return jsonify({"error": "Internal server error"}), 500, headers
 
-def get_apify_run_progress(apify_run_id):
+def getJobStatus(request):
     """
-    Fetch progress information from Apify API for a specific run.
-    Returns run details including status, stats, and completion info.
-    """
-    try:
-        # Check if Apify client is available
-        if not apify_client:
-            return {"error": "Apify client not initialized - APIFY_KEY not configured"}
-        
-        # Use the Apify Python client to get run details
-        run_info = apify_client.run(apify_run_id).get()
-        
-        if not run_info:
-            return {"error": "Run not found or access denied"}
-        
-        return run_info
-        
-    except Exception as e:
-        logger.error(f"Error fetching Apify run progress: {e}")
-        return {"error": f"Failed to fetch run details: {str(e)}"}
-
-def calculate_download_progress(video_ids, apify_progress):
-    """
-    Calculate download progress percentage based on video IDs and Apify run status.
-    Checks GCS bucket to see which videos have been downloaded.
-    """
-    try:
-        if not video_ids:
-            return 0
-        
-        # Check Apify run status first
-        apify_status = apify_progress.get("status", "").upper()
-        
-        # If Apify run hasn't started or failed, progress is 0
-        if apify_status in ["READY", "RUNNING"] and not apify_progress.get("startedAt"):
-            return 0
-        
-        # If Apify run failed, return 0
-        if apify_status in ["FAILED", "ABORTED", "TIMED_OUT"]:
-            return 0
-        
-        # Check which videos are already downloaded in GCS
-        existing_videos = check_existing_videos_in_gcs(video_ids)
-        downloaded_count = sum(1 for blob_name in existing_videos.values() if blob_name is not None)
-        
-        progress_percentage = (downloaded_count / len(video_ids)) * 100
-        
-        # If Apify run is finished but not all videos are downloaded, cap at 95%
-        # This handles cases where some videos might have failed to download
-        if apify_status == "SUCCEEDED" and progress_percentage < 100:
-            progress_percentage = min(progress_percentage, 95)
-        
-        # If all videos are downloaded, return 100%
-        if downloaded_count == len(video_ids):
-            progress_percentage = 100
-        
-        logger.info(f"Download progress: {downloaded_count}/{len(video_ids)} videos ({progress_percentage:.1f}%)")
-        return round(progress_percentage, 1)
-        
-    except Exception as e:
-        logger.error(f"Error calculating download progress: {e}")
-        return 0
-
-def getApifyProgress(request):
-    """
-    Get granular Apify download progress for a job.
-    Request format: GET /getApifyProgress?jobId=<job_id>
-    Returns progress details including per-video download status.
+    Get job status from Firestore.
+    Request format: GET /getJobStatus?jobId=<job_id>
     """
     headers = {"Access-Control-Allow-Origin": "*"}
 
@@ -824,181 +722,17 @@ def getApifyProgress(request):
 
         job_data = job_doc.to_dict()
 
-        # Check if job has an apify_run_id
-        apify_run_id = job_data.get("apifyRunId")  # Note: using camelCase to match job creation
-        if not apify_run_id:
-            return jsonify({
-                "error": "No Apify run ID found for this job",
-                "jobId": job_id,
-                "status": job_data.get("status", "Unknown")
-            }), 400, headers
+        # Convert datetime objects to strings for JSON serialization
+        if job_data.get("createdAt"):
+            job_data["createdAt"] = job_data["createdAt"].isoformat()
+        if job_data.get("updatedAt"):
+            job_data["updatedAt"] = job_data["updatedAt"].isoformat()
 
-        # Check if job is in downloading status
-        current_status = job_data.get("status")
-        if current_status not in ["Queued", "Downloading"]:
-            # If job is already past downloading, return completed state
-            return jsonify({
-                "jobId": job_id,
-                "apifyRunId": apify_run_id,
-                "status": current_status,
-                "isDownloadComplete": True,
-                "progress": 100,
-                "message": f"Download phase completed. Current status: {current_status}"
-            }), 200, headers
-
-        # Get Apify progress
-        apify_progress = get_apify_run_progress(apify_run_id)
-        
-        if apify_progress.get("error"):
-            return jsonify({
-                "error": f"Failed to fetch Apify progress: {apify_progress['error']}",
-                "jobId": job_id,
-                "apifyRunId": apify_run_id
-            }), 500, headers
-
-        # Extract detailed Apify information
-        apify_data = apify_progress.get("data", {})
-        apify_stats = apify_data.get("stats", {})
-        
-        # Calculate download progress based on job segments
-        segments = job_data.get("segments", [])
-        video_ids = list(set(segment.get("videoId") for segment in segments if segment.get("videoId")))
-        
-        download_progress = calculate_download_progress(video_ids, apify_data)
-
-        # Parse timing information
-        started_at = apify_data.get("startedAt")
-        finished_at = apify_data.get("finishedAt")
-        duration_seconds = apify_stats.get("runTimeSecs", 0)
-        
-        # Calculate elapsed time and estimated completion
-        elapsed_time_str = ""
-        estimated_completion = None
-        
-        if started_at:
-            from datetime import datetime
-            try:
-                start_time = datetime.fromisoformat(started_at.replace('Z', '+00:00'))
-                elapsed_seconds = (datetime.now().replace(tzinfo=start_time.tzinfo) - start_time).total_seconds()
-                
-                # Format elapsed time
-                if elapsed_seconds >= 3600:  # More than 1 hour
-                    hours = int(elapsed_seconds // 3600)
-                    minutes = int((elapsed_seconds % 3600) // 60)
-                    elapsed_time_str = f"{hours}h {minutes}m"
-                elif elapsed_seconds >= 60:  # More than 1 minute
-                    minutes = int(elapsed_seconds // 60)
-                    seconds = int(elapsed_seconds % 60)
-                    elapsed_time_str = f"{minutes}m {seconds}s"
-                else:
-                    elapsed_time_str = f"{int(elapsed_seconds)}s"
-                
-                # Estimate completion time if we have meaningful progress
-                if download_progress > 5 and download_progress < 100:
-                    estimated_total_time = elapsed_seconds * (100 / download_progress)
-                    remaining_time = estimated_total_time - elapsed_seconds
-                    
-                    if remaining_time > 0:
-                        if remaining_time >= 3600:
-                            est_hours = int(remaining_time // 3600)
-                            est_minutes = int((remaining_time % 3600) // 60)
-                            estimated_completion = f"~{est_hours}h {est_minutes}m remaining"
-                        elif remaining_time >= 60:
-                            est_minutes = int(remaining_time // 60)
-                            estimated_completion = f"~{est_minutes}m remaining"
-                        else:
-                            estimated_completion = f"~{int(remaining_time)}s remaining"
-            except Exception as e:
-                logger.warning(f"Error parsing time information: {e}")
-
-        # Format data usage
-        net_rx_bytes = apify_stats.get("netRxBytes", 0)
-        data_downloaded_mb = round(net_rx_bytes / (1024 * 1024), 1) if net_rx_bytes > 0 else 0
-        
-        # Format memory usage
-        mem_current_bytes = apify_stats.get("memCurrentBytes", 0)
-        mem_current_mb = round(mem_current_bytes / (1024 * 1024), 1) if mem_current_bytes > 0 else 0
-        
-        # Parse status message for more context
-        status_message = apify_data.get("statusMessage", "")
-        pages_info = ""
-        if "Crawled" in status_message:
-            pages_info = status_message
-        
-        # Determine user-friendly status
-        apify_status = apify_data.get("status", "").upper()
-        user_friendly_status = {
-            "READY": "Initializing",
-            "RUNNING": "Downloading",
-            "SUCCEEDED": "Complete",
-            "FAILED": "Failed",
-            "ABORTED": "Cancelled",
-            "TIMED_OUT": "Timed Out"
-        }.get(apify_status, apify_status)
-
-        # Update job status with download progress if significant change
-        current_download_progress = job_data.get("download_progress", 0)
-        if abs(download_progress - current_download_progress) >= 5:  # Update every 5% change
-            progress_message = f"Downloading videos... {download_progress}% complete"
-            if elapsed_time_str:
-                progress_message += f" (elapsed: {elapsed_time_str})"
-            
-            update_job_status(
-                job_id=job_id,
-                status="Downloading",
-                progress=None,  # Keep overall progress unchanged
-                message=progress_message,
-                download_progress=download_progress
-            )
-
-        # Enhanced response with detailed progress information
-        response_data = {
-            "jobId": job_id,
-            "apifyRunId": apify_run_id,
-            "status": current_status,
-            "isDownloadComplete": download_progress >= 100,
-            "downloadProgress": download_progress,
-            "totalVideos": len(video_ids),
-            "videoIds": video_ids,
-            
-            # Detailed progress information
-            "progressDetails": {
-                "userFriendlyStatus": user_friendly_status,
-                "statusMessage": pages_info or status_message,
-                "elapsedTime": elapsed_time_str,
-                "estimatedCompletion": estimated_completion,
-                "dataDownloaded": f"{data_downloaded_mb} MB" if data_downloaded_mb > 0 else "0 MB",
-                "memoryUsage": f"{mem_current_mb} MB" if mem_current_mb > 0 else "0 MB"
-            },
-            
-            # Technical details for debugging
-            "apifyDetails": {
-                "runId": apify_run_id,
-                "status": apify_data.get("status"),
-                "startedAt": started_at,
-                "finishedAt": finished_at,
-                "durationSeconds": duration_seconds,
-                "stats": {
-                    "runTimeSecs": apify_stats.get("runTimeSecs", 0),
-                    "computeUnits": round(apify_stats.get("computeUnits", 0), 4),
-                    "netRxBytes": net_rx_bytes,
-                    "memCurrentBytes": mem_current_bytes,
-                    "cpuCurrentUsage": round(apify_stats.get("cpuCurrentUsage", 0), 1)
-                }
-            },
-            
-            # User-facing message
-            "message": f"{user_friendly_status}: {download_progress}% complete" + 
-                      (f" ({elapsed_time_str})" if elapsed_time_str else "")
-        }
-
-        return jsonify(response_data), 200, headers
+        return jsonify(job_data), 200, headers
 
     except Exception as e:
-        error_msg = f"Error getting Apify progress: {e}"
-        print(error_msg)  # Fallback logging
-        if logger:
-            logger.error(error_msg)
+        error_msg = f"Error getting job status: {e}"
+        logger.error(error_msg)
         return jsonify({"error": "Internal server error"}), 500, headers
 
 def check_existing_videos_in_gcs(video_ids, source_bucket="jre-all-episodes"):
@@ -1009,7 +743,7 @@ def check_existing_videos_in_gcs(video_ids, source_bucket="jre-all-episodes"):
     try:
         logger.info(f"Checking for existing videos in GCS bucket: {source_bucket}")
 
-        # Connect to the source bucket (where Apify uploads)
+        # Connect to the source bucket (where videos are stored)
         source_bucket_obj = storage_client.bucket(source_bucket)
 
         # List all blobs to find existing video files
@@ -1020,14 +754,27 @@ def check_existing_videos_in_gcs(video_ids, source_bucket="jre-all-episodes"):
         existing_videos = {}
 
         for video_id in video_ids:
-            # Use regex to find video files matching the pattern: {videoId}_*.mp4.mp4
-            video_pattern = rf"^{re.escape(video_id)}_.*\.mp4\.mp4$"
+            # Enhanced regex patterns to match multiple video file formats:
+            # - {videoId}_*.mp4.mp4 (original pattern)
+            # - {videoId}_*.mp4 (new pattern)
+            # - {videoId}.mp4 (new pattern)
+            video_patterns = [
+                rf"^{re.escape(video_id)}_.*\.mp4\.mp4$",  # Original: {videoId}_*.mp4.mp4
+                rf"^{re.escape(video_id)}_.*\.mp4$",       # New: {videoId}_*.mp4
+                rf"^{re.escape(video_id)}\.mp4$"           # New: {videoId}.mp4
+            ]
 
             found_blob = None
             for blob in blobs_list:
-                if re.match(video_pattern, blob.name):
-                    found_blob = blob.name
-                    logger.info(f"Found existing video for {video_id}: {blob.name}")
+                # Check if blob name matches any of the patterns
+                for pattern in video_patterns:
+                    if re.match(pattern, blob.name):
+                        found_blob = blob.name
+                        logger.info(f"Found existing video for {video_id}: {blob.name}")
+                        break
+                
+                # Break outer loop if blob found
+                if found_blob:
                     break
 
             existing_videos[video_id] = found_blob
@@ -1039,7 +786,7 @@ def check_existing_videos_in_gcs(video_ids, source_bucket="jre-all-episodes"):
         missing_count = len(video_ids) - existing_count
 
         logger.info(
-            f"GCS check results: {existing_count} videos already exist, {missing_count} need downloading"
+            f"GCS check results: {existing_count} videos already exist, {missing_count} missing from storage"
         )
 
         return existing_videos
