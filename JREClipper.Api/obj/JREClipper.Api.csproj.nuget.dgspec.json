@@ -1,42 +1,36 @@
 {
   "format": 1,
   "restore": {
-    "D:\\vu-repos\\VuSolutionsProjects\\JRE-clipper\\JREClipper.Api\\JREClipper.Api.csproj": {}
+    "/Users/vohoanvu/dev-repository/JRE-clipper/JREClipper.Api/JREClipper.Api.csproj": {}
   },
   "projects": {
-    "D:\\vu-repos\\VuSolutionsProjects\\JRE-clipper\\JREClipper.Api\\JREClipper.Api.csproj": {
+    "/Users/vohoanvu/dev-repository/JRE-clipper/JREClipper.Api/JREClipper.Api.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "D:\\vu-repos\\VuSolutionsProjects\\JRE-clipper\\JREClipper.Api\\JREClipper.Api.csproj",
+        "projectUniqueName": "/Users/vohoanvu/dev-repository/JRE-clipper/JREClipper.Api/JREClipper.Api.csproj",
         "projectName": "JREClipper.Api",
-        "projectPath": "D:\\vu-repos\\VuSolutionsProjects\\JRE-clipper\\JREClipper.Api\\JREClipper.Api.csproj",
-        "packagesPath": "C:\\Users\\ADMIN\\.nuget\\packages\\",
-        "outputPath": "D:\\vu-repos\\VuSolutionsProjects\\JRE-clipper\\JREClipper.Api\\obj\\",
+        "projectPath": "/Users/vohoanvu/dev-repository/JRE-clipper/JREClipper.Api/JREClipper.Api.csproj",
+        "packagesPath": "/Users/vohoanvu/.nuget/packages/",
+        "outputPath": "/Users/vohoanvu/dev-repository/JRE-clipper/JREClipper.Api/obj/",
         "projectStyle": "PackageReference",
-        "fallbackFolders": [
-          "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
-        ],
         "configFilePaths": [
-          "C:\\Users\\ADMIN\\AppData\\Roaming\\NuGet\\NuGet.Config",
-          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
-          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
+          "/Users/vohoanvu/.nuget/NuGet/NuGet.Config"
         ],
         "originalTargetFrameworks": [
           "net8.0"
         ],
         "sources": {
-          "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
           "https://api.nuget.org/v3/index.json": {}
         },
         "frameworks": {
           "net8.0": {
             "targetAlias": "net8.0",
             "projectReferences": {
-              "D:\\vu-repos\\VuSolutionsProjects\\JRE-clipper\\JREClipper.Core\\JREClipper.Core.csproj": {
-                "projectPath": "D:\\vu-repos\\VuSolutionsProjects\\JRE-clipper\\JREClipper.Core\\JREClipper.Core.csproj"
+              "/Users/vohoanvu/dev-repository/JRE-clipper/JREClipper.Core/JREClipper.Core.csproj": {
+                "projectPath": "/Users/vohoanvu/dev-repository/JRE-clipper/JREClipper.Core/JREClipper.Core.csproj"
               },
-              "D:\\vu-repos\\VuSolutionsProjects\\JRE-clipper\\JREClipper.Infrastructure\\JREClipper.Infrastructure.csproj": {
-                "projectPath": "D:\\vu-repos\\VuSolutionsProjects\\JRE-clipper\\JREClipper.Infrastructure\\JREClipper.Infrastructure.csproj"
+              "/Users/vohoanvu/dev-repository/JRE-clipper/JREClipper.Infrastructure/JREClipper.Infrastructure.csproj": {
+                "projectPath": "/Users/vohoanvu/dev-repository/JRE-clipper/JREClipper.Infrastructure/JREClipper.Infrastructure.csproj"
               }
             }
           }
@@ -92,32 +86,26 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\8.0.406/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "/usr/local/share/dotnet/sdk/8.0.404/PortableRuntimeIdentifierGraph.json"
         }
       }
     },
-    "D:\\vu-repos\\VuSolutionsProjects\\JRE-clipper\\JREClipper.Core\\JREClipper.Core.csproj": {
+    "/Users/vohoanvu/dev-repository/JRE-clipper/JREClipper.Core/JREClipper.Core.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "D:\\vu-repos\\VuSolutionsProjects\\JRE-clipper\\JREClipper.Core\\JREClipper.Core.csproj",
+        "projectUniqueName": "/Users/vohoanvu/dev-repository/JRE-clipper/JREClipper.Core/JREClipper.Core.csproj",
         "projectName": "JREClipper.Core",
-        "projectPath": "D:\\vu-repos\\VuSolutionsProjects\\JRE-clipper\\JREClipper.Core\\JREClipper.Core.csproj",
-        "packagesPath": "C:\\Users\\ADMIN\\.nuget\\packages\\",
-        "outputPath": "D:\\vu-repos\\VuSolutionsProjects\\JRE-clipper\\JREClipper.Core\\obj\\",
+        "projectPath": "/Users/vohoanvu/dev-repository/JRE-clipper/JREClipper.Core/JREClipper.Core.csproj",
+        "packagesPath": "/Users/vohoanvu/.nuget/packages/",
+        "outputPath": "/Users/vohoanvu/dev-repository/JRE-clipper/JREClipper.Core/obj/",
         "projectStyle": "PackageReference",
-        "fallbackFolders": [
-          "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
-        ],
         "configFilePaths": [
-          "C:\\Users\\ADMIN\\AppData\\Roaming\\NuGet\\NuGet.Config",
-          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
-          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
+          "/Users/vohoanvu/.nuget/NuGet/NuGet.Config"
         ],
         "originalTargetFrameworks": [
           "net8.0"
         ],
         "sources": {
-          "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
           "https://api.nuget.org/v3/index.json": {}
         },
         "frameworks": {
@@ -166,40 +154,34 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\8.0.406/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "/usr/local/share/dotnet/sdk/8.0.404/PortableRuntimeIdentifierGraph.json"
         }
       }
     },
-    "D:\\vu-repos\\VuSolutionsProjects\\JRE-clipper\\JREClipper.Infrastructure\\JREClipper.Infrastructure.csproj": {
+    "/Users/vohoanvu/dev-repository/JRE-clipper/JREClipper.Infrastructure/JREClipper.Infrastructure.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "D:\\vu-repos\\VuSolutionsProjects\\JRE-clipper\\JREClipper.Infrastructure\\JREClipper.Infrastructure.csproj",
+        "projectUniqueName": "/Users/vohoanvu/dev-repository/JRE-clipper/JREClipper.Infrastructure/JREClipper.Infrastructure.csproj",
         "projectName": "JREClipper.Infrastructure",
-        "projectPath": "D:\\vu-repos\\VuSolutionsProjects\\JRE-clipper\\JREClipper.Infrastructure\\JREClipper.Infrastructure.csproj",
-        "packagesPath": "C:\\Users\\ADMIN\\.nuget\\packages\\",
-        "outputPath": "D:\\vu-repos\\VuSolutionsProjects\\JRE-clipper\\JREClipper.Infrastructure\\obj\\",
+        "projectPath": "/Users/vohoanvu/dev-repository/JRE-clipper/JREClipper.Infrastructure/JREClipper.Infrastructure.csproj",
+        "packagesPath": "/Users/vohoanvu/.nuget/packages/",
+        "outputPath": "/Users/vohoanvu/dev-repository/JRE-clipper/JREClipper.Infrastructure/obj/",
         "projectStyle": "PackageReference",
-        "fallbackFolders": [
-          "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
-        ],
         "configFilePaths": [
-          "C:\\Users\\ADMIN\\AppData\\Roaming\\NuGet\\NuGet.Config",
-          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
-          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
+          "/Users/vohoanvu/.nuget/NuGet/NuGet.Config"
         ],
         "originalTargetFrameworks": [
           "net8.0"
         ],
         "sources": {
-          "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
           "https://api.nuget.org/v3/index.json": {}
         },
         "frameworks": {
           "net8.0": {
             "targetAlias": "net8.0",
             "projectReferences": {
-              "D:\\vu-repos\\VuSolutionsProjects\\JRE-clipper\\JREClipper.Core\\JREClipper.Core.csproj": {
-                "projectPath": "D:\\vu-repos\\VuSolutionsProjects\\JRE-clipper\\JREClipper.Core\\JREClipper.Core.csproj"
+              "/Users/vohoanvu/dev-repository/JRE-clipper/JREClipper.Core/JREClipper.Core.csproj": {
+                "projectPath": "/Users/vohoanvu/dev-repository/JRE-clipper/JREClipper.Core/JREClipper.Core.csproj"
               }
             }
           }
@@ -260,7 +242,7 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\8.0.406/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "/usr/local/share/dotnet/sdk/8.0.404/PortableRuntimeIdentifierGraph.json"
         }
       }
     }
