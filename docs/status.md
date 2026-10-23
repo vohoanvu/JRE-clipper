@@ -5,6 +5,59 @@
 
 ---
 
+## Storage cost cut (2026-10-23)
+
+- September Cloud Storage was ₫405,266 (~$15.40); 99.8% was Standard Storage US Regional, 780 GiB-month: the episode MP4s in `jre-all-episodes` plus ~57 GB of 2025 embedding artifacts in `jre-processed-clips-bucker`. Bucket default classes only apply to new uploads, which is why the old objects were still STANDARD.
+- Applied:
+  - `jre-all-episodes` has a lifecycle rule STANDARD → ARCHIVE.
+  - `jre-processed-clips-bucker` has a lifecycle rule archiving `utterance-embedding-results/`, `segmented_transcripts/` and `utterances-for-embedding/`, next to the existing 8-day delete on `edited-clips/`. Its default class is now STANDARD, so rendered clips (short-lived downloads) no longer land in ARCHIVE. `cleanup-legacy-gcp.sh --clip-lifecycle` writes both rules.
+- Expected: ~$1.10/month instead of ~$15.40 once the rules have run (within ~24 h). ARCHIVE has a 365-day minimum per object and charges $0.05/GB to read; the renderer reads only small slices of each source video, so the read cost is cents. Check that the conversion happened with `gcloud storage objects list "gs://jre-all-episodes/**" --format="csv(storage_class)" | sort | uniq -c`.
+
+## Ingestion plan by session (started 2026-10-23) ▶️ resume here
+
+Long runs are detached (`ingestion/run_bulk.ps1`, launched with `Start-Process`), so they survive the end of a session. Every step resumes from `state.json`. Check them with `python -m ingestion status` and `F:\jre-all-episodes\ingestion\ingestion.log`. If a runner window is gone but work is still pending, relaunch it with the command at the top of `run_bulk.ps1`. The PC is set to never sleep on AC power.
+
+**Session 1 (2026-10-23): done**
+- [x] Pilot #2338 and #2339 imported (874/874, 20/20 sampled ids verified), searchable live, and marked in Firestore.
+- [x] Item 1: re-import of `jre-segments-all.ndjson` (769,350 lines, INCREMENTAL, upsert by line hash) started at 10:58 UTC. Result: see the entry below once verified.
+- [x] Item 3: launched `run_bulk.ps1 text` (captions → chunk for the ~175 remaining new episodes, ~3–4 h) and `run_bulk.ps1 download` (226 MP4s, ~2–3 days).
+- [x] Added `--new-only` to every step: backfill episodes sort first, so a plain run would start with them.
+- [x] Captions done for all 232 new episodes (by 22:18). #2476 `c-313sIpL_0` had failed repeatedly with HTTP 429. yt-dlp requested all four English tracks, and a throttled, unused translated `en` ASR track aborted the video even though `en-orig` had downloaded. `fetch_captions` now picks one track from the listing and downloads only that one.
+
+**Item 1 result (2026-10-23 11:13 UTC): blocked by the data store's document quota.**
+- 744,927 of 769,350 lines succeeded and 24,423 failed with `RESOURCE_EXHAUSTED: Quota exceeded … discoveryengine.googleapis.com/documents_regional` (failures are file lines 737,237+; error files are in `…/incremental/errors/`).
+- #2334 (Kash Patel) is now searchable, so most of the gap is filled.
+- The `us` data store is at its document cap (apparently ~750k; the serviceusage listing shows a 200k default that is clearly not what's enforced). This is almost certainly why ~17% was missing after the June 2025 import.
+- **Blocker for session 2 and the backfill:** ~100k new-episode docs and ~80k backfill docs will fail too until the quota is raised. The owner has to request it: Console → IAM & Admin → Quotas → `discoveryengine.googleapis.com/documents_regional`, location `us`, ask for ~1.5M. https://cloud.google.com/generative-ai-app-builder/quotas#request-a-quota-increase
+- After the increase: rerun the same `import --source-uri …jre-segments-all.ndjson --apply` (idempotent) to finish the 24k, then continue with session 2.
+
+**Session 2 (after the text runner finishes, e.g. the next day; needs the quota increase first)**
+1. `python -m ingestion status`: captions and chunk should be done for all 232 new episodes. Look in the log for `empty` / `no_captions` / `error` episodes, and check that segment-length stats look like the corpus (mean ~32 s).
+2. `python -m ingestion import --new-only` (dry run): check the episode/document counts and that `preflight.alreadyPresent` is 0. Then add `--apply`. It verifies 20 sampled ids itself.
+3. Spot-check a few new episodes in live search, then run `mark --new-only` (dry run), then `--apply`.
+4. Check the download runner (pending count going down; relaunch if its window is gone).
+
+**Session 3 (when downloads finish, ~2–3 days)**
+1. `status` shows download pending 0; spot-check a few objects in `gs://jre-all-episodes`.
+2. Generate a compilation from new-episode segments on the live site; optionally run `tools/av_sync_check.py` on a local render.
+3. Catch-up routine for episodes released since: `discover`, then the same text → import → mark → download steps.
+
+**Session 4: item 4, the backfill of 195 episodes with empty 2025 transcripts**
+1. `captions` for the backfill (YouTube may have captions now), then `transcribe` (Whisper on CPU, ~9 min per episode) for the ones without.
+2. `chunk`, `import`, `mark`: the batch already holds the Fight Companion `AJEsIBxxfdY`, Whisper-transcribed and chunked. Check which backfill MP4s are missing from the bucket before `download --include-backfill`.
+
+**Later:** item 5 (abuse/cost guards: verified email for the quota, App Check or a per-IP limit on search, the `recordSearchActivity` 1 MB growth), item 6 (Stripe webhook, merge `clipper-redesign`, `firebase-functions` upgrade), item 7 (thumbnail start time, self-built vector search).
+
+## Ingestion state check (2026-10-23, late) — nothing new is searchable yet
+
+Verified with `python -m ingestion status`, the log, GCS and live searches. The handoff notes above understate the progress.
+- **New episodes #2338–#2569 (232):**
+  - captions 57 done (#2338–#2394); chunk 2 done (#2338, #2339; 874 docs ready); import 0; mark 0.
+  - download: 6 done (#2338–#2343, in `gs://jre-all-episodes`); #2344 `WfmrEa0L08E` interrupted.
+  - The run was killed at 01:27 when the previous session ended (gcloud exit `0x40010004`). The 300 MB `F:\jre-all-episodes\WfmrEa0L08E.mp4` is still local and not in GCS.
+- **Backfill (195 episodes, #15–#2237):** episodes whose 2025 Apify transcript came back empty (`isEmptyTranscript`), so they were never indexed. Registered via `discover --backfill-empty`; captions done 2 (Whisper fallback `transcribe` exists for episodes without captions); chunk done 1; nothing imported. `download` skips these unless `--include-backfill`.
+- **Live index unchanged:** searches for #2338 (Beth Shapiro) and #2341 (Bernie Sanders) return no hits from those episodes, and #2334 (Kash Patel) is still missing. The 17% re-import (`import --source-uri …jre-segments-all.ndjson --apply`) has not been run.
+
 ## Update (2026-10-23, evening): A/V sync drift fixed (renderer v2), legacy stack deleted, signed-in flow verified ✅
 
 - **A/V drift was the editing pipeline, not the transcript data.** Measured per segment (audio cross-correlated against the source, video located by frame-sequence matching) on a live 30-segment job: audio drifted from -1 ms to **-268 ms (audio early)** by the last segment; it is noticeable past ~45 ms, i.e. from about segment 3. Transcript timestamps only choose cut points and cannot desync A/V. Cause: stream-copy concat of separately encoded AAC segments (per-segment encoder priming + audio/video length mismatch at every seam). Reproduced locally (-168 ms on 30 segments from `F:` sources).

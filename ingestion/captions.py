@@ -170,28 +170,29 @@ def fetch_captions(video_id: str, work: Path, cookies: str | None = None) -> tup
         "skip_download": True,
         "writesubtitles": True,
         "writeautomaticsub": True,
-        "subtitleslangs": config.CAPTION_LANGS,
         "subtitlesformat": "json3/vtt/best",
-        "sleep_interval_subtitles": 2,
         "outtmpl": {"default": str(work / "%(id)s.%(ext)s")},
     }
     with yt_dlp.YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=True)
-    info = ydl.sanitize_info(info)
-    requested = info.get("requested_subtitles") or {}
-    manual = set((info.get("subtitles") or {}).keys())
-
-    def candidates():
+        # Pick one track first, then download only that one. Requesting every English variant
+        # at once fails the whole video when an unused track is throttled (HTTP 429 on the
+        # machine-translated "en" ASR track while "en-orig" downloads fine).
+        info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
+        manual = set((info.get("subtitles") or {}).keys())
+        auto = set((info.get("automatic_captions") or {}).keys())
         # 1) human subtitles in any English variant, 2) original-language ASR, 3) other English ASR
-        for lang in config.CAPTION_LANGS:
-            if lang in manual and lang in requested:
-                yield lang, "manual"
-        for lang in config.CAPTION_LANGS:
-            if lang in requested and lang not in manual:
-                yield lang, "auto"
+        choice = next(((lang, "manual") for lang in config.CAPTION_LANGS if lang in manual), None) or \
+            next(((lang, "auto") for lang in config.CAPTION_LANGS if lang in auto), None)
+        if choice is None:
+            return ydl.sanitize_info(info), None, None
+        lang, kind = choice
+        ydl.params["subtitleslangs"] = [lang]
+        ydl.params["writeautomaticsub"] = kind == "auto"
+        info = ydl.process_ie_result(info, download=True)
+    info = ydl.sanitize_info(info)
 
-    for lang, kind in candidates():
-        sub = requested[lang]
+    sub = (info.get("requested_subtitles") or {}).get(lang)
+    if sub:
         p = Path(sub.get("filepath") or work / f"{video_id}.{lang}.{sub.get('ext')}")
         if p.exists() and p.stat().st_size > 0:
             return info, p, {"lang": lang, "kind": kind, "ext": p.suffix.lstrip(".")}

@@ -26,6 +26,8 @@ log = logging.getLogger("ingestion")
 def _add_selection(p: argparse.ArgumentParser) -> None:
     p.add_argument("--ids", help="comma-separated video ids (must be in state)")
     p.add_argument("--limit", type=int, help="process at most N pending episodes, oldest first")
+    p.add_argument("--new-only", action="store_true",
+                   help="skip backfill episodes (they sort first, so a plain run starts with them)")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -113,6 +115,7 @@ def main(argv: list[str] | None = None) -> int:
     config.ensure_dirs()
     started = now_iso()
     state = State()
+    state.new_only = getattr(args, "new_only", False)
 
     if args.step == "discover":
         from .discover import run

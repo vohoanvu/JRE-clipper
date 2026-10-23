@@ -52,7 +52,10 @@ run gcloud iam service-accounts delete "dotnetapp-demo@${project}.iam.gserviceac
 if $clip_lifecycle; then
     lifecycle_file=$(mktemp)
     cat > "$lifecycle_file" <<'EOF'
-{"rule": [{"action": {"type": "Delete"}, "condition": {"age": 8, "matchesPrefix": ["edited-clips/"]}}]}
+{"rule": [
+ {"action": {"type": "Delete"}, "condition": {"age": 8, "matchesPrefix": ["edited-clips/"]}},
+ {"action": {"type": "SetStorageClass", "storageClass": "ARCHIVE"}, "condition": {"matchesStorageClass": ["STANDARD"], "matchesPrefix": ["utterance-embedding-results/", "segmented_transcripts/", "utterances-for-embedding/"]}}
+]}
 EOF
     run gcloud storage buckets update gs://jre-processed-clips-bucker --lifecycle-file="$lifecycle_file" --project="$project"
     rm -f "$lifecycle_file"

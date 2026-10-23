@@ -87,6 +87,7 @@ class State:
         self.data.setdefault("runs", [])
         self._touched: set[tuple[str, str]] = set()
         self._new_runs: list[dict] = []
+        self.new_only = False  # select() skips backfill episodes (--new-only)
 
     # -------------------------------------------------------------- persistence
     def save(self) -> None:
@@ -163,7 +164,7 @@ class State:
                     raise SystemExit(f"{vid} is not in state; run discover first (or check the id)")
                 out.append(self.videos[vid])
             return out
-        out = [v for v in self.ordered() if pending(v)]
+        out = [v for v in self.ordered() if pending(v) and not (self.new_only and v.get("backfill"))]
         return out[:limit] if limit is not None else out
 
     # -------------------------------------------------------------- runs
