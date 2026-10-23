@@ -1,4 +1,5 @@
 // Auth.js - Handles Firebase Authentication for the sign-in page
+// Sign-in is free; it is only required for video generation.
 
 let authInitialized = false;
 let isSigningIn = false;
@@ -121,27 +122,19 @@ function hideLoadingState() {
   }
 }
 
-async function handleSuccessfulSignIn(user) {
-  try {
-    console.log('Creating/verifying user record in Firestore for:', user.email);
-    
-    // Call getUserSubscriptionStatus to ensure user record is created
-    const getUserStatus = firebase.functions().httpsCallable('getUserSubscriptionStatus');
-    const result = await getUserStatus({
-      userId: user.uid,
-      sessionId: null
-    });
-    
-    console.log('User record created/verified:', result.data);
-    
-  } catch (error) {
-    console.error('Error creating user record:', error);
-    // Continue anyway
-  }
-  
+function handleSuccessfulSignIn(user) {
+  console.log('Signed in as:', user.email);
   // Schedule redirect with delay to prevent race conditions
-  console.log('Scheduling redirect to home page...');
   scheduleRedirectToHome();
+}
+
+// Where to go after sign-in: ?next=<same-origin path>, defaulting to the home page.
+function getRedirectPath() {
+  const next = new URLSearchParams(window.location.search).get('next');
+  if (next && next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/\\')) {
+    return next;
+  }
+  return '/index.html';
 }
 
 function scheduleRedirectToHome() {
@@ -158,8 +151,7 @@ function scheduleRedirectToHome() {
 
 function redirectToHome() {
   // Get current origin to build absolute URL
-  const baseUrl = window.location.origin;
-  const redirectUrl = `${baseUrl}/index.html`;
+  const redirectUrl = window.location.origin + getRedirectPath();
   
   console.log('Executing redirect to:', redirectUrl);
   
@@ -209,7 +201,7 @@ function initializeSignInWidget() {
         provider: firebase.auth.EmailAuthProvider.PROVIDER_ID,
       }
     ],
-    signInSuccessUrl: window.location.origin + '/index.html',
+    signInSuccessUrl: window.location.origin + getRedirectPath(),
     credentialHelper: firebaseui.auth.CredentialHelper.NONE,
     tosUrl: `/404.html`,
     privacyPolicyUrl: `/404.html`,

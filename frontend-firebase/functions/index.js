@@ -1,1403 +1,695 @@
-import { onRequest, onCall, HttpsError } from "firebase-functions/v2/https";
+import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { logger } from "firebase-functions";
 import { initializeApp } from "firebase-admin/app";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
-import { getAuth } from "firebase-admin/auth";
-import cors from "cors";
 import { GoogleAuth } from "google-auth-library";
-import { logger } from "firebase-functions";
-import { google } from "googleapis";
-import Stripe from "stripe";
-import { Resend } from "resend";
+import { createHash, randomUUID } from "node:crypto";
 
+// Keep module-level work cheap: every exported function shares this module, so
+// anything initialized here is paid on every cold start. Heavy or rarely used
+// clients (Storage, Google auth) are created lazily inside the handlers.
 initializeApp();
 const db = getFirestore('jre-clipper-db');
-const auth = getAuth();
 
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'vohoanvu96@gmail.com';
+const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || 'vohoanvu96@gmail.com').toLowerCase();
+const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || null;
 
-// Initialize Resend email service (free tier: 3,000 emails/month)
-const RESEND_API_KEY = process.env.RESEND_API_KEY || null;
-let resend = null;
+// ===== Shared helpers =====
 
-if (RESEND_API_KEY) {
-    resend = new Resend(RESEND_API_KEY);
-    logger.info("Resend email service initialized");
-} else {
-    logger.warn("Resend API key not found - emails will be logged only");
+const VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
+
+let googleAuth = null;
+// Uses the runtime service account of whichever function calls it.
+async function googleRequest(options) {
+    googleAuth ??= new GoogleAuth({ scopes: ["https://www.googleapis.com/auth/cloud-platform"] });
+    const client = await googleAuth.getClient();
+    return client.request(options);
 }
 
-// Simple email function using Resend (free email service)
-async function sendEmailNotification(to, subject, htmlContent) {
-    try {
-        // Always log the email for debugging
-        logger.info("📧 EMAIL NOTIFICATION:", {
-            to: to,
-            subject: subject,
-            timestamp: new Date().toISOString()
-        });
+function describeGoogleError(error) {
+    const status = error?.response?.status ?? null;
+    const message = error?.response?.data?.error?.message || error?.message || String(error);
+    return { status, message };
+}
 
-        // Store in Firestore for backup/manual processing
-        const emailDoc = await db.collection('emailNotifications').add({
-            to: to,
-            subject: subject,
-            html: htmlContent,
-            status: 'pending',
-            createdAt: new Date()
-        });
+function requireAuth(request, message = "Please sign in first.") {
+    if (!request.auth) {
+        throw new HttpsError("unauthenticated", message);
+    }
+    return request.auth;
+}
 
-        // Send via Resend if API key is configured
-        if (resend) {
-            try {
-                const emailResult = await resend.emails.send({
-                    from: 'JRE Clipper <onboarding@resend.dev>', // Default Resend sender
-                    to: [to],
-                    subject: subject,
-                    html: htmlContent,
-                });
+function isAdmin(auth) {
+    const token = auth?.token || {};
+    return typeof token.email === 'string'
+        && token.email_verified === true
+        && token.email.toLowerCase() === ADMIN_EMAIL;
+}
 
-                // Check if emailResult and emailResult.data exists before accessing id
-                const emailId = emailResult?.data?.id || null;
-                logger.info(`✅ Email sent successfully via Resend: ${emailId || 'No ID returned'}`);
-                
-                // Update Firestore record with success status
-                // Only include emailId if it's not undefined or null
-                const updateData = { 
-                    status: 'sent', 
-                    sentAt: new Date()
-                };
-                
-                if (emailId) {
-                    updateData.emailId = emailId;
-                }
-                
-                // Use the direct reference instead of querying again
-                await emailDoc.update(updateData);
-                return { success: true, emailId: emailId };
-            } catch (resendError) {
-                logger.error("❌ Resend email error:", resendError);
-                
-                // Update Firestore with error status
-                await emailDoc.update({ 
-                    status: 'failed', 
-                    error: resendError.message, 
-                    failedAt: new Date() 
-                });
+function utcDay(date = new Date()) {
+    return date.toISOString().slice(0, 10);
+}
 
-                return { success: false, error: resendError.message };
-            }
-        } else {
-            logger.info("📋 Email logged to Firestore (no Resend API key configured)");
-            
-            // Update status to indicate it was only logged
-            await emailDoc.update({ status: 'logged_only' });
-            
-            return { success: true, note: "Email logged to Firestore - configure RESEND_API_KEY to send actual emails" };
+function toIso(value) {
+    if (value == null) return null;
+    if (typeof value.toDate === 'function') return value.toDate().toISOString();
+    if (value instanceof Date) return value.toISOString();
+    if (typeof value === 'number') return new Date(value).toISOString();
+    if (typeof value === 'string') return value;
+    return null;
+}
+
+function formatDuration(totalSeconds) {
+    const s = Math.round(totalSeconds);
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+// Small in-memory LRU with TTL. Values may be promises so concurrent identical
+// requests on the same instance share one upstream call.
+class TtlLru {
+    constructor(maxEntries, ttlMs) {
+        this.maxEntries = maxEntries;
+        this.ttlMs = ttlMs;
+        this.map = new Map();
+    }
+
+    get(key) {
+        const entry = this.map.get(key);
+        if (!entry) return undefined;
+        if (entry.expiresAt <= Date.now()) {
+            this.map.delete(key);
+            return undefined;
         }
-        
-    } catch (error) {
-        logger.error("Error in email notification system:", error);
-        return { success: false, error: error.message };
+        this.map.delete(key);
+        this.map.set(key, entry);
+        return entry.value;
+    }
+
+    set(key, value) {
+        this.map.delete(key);
+        this.map.set(key, { value, expiresAt: Date.now() + this.ttlMs });
+        while (this.map.size > this.maxEntries) {
+            this.map.delete(this.map.keys().next().value);
+        }
+    }
+
+    deleteIfSame(key, value) {
+        if (this.map.get(key)?.value === value) this.map.delete(key);
     }
 }
 
-const corsHandler = cors({
-    origin: true,
-    methods: ['GET', 'POST', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
-});
-
-const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || 'your-api-key-here';
-const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || 'sk_test_your_stripe_secret_key';
-const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || 'whsec_your_webhook_secret';
-const DOMAIN = process.env.DOMAIN || 'https://whatwouldjoerogansay.com';
-const STRIPE_PRICE_ID = process.env.STRIPE_PRICE_ID || 'price_1234567890';
-
-
-logger.info("Configuration status:", {
-    hasYouTubeKey: !!process.env.YOUTUBE_API_KEY,
-    hasStripeKey: !!process.env.STRIPE_SECRET_KEY,
-    hasWebhookSecret: !!process.env.STRIPE_WEBHOOK_SECRET,
-    hasPriceId: !!process.env.STRIPE_PRICE_ID,
-    domain: DOMAIN
-});
-
-let stripe;
-try {
-    stripe = new Stripe(STRIPE_SECRET_KEY, {
-        apiVersion: '2023-10-16',
-    });
-    logger.info("Stripe initialized successfully");
-} catch (error) {
-    logger.error("Failed to initialize Stripe:", error);
+function cachedCall(cache, key, producer, shouldCache = () => true) {
+    const hit = cache.get(key);
+    if (hit) return hit;
+    const promise = producer();
+    cache.set(key, promise);
+    promise.then(
+        (value) => { if (!shouldCache(value)) cache.deleteIfSame(key, promise); },
+        () => cache.deleteIfSame(key, promise)
+    );
+    return promise;
 }
 
-// YouTube Data API v3 client
-const youtube = google.youtube({
-    version: 'v3',
-    auth: YOUTUBE_API_KEY
+// ===== Search proxy (Vertex AI Search / Discovery Engine) =====
+// The browser never sees a Google access token: these callables run as a
+// service account that only has roles/discoveryengine.user.
+
+const SEARCH_SERVICE_ACCOUNT = "jre-search-reader@gen-lang-client-demo.iam.gserviceaccount.com";
+const DE_ENGINE = "projects/408323719521/locations/us/collections/default_collection/engines/jreclipper_1750261043616";
+const DE_SERVING_CONFIG_URL = `https://us-discoveryengine.googleapis.com/v1alpha/${DE_ENGINE}/servingConfigs/default_search`;
+const DE_SESSION_RE = /^projects\/408323719521\/locations\/us\/collections\/default_collection\/engines\/jreclipper_1750261043616\/sessions\/[A-Za-z0-9_-]{1,64}$/;
+const DE_QUERY_ID_RE = /^projects\/408323719521\/locations\/us\/questions\/[A-Za-z0-9_-]{1,64}$/;
+const MAX_QUERY_LENGTH = 300;
+const MAX_INSTRUCTION_LENGTH = 500;
+const SEARCH_PAGE_SIZE = 30;
+
+const DEFAULT_JOE_STYLE = "Response in Joe Rogan style, make the response funny using Joe sense of humor, use emoji if necessary.";
+const DEFAULT_JOE_PERSONA = " You are an expert at the Joe Rogan Experience podcast and its content. You are very knowledgeable about JRE content and more importantly all of the guests that have appeared on the JRE show. Use Joe Rogan style of communication. Use the tone of professional comedians that are close to the Comedy circle of Joe Rogan. Occasionally at the end of every answer, make a joke about encouraging the users to take more psychedelic drugs and practice Martial Arts to learn more about the given topic.";
+
+const searchCache = new TtlLru(300, 10 * 60 * 1000);
+const answerCache = new TtlLru(300, 10 * 60 * 1000);
+
+const SEARCH_FUNCTION_OPTIONS = {
+    serviceAccount: SEARCH_SERVICE_ACCOUNT,
+    memory: "256MiB",
+    maxInstances: 10, // high concurrency per instance keeps the in-memory cache effective
+    minInstances: 0,
+};
+
+function cleanQueryText(value) {
+    if (typeof value !== 'string') {
+        throw new HttpsError("invalid-argument", "A search query is required.");
+    }
+    const text = value.normalize('NFKC').trim().replace(/\s+/g, ' ');
+    if (!text) {
+        throw new HttpsError("invalid-argument", "A search query is required.");
+    }
+    if (text.length > MAX_QUERY_LENGTH) {
+        throw new HttpsError("invalid-argument", `Search queries are limited to ${MAX_QUERY_LENGTH} characters.`);
+    }
+    return text;
+}
+
+function cleanTimeZone(value) {
+    return typeof value === 'string' && /^[A-Za-z0-9_+\-/]{1,64}$/.test(value) ? value : 'UTC';
+}
+
+function toHttpsError(error, fallbackMessage) {
+    const { status } = describeGoogleError(error);
+    if (status === 429) {
+        return new HttpsError("resource-exhausted", "Too many requests right now. Please try again in a minute.");
+    }
+    if (status === 400) {
+        return new HttpsError("invalid-argument", "This query could not be processed. Try rephrasing it.");
+    }
+    return new HttpsError("unavailable", fallbackMessage);
+}
+
+async function runSearch(normalizedQuery, timeZone) {
+    const response = await googleRequest({
+        url: `${DE_SERVING_CONFIG_URL}:search`,
+        method: "POST",
+        timeout: 20000,
+        data: {
+            query: normalizedQuery,
+            pageSize: SEARCH_PAGE_SIZE,
+            queryExpansionSpec: { condition: "AUTO" },
+            spellCorrectionSpec: { mode: "AUTO" },
+            languageCode: "en-US",
+            userInfo: { timeZone },
+            session: `${DE_ENGINE}/sessions/-`,
+        },
+    });
+
+    const data = response.data || {};
+    const results = [];
+    for (const item of data.results || []) {
+        // Documents are shaped structData.{content, structData{videoId,startTime,endTime,videoTitle,channelName}}.
+        const meta = item?.document?.structData?.structData;
+        const startTime = Number(meta?.startTime);
+        const endTime = Number(meta?.endTime);
+        if (!meta || typeof meta.videoId !== 'string' || !Number.isFinite(startTime) || !Number.isFinite(endTime)) {
+            continue;
+        }
+        results.push({
+            videoId: meta.videoId,
+            videoTitle: typeof meta.videoTitle === 'string' ? meta.videoTitle : '',
+            startTime,
+            endTime,
+        });
+    }
+
+    return {
+        results,
+        session: data.sessionInfo?.name || null,
+        queryId: data.sessionInfo?.queryId || null,
+    };
+}
+
+export const searchSegments = onCall({ ...SEARCH_FUNCTION_OPTIONS, timeoutSeconds: 30 }, async (request) => {
+    const queryText = cleanQueryText(request.data?.query);
+    const cacheKey = queryText.toLowerCase();
+    const timeZone = cleanTimeZone(request.data?.timeZone);
+
+    try {
+        return await cachedCall(searchCache, cacheKey, () => runSearch(cacheKey, timeZone));
+    } catch (error) {
+        logger.error("searchSegments failed", describeGoogleError(error));
+        throw toHttpsError(error, "Search is temporarily unavailable. Please try again.");
+    }
 });
 
-// Multi-purpose function: handles Vertex AI tokens
-// Optimized for cost: minimal memory, short timeout
-export const getVertexAiToken = onRequest({
-    memory: "256MiB", // Minimum memory for cost optimization
-    timeoutSeconds: 30, // Short timeout
-    maxInstances: 10, // Limit concurrent instances
-    minInstances: 0, // No warm instances to save cost
-}, async (req, res) => {
-    corsHandler(req, res, async () => {
+async function callAnswerApi(queryText, preamble, session, queryId) {
+    const payload = {
+        query: queryId ? { text: queryText, queryId } : { text: queryText },
+        session: session || `${DE_ENGINE}/sessions/-`,
+        answerGenerationSpec: {
+            ignoreAdversarialQuery: false,
+            ignoreNonAnswerSeekingQuery: false,
+            ignoreLowRelevantContent: false,
+            multimodalSpec: {},
+            includeCitations: true,
+            promptSpec: { preamble },
+            modelSpec: { modelVersion: "stable" },
+        },
+    };
+    const response = await googleRequest({
+        url: `${DE_SERVING_CONFIG_URL}:answer`,
+        method: "POST",
+        timeout: 80000,
+        data: payload,
+    });
+    return { answerText: response.data?.answer?.answerText || null };
+}
+
+async function runAnswer(queryText, instruction, session, queryId) {
+    const preamble = instruction ? `${DEFAULT_JOE_STYLE} ${instruction}` : DEFAULT_JOE_STYLE + DEFAULT_JOE_PERSONA;
+    if (session && queryId) {
         try {
-            logger.info("Attempting to get Vertex AI access token");
-
-            const auth = new GoogleAuth({
-                scopes: ["https://www.googleapis.com/auth/cloud-platform"],
-            });
-
-            logger.info("GoogleAuth initialized, getting client...");
-            const client = await auth.getClient();
-
-            logger.info("Client obtained, getting access token...");
-            const accessToken = await client.getAccessToken();
-
-            if (!accessToken || !accessToken.token) {
-                logger.error("Access token is null or empty");
-                res.status(500).json({ error: "Could not generate access token - token is empty" });
-                return;
-            }
-
-            logger.info("Access token generated successfully");
-            res.status(200).json({ accessToken: accessToken.token });
-
+            return await callAnswerApi(queryText, preamble, session, queryId);
         } catch (error) {
-            logger.error("Error getting access token:", {
-                message: error.message,
-                stack: error.stack,
-                code: error.code
-            });
-            res.status(500).json({
-                error: "Could not generate access token",
-                details: error.message
-            });
+            const { status, message } = describeGoogleError(error);
+            if (status !== 400 && status !== 404) throw error;
+            // Session/queryId no longer usable: answer without the search context.
+            logger.warn("answerQuery: session answer failed, retrying standalone", { status, message });
         }
-    });
-});
-
-// YouTube video metadata function with cost optimization
-export const getVideoMetadata = onCall({
-    enforceAppCheck: false,
-    memory: "512MiB", // Moderate memory for API calls
-    timeoutSeconds: 60, // Longer timeout for API calls
-    maxInstances: 5, // Lower max instances
-    minInstances: 0, // No warm instances
-}, async (request) => {
-    logger.info("Received video metadata request");
-    
-    if (!request.data) {
-        throw new HttpsError("invalid-argument", "No data received in the request.");
     }
+    return callAnswerApi(queryText, preamble, null, null);
+}
 
-    const { segments } = request.data;
-    
-    if (!segments || !Array.isArray(segments) || segments.length === 0) {
-        throw new HttpsError("invalid-argument", "Segments array is required.");
-    }
+export const answerQuery = onCall({ ...SEARCH_FUNCTION_OPTIONS, timeoutSeconds: 90 }, async (request) => {
+    const queryText = cleanQueryText(request.data?.query);
+    const rawInstruction = request.data?.instruction;
+    const instruction = typeof rawInstruction === 'string'
+        ? rawInstruction.trim().replace(/\s+/g, ' ').slice(0, MAX_INSTRUCTION_LENGTH)
+        : '';
+    const session = typeof request.data?.session === 'string' && DE_SESSION_RE.test(request.data.session)
+        ? request.data.session : null;
+    const queryId = typeof request.data?.queryId === 'string' && DE_QUERY_ID_RE.test(request.data.queryId)
+        ? request.data.queryId : null;
 
+    const cacheKey = `${queryText.toLowerCase()}\u0000${instruction}`;
     try {
-        // Extract unique video IDs
-        const videoIds = [...new Set(segments.map(segment => segment.videoId))];
-        logger.info(`Fetching YouTube metadata for ${videoIds.length} videos`);
-
-        // Fetch video details using API key authentication
-        const response = await youtube.videos.list({
-            part: ['snippet', 'contentDetails', 'statistics'],
-            id: videoIds.join(','),
-            maxResults: 50
-        });
-
-        const videoDetails = response.data.items || [];
-        logger.info(`Successfully fetched metadata for ${videoDetails.length} videos`);
-
-        // Process and return data
-        const videoMetadataMap = {};
-        videoDetails.forEach(video => {
-            videoMetadataMap[video.id] = {
-                id: video.id,
-                title: video.snippet.title,
-                description: video.snippet.description,
-                publishedAt: video.snippet.publishedAt,
-                channelTitle: video.snippet.channelTitle,
-                duration: video.contentDetails.duration,
-                viewCount: video.statistics.viewCount,
-                likeCount: video.statistics.likeCount,
-                thumbnails: video.snippet.thumbnails
-            };
-        });
-
-        // Group segments by video
-        const videoGroups = {};
-        segments.forEach(segment => {
-            const videoId = segment.videoId;
-            if (!videoGroups[videoId]) {
-                videoGroups[videoId] = {
-                    metadata: videoMetadataMap[videoId] || null,
-                    segments: []
-                };
-            }
-            videoGroups[videoId].segments.push(segment);
-        });
-
-        return {
-            success: true,
-            videoGroups: videoGroups,
-            totalVideos: videoIds.length,
-            totalSegments: segments.length
-        };
-
+        return await cachedCall(
+            answerCache,
+            cacheKey,
+            () => runAnswer(queryText, instruction, session, queryId),
+            (value) => !!value?.answerText
+        );
     } catch (error) {
-        logger.error(`YouTube API error:`, error);
-        throw new HttpsError("internal", `YouTube API error: ${error.message}`);
+        logger.error("answerQuery failed", describeGoogleError(error));
+        throw toHttpsError(error, "Could not generate an answer right now. Please try again.");
     }
 });
 
-export const handleStripeWebhook = onRequest({
+// ===== YouTube metadata =====
+
+const youtubeCache = new TtlLru(2000, 60 * 60 * 1000);
+
+async function fetchYouTubeMetadata(videoIds) {
+    const videos = {};
+    const missing = [];
+    for (const id of videoIds) {
+        const hit = youtubeCache.get(id);
+        if (hit) videos[id] = hit;
+        else missing.push(id);
+    }
+    if (missing.length === 0) return videos;
+
+    if (!YOUTUBE_API_KEY) {
+        logger.error("YOUTUBE_API_KEY is not configured");
+        throw new HttpsError("failed-precondition", "Video metadata service is not configured.");
+    }
+
+    const url = new URL("https://www.googleapis.com/youtube/v3/videos");
+    url.search = new URLSearchParams({
+        part: "snippet,statistics",
+        id: missing.join(","),
+        maxResults: "50",
+        fields: "items(id,snippet(title,channelTitle,publishedAt),statistics(viewCount))",
+        key: YOUTUBE_API_KEY,
+    }).toString();
+
+    const response = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        const reason = body?.error?.errors?.[0]?.reason || '';
+        logger.error("YouTube API error", { status: response.status, reason, message: body?.error?.message });
+        if (response.status === 403 && /quota|rateLimit/i.test(reason)) {
+            throw new HttpsError("resource-exhausted", "YouTube API quota exceeded. Please try again later.");
+        }
+        if (response.status === 403) {
+            throw new HttpsError("permission-denied", "YouTube API access denied.");
+        }
+        throw new HttpsError("internal", "YouTube API error.");
+    }
+
+    const body = await response.json();
+    for (const item of body.items || []) {
+        const meta = {
+            id: item.id,
+            title: item.snippet?.title || '',
+            channelTitle: item.snippet?.channelTitle || '',
+            publishedAt: item.snippet?.publishedAt || null,
+            viewCount: item.statistics?.viewCount ?? null,
+        };
+        youtubeCache.set(item.id, meta);
+        videos[item.id] = meta;
+    }
+    return videos;
+}
+
+// Input: { videoIds: string[] } -> { success, videos: { [videoId]: metadata } }.
+// The legacy input { segments } (pre-rollout clients) still returns { videoGroups }.
+export const getVideoMetadata = onCall({
     memory: "256MiB",
     timeoutSeconds: 30,
+    maxInstances: 5,
+    minInstances: 0,
+}, async (request) => {
+    const legacySegments = Array.isArray(request.data?.segments) ? request.data.segments : null;
+    const requestedIds = legacySegments ? legacySegments.map((s) => s?.videoId) : request.data?.videoIds;
+
+    if (!Array.isArray(requestedIds) || requestedIds.length === 0) {
+        throw new HttpsError("invalid-argument", "videoIds array is required.");
+    }
+    const videoIds = [...new Set(requestedIds)];
+    if (videoIds.length > 50 || !videoIds.every((id) => typeof id === 'string' && VIDEO_ID_RE.test(id))) {
+        throw new HttpsError("invalid-argument", "Provide between 1 and 50 valid YouTube video IDs.");
+    }
+
+    const videos = await fetchYouTubeMetadata(videoIds);
+
+    if (legacySegments) {
+        const videoGroups = {};
+        for (const segment of legacySegments) {
+            const id = segment.videoId;
+            videoGroups[id] ??= { metadata: videos[id] || null, segments: [] };
+            videoGroups[id].segments.push(segment);
+        }
+        return { success: true, videoGroups, totalVideos: videoIds.length, totalSegments: legacySegments.length };
+    }
+
+    return { success: true, videos };
+});
+
+// ===== Video jobs =====
+
+const DAILY_JOB_LIMIT = 5;
+const MAX_SEGMENTS = 30;
+const MAX_SEGMENT_SECONDS = 600;
+const MAX_TOTAL_SECONDS = 1200;
+const MAX_ACTIVE_JOBS = 3;
+const ACTIVE_JOB_WINDOW_MS = 2 * 60 * 60 * 1000;
+const ACTIVE_STATUSES = new Set(["Queued", "Processing", "Uploading"]);
+const TERMINAL_STATUSES = new Set(["Complete", "Failed"]);
+const SOURCE_BUCKET = "jre-all-episodes";
+const RENDERER_RUN_URL = "https://run.googleapis.com/v2/projects/gen-lang-client-demo/locations/us-central1/jobs/jre-clip-renderer:run";
+const JOB_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
+
+const jobsCollection = () => db.collection('videoJobs');
+const usageRef = (uid, day) => db.collection('usageDaily').doc(`${uid}_${day}`);
+
+function validateSegments(input) {
+    if (!Array.isArray(input) || input.length < 1 || input.length > MAX_SEGMENTS) {
+        throw new HttpsError("invalid-argument", `Select between 1 and ${MAX_SEGMENTS} segments.`);
+    }
+    let totalSeconds = 0;
+    const segments = input.map((segment, index) => {
+        const label = `Segment ${index + 1}`;
+        if (!segment || typeof segment !== 'object') {
+            throw new HttpsError("invalid-argument", `${label} is malformed.`);
+        }
+        const { videoId, startTimeSeconds: start, endTimeSeconds: end } = segment;
+        if (typeof videoId !== 'string' || !VIDEO_ID_RE.test(videoId)) {
+            throw new HttpsError("invalid-argument", `${label} has an invalid video ID.`);
+        }
+        if (typeof start !== 'number' || typeof end !== 'number' || !Number.isFinite(start) || !Number.isFinite(end)
+            || start < 0 || start >= end) {
+            throw new HttpsError("invalid-argument", `${label} has an invalid time range.`);
+        }
+        const duration = end - start;
+        if (duration > MAX_SEGMENT_SECONDS) {
+            throw new HttpsError("invalid-argument", `${label} is longer than ${MAX_SEGMENT_SECONDS / 60} minutes.`);
+        }
+        totalSeconds += duration;
+        const videoTitle = typeof segment.videoTitle === 'string' ? segment.videoTitle.trim().slice(0, 300) : '';
+        return { videoId, startTimeSeconds: start, endTimeSeconds: end, videoTitle };
+    });
+    if (totalSeconds > MAX_TOTAL_SECONDS) {
+        throw new HttpsError("invalid-argument",
+            `Your selection is ${formatDuration(totalSeconds)} long; the maximum is ${MAX_TOTAL_SECONDS / 60} minutes.`);
+    }
+    return segments;
+}
+
+async function countActiveJobs() {
+    // Single-field range query (no composite index needed); the 2h window is small.
+    const cutoff = new Date(Date.now() - ACTIVE_JOB_WINDOW_MS);
+    const snapshot = await jobsCollection()
+        .where('createdAt', '>=', cutoff)
+        .select('status')
+        .limit(500)
+        .get();
+    return snapshot.docs.filter((doc) => ACTIVE_STATUSES.has(doc.get('status'))).length;
+}
+
+// Returns { videoId: objectName | null } using one prefix listing per video.
+async function resolveSourceObjects(videoIds) {
+    const { getStorage } = await import("firebase-admin/storage");
+    const bucket = getStorage().bucket(SOURCE_BUCKET);
+    const entries = await Promise.all(videoIds.map(async (videoId) => {
+        const [files] = await bucket.getFiles({ prefix: videoId, maxResults: 10, autoPaginate: false });
+        const names = files.map((file) => file.name);
+        const exact = names.find((name) => name === `${videoId}.mp4`);
+        const legacy = names.find((name) => name.startsWith(`${videoId}_`) && name.endsWith('.mp4'));
+        return [videoId, exact || legacy || null];
+    }));
+    return Object.fromEntries(entries);
+}
+
+export const createVideoJob = onCall({
+    memory: "256MiB",
+    timeoutSeconds: 60,
     maxInstances: 3,
     minInstances: 0,
-    cors: false,
-    invoker: 'public'
-}, async (req, res) => {
-    // Set CORS headers manually since we disabled automatic CORS
-    res.set('Access-Control-Allow-Origin', '*');
-    res.set('Access-Control-Allow-Methods', 'POST');
-    res.set('Access-Control-Allow-Headers', 'Content-Type, stripe-signature');
-    
-    if (req.method === 'OPTIONS') {
-        res.status(200).end();
-        return;
-    }
-
-    const sig = req.headers['stripe-signature'];
-    let event;
-    
-    try {
-        const rawBody = req.rawBody;
-        
-        if (!rawBody) {
-            throw new Error('Request body is empty or not available as raw buffer');
-        }
-        
-        event = stripe.webhooks.constructEvent(rawBody, sig, STRIPE_WEBHOOK_SECRET);
-        logger.info(`Webhook signature verified successfully for event: ${event.type}`);
-    } catch (err) {
-        logger.error(`Webhook signature verification failed: ${err.message}`);
-        res.status(400).send(`Webhook Error: ${err.message}`);
-        return;
-    }
-    
-    try {
-        switch (event.type) {
-            case 'checkout.session.completed': {
-                const session = event.data.object;
-                const userId = session.client_reference_id;
-                
-                if (!userId) {
-                    logger.error(`Checkout session ${session.id} completed but no user ID found in client_reference_id`);
-                    break;
-                }
-
-                //VALIDATION: Ensure required Stripe data exists
-                if (!session.customer || !session.subscription) {
-                    logger.error(`Checkout session ${session.id} missing required data - customer: ${session.customer}, subscription: ${session.subscription}`);
-                    break;
-                }
-                
-                // Validate that the userId corresponds to a Firebase Auth user
-                try {
-                    const userRecord = await auth.getUser(userId);
-                    logger.info(`Validated Firebase Auth user for payment: ${userRecord.email || userRecord.uid}`);
-                } catch (authError) {
-                    logger.error(`Payment completed for invalid Firebase Auth user: ${userId}`, authError);
-                    //Still process the payment but log the error for later investigation
-                }
-                
-                const subscriptionData = {
-                    plan: 'pro',
-                    email: session.customer_details?.email || session.metadata?.email || 'unknown@email.com',
-                    stripeCustomerId: session.customer,
-                    stripeSubscriptionId: session.subscription,
-                    stripeSubscriptionStatus: 'active',
-                    upgradedAt: new Date(),
-                    createdAt: new Date(),
-                    lastUpdated: new Date(),
-                    pendingSubscription: null,
-                    paymentHistory: FieldValue.arrayUnion({
-                        type: 'subscription_created',
-                        sessionId: session.id,
-                        customerId: session.customer,
-                        subscriptionId: session.subscription,
-                        // Stripe amount_total is in cents for USD, so convert to dollars
-                        amount: session.amount_total ? session.amount_total / 100 : null,
-                        currency: session.currency,
-                        timestamp: new Date()
-                    })
-                };
-
-                //ATOMIC UPDATE: Use set with merge to ensure consistency
-                await db.collection('subscriptions').doc(userId).set(subscriptionData, { merge: true });
-                
-                await auth.setCustomUserClaims(userId, {
-                    plan: 'pro',
-                    subscriptionStatus: 'active',
-                    subscriptionId: session.subscription,
-                    upgradedAt: new Date().toISOString()
-                });
-
-                logger.info(`User ${userId} upgraded to pro plan via checkout session ${session.id}`);
-                break;
-            }
-            
-            case 'invoice.payment_succeeded': {
-                const invoice = event.data.object;
-                const subscriptionId = invoice.parent?.subscription_details?.subscription;
-                if (!subscriptionId) {
-                    logger.info(`Invoice ${invoice.id} payment succeeded but no subscription ID - likely a one-time payment, skipping`);
-                    break;
-                }
-                logger.info(`Processing payment success for subscription: ${subscriptionId}`);
-                const subscriptionsQuery = await db.collection('subscriptions')
-                    .where('stripeSubscriptionId', '==', subscriptionId)
-                    .limit(1)
-                    .get();
-                if (!subscriptionsQuery.empty) {
-                    const subscriptionDoc = subscriptionsQuery.docs[0];
-                    const userId = subscriptionDoc.id;
-                    const currentData = subscriptionDoc.data();
-                    
-                    if (currentData.stripeSubscriptionId !== subscriptionId) {
-                        logger.error(`Subscription ID mismatch! Incoming: ${subscriptionId}, Stored: ${currentData.stripeSubscriptionId}`);
-                        logger.info(`Invoice details for mismatched subscription: ${JSON.stringify({
-                            invoiceId: invoice.id,
-                            amount: invoice.amount_paid ? invoice.amount_paid / 100 : null,
-                            customer: invoice.customer,
-                            currency: invoice.currency
-                        })}`);
-                        
-                        // Update the subscription ID if it doesn't exist
-                        if (!currentData.stripeSubscriptionId) {
-                            logger.warn(`Subscription document ${userId} missing stripeSubscriptionId field, updating with verification warning`);
-                            await subscriptionDoc.ref.update({
-                                stripeSubscriptionId: subscriptionId,
-                                verificationNotes: FieldValue.arrayUnion({
-                                    type: 'subscription_id_added',
-                                    timestamp: new Date(),
-                                    note: 'ID added during payment verification, may need investigation'
-                                })
-                            });
-                        }
-                    } else {
-                        logger.info(`Subscription ID verification successful for ${userId}`);
-                    }
-                    
-                    try {
-                        await auth.getUser(userId);
-                        logger.info(`Validated Firebase Auth user for payment success: ${userId}`);
-                    } catch (authError) {
-                        logger.error(`Payment succeeded for invalid Firebase Auth user: ${userId}`, authError);
-                    }
-                    
-                    await subscriptionDoc.ref.update({
-                        plan: 'pro',
-                        stripeSubscriptionStatus: 'active',
-                        lastPaymentAt: new Date(),
-                        lastUpdated: new Date(),
-                        paymentHistory: FieldValue.arrayUnion({
-                            type: 'payment_succeeded',
-                            invoiceId: invoice.id,
-                            subscriptionId: subscriptionId,
-                            subscriptionVerified: currentData.stripeSubscriptionId === subscriptionId,
-                            amount: invoice.amount_paid ? invoice.amount_paid / 100 : null,
-                            currency: invoice.currency,
-                            timestamp: new Date()
-                        })
-                    });
-                    
-                    await auth.setCustomUserClaims(userId, {
-                        plan: 'pro',
-                        subscriptionStatus: 'active',
-                        subscriptionId: subscriptionId,
-                        lastPaymentAt: new Date().toISOString()
-                    });
-                    
-                    logger.info(`Payment succeeded for subscription ${subscriptionId}, user ${userId} updated`);
-                } else {
-                    logger.error(`No subscription document found for Stripe subscription ${subscriptionId} - this indicates data inconsistency`);
-                    logger.info(`Attempting recovery for orphaned subscription ${subscriptionId}`);
-                    
-                    try {
-                        const stripeSubscription = await stripe.subscriptions.retrieve(subscriptionId);
-                        const customerId = stripeSubscription.customer;
-                        const createdAtTimestamp = stripeSubscription.created;
-                        
-                        logger.info(`Retrieved subscription details from Stripe: Customer ID ${customerId}, created at ${new Date(createdAtTimestamp * 1000).toISOString()}`);
-
-                        const customerQuery = await db.collection('subscriptions')
-                            .where('stripeCustomerId', '==', customerId)
-                            .limit(1)
-                            .get();
-                        
-                        if (!customerQuery.empty) {
-                            const doc = customerQuery.docs[0];
-                            const existingData = doc.data();
-                            logger.info(`Found subscription by customer ID ${customerId}, comparing with existing data`);
-                            
-                            // Check if there's a conflict with existing subscription ID
-                            if (existingData.stripeSubscriptionId && existingData.stripeSubscriptionId !== subscriptionId) {
-                                logger.warn(`Customer ${customerId} already has subscription ${existingData.stripeSubscriptionId}, but new payment is for ${subscriptionId}`);
-                                
-                                await doc.ref.update({
-                                    conflictingSubscriptionId: subscriptionId,
-                                    stripeSubscriptionStatus: 'needs_investigation',
-                                    lastUpdated: new Date(),
-                                    verificationNotes: FieldValue.arrayUnion({
-                                        type: 'subscription_id_conflict',
-                                        existing: existingData.stripeSubscriptionId,
-                                        incoming: subscriptionId,
-                                        timestamp: new Date(),
-                                        note: 'Multiple subscription IDs found for customer'
-                                    }),
-                                    paymentHistory: FieldValue.arrayUnion({
-                                        type: 'payment_succeeded_conflict',
-                                        invoiceId: invoice.id,
-                                        existingSubscriptionId: existingData.stripeSubscriptionId,
-                                        incomingSubscriptionId: subscriptionId,
-                                        amount: invoice.amount_paid ? invoice.amount_paid / 100 : null,
-                                        currency: invoice.currency,
-                                        timestamp: new Date(),
-                                        note: 'Payment for a different subscription ID than stored'
-                                    })
-                                });
-                            } else {
-                                logger.info(`Found subscription by customer ID ${customerId}, updating with missing subscription ID`);
-                                
-                                await doc.ref.update({
-                                    stripeSubscriptionId: subscriptionId,
-                                    stripeSubscriptionStatus: 'active',
-                                    lastPaymentAt: new Date(),
-                                    lastUpdated: new Date(),
-                                    paymentHistory: FieldValue.arrayUnion({
-                                        type: 'payment_succeeded_recovery',
-                                        invoiceId: invoice.id,
-                                        subscriptionId: subscriptionId,
-                                        amount: invoice.amount_paid ? invoice.amount_paid / 100 : null,
-                                        currency: invoice.currency,
-                                        timestamp: new Date(),
-                                        note: 'Recovered from orphaned subscription'
-                                    })
-                                });
-                                
-                                logger.info(`Successfully recovered subscription data for ${subscriptionId}`);
-                            }
-                        }
-                    } catch (recoveryError) {
-                        logger.error(`Failed to recover subscription ${subscriptionId}:`, recoveryError);
-                    }
-                }
-                break;
-            }
-            
-            case 'invoice.payment_failed': {
-                const invoice = event.data.object;
-                const subscriptionId = invoice.parent?.subscription_details?.subscription;
-                
-                if (!subscriptionId) {
-                    logger.info(`Invoice ${invoice.id} payment failed but no subscription ID - likely a one-time payment, skipping`);
-                    break;
-                }
-                
-                logger.info(`Processing payment failure for subscription: ${subscriptionId}`);
-                
-                const subscriptionsQuery = await db.collection('subscriptions')
-                    .where('stripeSubscriptionId', '==', subscriptionId)
-                    .limit(1)
-                    .get();
-                
-                if (!subscriptionsQuery.empty) {
-                    const subscriptionDoc = subscriptionsQuery.docs[0];
-                    const userId = subscriptionDoc.id;
-                    const currentData = subscriptionDoc.data();
-                    
-                    if (!currentData.stripeSubscriptionId) {
-                        logger.error(`Subscription document ${userId} missing stripeSubscriptionId field`);
-                        await subscriptionDoc.ref.update({
-                            stripeSubscriptionId: subscriptionId
-                        });
-                    }
-                    
-                    try {
-                        await auth.getUser(userId);
-                        logger.info(`Validated Firebase Auth user for payment failure: ${userId}`);
-                    } catch (authError) {
-                        logger.error(`Payment failed for invalid Firebase Auth user: ${userId}`, authError);
-                    }
-                    
-                    await subscriptionDoc.ref.update({
-                        plan: 'free',
-                        stripeSubscriptionStatus: 'past_due',
-                        paymentFailedAt: new Date(),
-                        lastUpdated: new Date(),
-                        paymentHistory: FieldValue.arrayUnion({
-                            type: 'payment_failed',
-                            invoiceId: invoice.id,
-                            subscriptionId: subscriptionId,
-                            amount: invoice.amount_due ? invoice.amount_due / 100 : null,
-                            currency: invoice.currency,
-                            timestamp: new Date(),
-                            error: invoice.last_finalization_error?.message || 'Unknown payment error'
-                        })
-                    });
-                    
-                    await auth.setCustomUserClaims(userId, {
-                        plan: 'free',
-                        subscriptionStatus: 'past_due',
-                        subscriptionId: subscriptionId,
-                        paymentFailedAt: new Date().toISOString()
-                    });
-                    
-                    logger.warn(`Payment failed for subscription ${subscriptionId}, user ${userId} downgraded`);
-                } else {
-                    logger.error(`No subscription document found for failed payment on subscription ${subscriptionId}`);
-                }
-                break;
-            }
-            
-            case 'customer.subscription.deleted': {
-                const subscription = event.data.object;
-                const subscriptionId = subscription.parent?.subscription_details?.subscription || subscription.id;
-                
-                if (!subscriptionId) {
-                    logger.error(`Subscription deletion event missing subscription ID`);
-                    break;
-                }
-                
-                logger.info(`Processing subscription deletion for: ${subscriptionId}`);
-                
-                const subscriptionsQuery = await db.collection('subscriptions')
-                    .where('stripeSubscriptionId', '==', subscriptionId)
-                    .limit(1)
-                    .get();
-                
-                if (!subscriptionsQuery.empty) {
-                    const subscriptionDoc = subscriptionsQuery.docs[0];
-                    const userId = subscriptionDoc.id;
-                    const currentData = subscriptionDoc.data();
-                    
-                    // Validate Firebase Auth user
-                    try {
-                        await auth.getUser(userId);
-                        logger.info(`Validated Firebase Auth user for subscription cancellation: ${userId}`);
-                    } catch (authError) {
-                        logger.error(`Subscription canceled for invalid Firebase Auth user: ${userId}`, authError);
-                    }
-                    
-                    await subscriptionDoc.ref.update({
-                        plan: 'free',
-                        stripeSubscriptionStatus: 'canceled',
-                        canceledAt: new Date(),
-                        lastUpdated: new Date(),
-                        paymentHistory: FieldValue.arrayUnion({
-                            type: 'subscription_canceled',
-                            subscriptionId: subscriptionId,
-                            canceledAt: new Date(subscription.canceled_at * 1000),
-                            cancelReason: subscription.cancellation_details?.reason || 'Unknown',
-                            timestamp: new Date()
-                        })
-                    });
-                    
-                    await auth.setCustomUserClaims(userId, {
-                        plan: 'free',
-                        subscriptionStatus: 'canceled',
-                        subscriptionId: null,
-                        canceledAt: new Date().toISOString()
-                    });
-                    
-                    logger.info(`User ${userId} downgraded to free plan after subscription ${subscriptionId} was canceled`);
-                } else {
-                    logger.error(`No subscription document found for canceled subscription ${subscriptionId}`);
-                }
-                break;
-            }
-            
-            default:
-                logger.info(`Unhandled event type: ${event.type}`);
-        }
-        
-        res.json({ received: true });
-        
-    } catch (error) {
-        logger.error("Error processing webhook:", error);
-        res.status(500).json({ error: "Webhook processing failed" });
-    }
-});
-
-// Server-Sent Events endpoint for real-time job status updates
-export const streamJobStatus = onRequest({
-    region: 'us-central1',
-    cors: true,
-    timeoutSeconds: 3600, // 1 hour timeout for long-running connections
-    memory: '256MiB'
-}, async (req, res) => {
-    try {
-        // Extract jobId from URL path: /streamJobStatus/{jobId}
-        const jobId = req.path.split('/').pop();
-        
-        if (!jobId) {
-            res.status(400).json({ error: 'Job ID is required in URL path' });
-            return;
-        }
-
-        logger.info(`Starting SSE stream for job: ${jobId}`);
-
-        // Set up Server-Sent Events headers
-        res.writeHead(200, {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive',
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Headers': 'Cache-Control'
-        });
-
-        // Send initial connection confirmation
-        res.write(`data: ${JSON.stringify({ 
-            type: 'connected', 
-            jobId: jobId, 
-            timestamp: new Date().toISOString() 
-        })}\n\n`);
-
-        // Get initial job status
-        const jobRef = db.collection('videoJobs').doc(jobId);
-        
-        try {
-            logger.info(`Fetching job from Firestore: videoJobs/${jobId}`);
-            const initialDoc = await jobRef.get();
-            
-            if (initialDoc.exists) {
-                const jobData = initialDoc.data();
-                logger.info(`Found job data for ${jobId}:`, {
-                    status: jobData.status,
-                    totalVideos: jobData.totalVideos,
-                    createdAt: jobData.createdAt?.toDate?.()?.toISOString()
-                });
-                
-                const statusUpdate = {
-                    type: 'status',
-                    jobId: jobId,
-                    status: jobData.status || 'Unknown',
-                    progress: jobData.progress,
-                    progressMessage: jobData.progressMessage,
-                    totalVideos: jobData.totalVideos,
-                    totalSegments: jobData.segmentCount,
-                    videosAlreadyAvailable: jobData.videosAlreadyAvailable,
-                    videosNeedingDownload: jobData.videosNeedingDownload,
-                    skipDownload: jobData.skipDownload,
-                    finalVideoUrl: jobData.finalVideoUrl,
-                    error: jobData.error,
-                    suggestions: jobData.suggestions,
-                    createdAt: jobData.createdAt?.toDate?.()?.toISOString(),
-                    updatedAt: jobData.updatedAt?.toDate?.()?.toISOString(),
-                    timestamp: new Date().toISOString()
-                };
-                
-                res.write(`data: ${JSON.stringify(statusUpdate)}\n\n`);
-                logger.info(`Sent initial status for job ${jobId}: ${jobData.status}`);
-            } else {
-                logger.warn(`Job not found in Firestore: ${jobId}`);
-                res.write(`data: ${JSON.stringify({ 
-                    type: 'error', 
-                    jobId: jobId, 
-                    error: 'Job not found',
-                    timestamp: new Date().toISOString() 
-                })}\n\n`);
-                res.end();
-                return;
-            }
-        } catch (error) {
-            logger.error(`Error fetching initial job status for ${jobId}:`, {
-                error: error.message,
-                stack: error.stack,
-                code: error.code
-            });
-            res.write(`data: ${JSON.stringify({ 
-                type: 'error', 
-                jobId: jobId, 
-                error: `Failed to fetch job status: ${error.message}`,
-                timestamp: new Date().toISOString() 
-            })}\n\n`);
-        }
-
-        // Set up Firestore real-time listener
-        const unsubscribe = jobRef.onSnapshot((doc) => {
-            try {
-                if (!doc.exists) {
-                    res.write(`data: ${JSON.stringify({ 
-                        type: 'error', 
-                        jobId: jobId, 
-                        error: 'Job no longer exists',
-                        timestamp: new Date().toISOString() 
-                    })}\n\n`);
-                    res.end();
-                    return;
-                }
-
-                const jobData = doc.data();
-                const statusUpdate = {
-                    type: 'status',
-                    jobId: jobId,
-                    status: jobData.status || 'Unknown',
-                    progress: jobData.progress,
-                    progressMessage: jobData.progressMessage,
-                    totalVideos: jobData.totalVideos,
-                    totalSegments: jobData.segmentCount,
-                    videosAlreadyAvailable: jobData.videosAlreadyAvailable,
-                    videosNeedingDownload: jobData.videosNeedingDownload,
-                    skipDownload: jobData.skipDownload,
-                    finalVideoUrl: jobData.finalVideoUrl,
-                    error: jobData.error,
-                    suggestions: jobData.suggestions,
-                    createdAt: jobData.createdAt?.toDate?.()?.toISOString(),
-                    updatedAt: jobData.updatedAt?.toDate?.()?.toISOString(),
-                    timestamp: new Date().toISOString()
-                };
-
-                res.write(`data: ${JSON.stringify(statusUpdate)}\n\n`);
-                logger.info(`Streamed status update for job ${jobId}: ${jobData.status}`);
-
-                // Close connection if job is complete or permanently failed
-                if (jobData.status === 'Complete' || 
-                    (jobData.status && jobData.status.startsWith('Failed') && !jobData.status.includes('Retry'))) {
-                    logger.info(`Job ${jobId} finished with status: ${jobData.status}. Closing SSE connection.`);
-                    res.write(`data: ${JSON.stringify({ 
-                        type: 'complete', 
-                        jobId: jobId, 
-                        finalStatus: jobData.status,
-                        timestamp: new Date().toISOString() 
-                    })}\n\n`);
-                    res.end();
-                }
-            } catch (error) {
-                logger.error(`Error in Firestore listener for job ${jobId}:`, error);
-                res.write(`data: ${JSON.stringify({ 
-                    type: 'error', 
-                    jobId: jobId, 
-                    error: 'Failed to process status update',
-                    timestamp: new Date().toISOString() 
-                })}\n\n`);
-            }
-        }, (error) => {
-            logger.error(`Firestore listener error for job ${jobId}:`, error);
-            res.write(`data: ${JSON.stringify({ 
-                type: 'error', 
-                jobId: jobId, 
-                error: 'Database connection lost',
-                timestamp: new Date().toISOString() 
-            })}\n\n`);
-            res.end();
-        });
-
-        // Handle client disconnect
-        req.on('close', () => {
-            logger.info(`SSE connection closed for job: ${jobId}`);
-            unsubscribe();
-        });
-
-        req.on('error', (error) => {
-            logger.error(`SSE connection error for job ${jobId}:`, error);
-            unsubscribe();
-        });
-
-        // Keep-alive ping every 30 seconds
-        const keepAlive = setInterval(() => {
-            try {
-                res.write(`data: ${JSON.stringify({ 
-                    type: 'ping', 
-                    timestamp: new Date().toISOString() 
-                })}\n\n`);
-            } catch (error) {
-                logger.error(`Keep-alive error for job ${jobId}:`, error);
-                clearInterval(keepAlive);
-                unsubscribe();
-            }
-        }, 30000);
-
-        // Clean up keep-alive on connection close
-        req.on('close', () => {
-            clearInterval(keepAlive);
-        });
-
-    } catch (error) {
-        logger.error('Error in streamJobStatus:', error);
-        if (!res.headersSent) {
-            res.status(500).json({ error: 'Failed to start status stream' });
-        }
-    }
-});
-
-// Manual video generation request for non-premium users
-export const requestManualVideoGeneration = onCall({
-    enforceAppCheck: false,
-    memory: "256MiB",
-    timeoutSeconds: 30,
-    maxInstances: 2,
-    minInstances: 0,
 }, async (request) => {
+    const auth = requireAuth(request, "Please sign in to generate videos.");
+    const uid = auth.uid;
+    const admin = isAdmin(auth);
+    const requestedSegments = validateSegments(request.data?.segments);
+
+    if (await countActiveJobs() >= MAX_ACTIVE_JOBS) {
+        throw new HttpsError("resource-exhausted",
+            "Our video renderer is busy with other compilations right now. Please try again in a few minutes.");
+    }
+
+    const uniqueVideoIds = [...new Set(requestedSegments.map((s) => s.videoId))];
+    let resolved;
     try {
-        const { userEmail, segments, searchQuery, sessionId, userName } = request.data;
+        resolved = await resolveSourceObjects(uniqueVideoIds);
+    } catch (error) {
+        logger.error("createVideoJob: failed to list source videos", { message: error.message });
+        throw new HttpsError("internal", "Could not check source videos. Please try again.");
+    }
 
-        if (!userEmail || !segments || segments.length === 0) {
-            throw new HttpsError("invalid-argument", "Email and segments are required");
+    const sourceObjects = {};
+    const missingVideoIds = [];
+    for (const videoId of uniqueVideoIds) {
+        if (resolved[videoId]) sourceObjects[videoId] = resolved[videoId];
+        else missingVideoIds.push(videoId);
+    }
+    const segments = requestedSegments.filter((s) => sourceObjects[s.videoId]);
+    if (segments.length === 0) {
+        throw new HttpsError("failed-precondition",
+            "None of the selected episodes are available for video generation yet. Try segments from other episodes.");
+    }
+
+    const jobId = randomUUID();
+    const jobRef = jobsCollection().doc(jobId);
+    const day = utcDay();
+    const quotaRef = usageRef(uid, day);
+    const requestedDurationSeconds = segments.reduce((sum, s) => sum + (s.endTimeSeconds - s.startTimeSeconds), 0);
+
+    const quotaExceeded = await db.runTransaction(async (tx) => {
+        const usage = await tx.get(quotaRef);
+        const used = usage.exists ? Number(usage.get('count')) || 0 : 0;
+        if (!admin && used >= DAILY_JOB_LIMIT) {
+            return true;
         }
-
-        // Validate email format
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(userEmail)) {
-            throw new HttpsError("invalid-argument", "Invalid email format");
-        }
-
-        // Limit segments to prevent abuse
-        if (segments.length > 50) {
-            throw new HttpsError("invalid-argument", "Too many segments. Maximum 50 segments allowed for manual requests.");
-        }
-
-        // Generate unique request ID
-        const requestId = `manual_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-        // Store the request in Firestore
-        const requestData = {
-            userEmail,
-            userName: userName || 'Anonymous',
+        const previousJobIds = usage.exists && Array.isArray(usage.get('jobIds')) ? usage.get('jobIds') : [];
+        tx.set(quotaRef, {
+            userId: uid,
+            date: day,
+            count: used + 1,
+            jobIds: [...previousJobIds, jobId].slice(-50),
+            updatedAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
+        tx.create(jobRef, {
+            userId: uid,
+            userEmail: auth.token?.email || null,
+            status: "Queued",
+            progress: 0,
+            progressMessage: "Queued, waiting for the renderer to start",
             segments,
-            searchQuery: searchQuery || '',
-            sessionId: sessionId || null,
-            requestedAt: new Date(),
-            status: 'pending',
-            requestId: requestId,
-            segmentCount: segments.length
-        };
-
-        await db.collection('manualVideoRequests').add(requestData);
-        logger.info(`Manual video request created: ${requestId}`);
-
-        // Send email notification to admin (no password required!)
-        try {
-            const emailHtml = `
-                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                    <h2 style="color: #ff6b35;">🎬 New Manual Video Generation Request</h2>
-                    
-                    <div style="background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
-                        <h3>Request Details</h3>
-                        <p><strong>Request ID:</strong> ${requestId}</p>
-                        <p><strong>User Email:</strong> ${userEmail}</p>
-                        <p><strong>User Name:</strong> ${userName || 'Not provided'}</p>
-                        <p><strong>Search Query:</strong> ${searchQuery || 'Not provided'}</p>
-                        <p><strong>Number of Segments:</strong> ${segments.length}</p>
-                        <p><strong>Session ID:</strong> ${sessionId || 'Not provided'}</p>
-                        <p><strong>Requested At:</strong> ${new Date().toLocaleString()}</p>
-                    </div>
-
-                    <div style="background: #fff; border: 1px solid #ddd; padding: 20px; border-radius: 8px;">
-                        <h3>Selected Segments</h3>
-                        <div style="max-height: 400px; overflow-y: auto;">
-                            ${segments.map((segment, index) => `
-                                <div style="border-bottom: 1px solid #eee; padding: 10px 0;">
-                                    <p><strong>Segment ${index + 1}:</strong></p>
-                                    <p><strong>Video ID:</strong> ${segment.videoId}</p>
-                                    <p><strong>Time Range:</strong> ${segment.startTime}s - ${segment.endTime}s</p>
-                                    <p><strong>Content:</strong> ${(segment.text || 'No text available').substring(0, 200)}${segment.text && segment.text.length > 200 ? '...' : ''}</p>
-                                    <p><strong>YouTube URL:</strong> <a href="https://www.youtube.com/watch?v=${segment.videoId}&t=${segment.startTime}s">Watch Segment</a></p>
-                                </div>
-                            `).join('')}
-                        </div>
-                    </div>
-
-                    <div style="background: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 8px; margin: 20px 0;">
-                        <h4>Next Steps:</h4>
-                        <ol>
-                            <li>Download the video segments</li>
-                            <li>Edit the compilation video</li>
-                            <li>Reply to ${userEmail} with the final video</li>
-                            <li>Update request status in Firebase</li>
-                        </ol>
-                    </div>
-                </div>
-            `;
-
-            await sendEmailNotification(
-                ADMIN_EMAIL,
-                `🎬 New Manual Video Generation Request - JRE Clipper`,
-                emailHtml
-            );
-            
-            logger.info(`Manual video request notification sent for request ${requestId}`);
-        } catch (emailError) {
-            logger.error(`Failed to send notification for request ${requestId}:`, emailError);
-            // Don't fail the request if email fails
-        }
-
-        return {
-            success: true,
-            requestId: requestId,
-            message: 'Your video compilation request has been submitted! We will manually create your video and email it to you within 24-48 hours.',
-            estimatedDelivery: '24-48 hours'
-        };
-
-    } catch (error) {
-        logger.error("Error processing manual video request:", error);
-        if (error instanceof HttpsError) {
-            throw error;
-        }
-        throw new HttpsError("internal", "Error processing video request");
+            sourceObjects,
+            missingVideoIds,
+            segmentCount: segments.length,
+            totalVideos: Object.keys(sourceObjects).length,
+            requestedDurationSeconds,
+            createdAt: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
+        });
+        return false;
+    });
+    if (quotaExceeded) {
+        throw new HttpsError("resource-exhausted",
+            `You've reached today's limit of ${DAILY_JOB_LIMIT} videos. The limit resets at midnight UTC.`);
     }
+
+    let executionOperation = null;
+    try {
+        const response = await googleRequest({
+            url: RENDERER_RUN_URL,
+            method: "POST",
+            timeout: 30000,
+            data: { overrides: { containerOverrides: [{ env: [{ name: "JOB_ID", value: jobId }] }] } },
+        });
+        executionOperation = response.data?.name || null;
+    } catch (error) {
+        const { status, message } = describeGoogleError(error);
+        logger.error("createVideoJob: failed to start renderer", { jobId, status, message });
+        await Promise.allSettled([
+            jobRef.update({
+                status: "Failed",
+                error: `Could not start the video renderer${status ? ` (HTTP ${status})` : ''}. Please try again later.`,
+                progressMessage: "Failed to start",
+                updatedAt: FieldValue.serverTimestamp(),
+            }),
+            // The user got nothing, so give the quota back.
+            quotaRef.update({ count: FieldValue.increment(-1) }),
+        ]);
+        throw new HttpsError("internal", "Could not start video processing. Please try again in a few minutes.");
+    }
+
+    try {
+        // Only this field: the renderer may already be updating status/progress.
+        await jobRef.update({ executionOperation });
+    } catch (error) {
+        logger.error("createVideoJob: failed to store executionOperation", { jobId, executionOperation, message: error.message });
+    }
+
+    logger.info("createVideoJob: queued", { jobId, uid, segmentCount: segments.length, missingVideoIds });
+    return { jobId, status: "Queued", segmentCount: segments.length, missingVideoIds };
 });
 
-// Stripe checkout - requires authentication
-export const createCheckoutSessionAuth = onCall({
-    enforceAppCheck: false,
+function serializeJob(jobId, job, { includeSegments }) {
+    const result = {
+        jobId,
+        status: job.status || 'Unknown',
+        progress: typeof job.progress === 'number' ? job.progress : null,
+        progressMessage: job.progressMessage || null,
+        segmentCount: job.segmentCount ?? null,
+        totalVideos: job.totalVideos ?? null,
+        missingVideoIds: Array.isArray(job.missingVideoIds) ? job.missingVideoIds : [],
+        requestedDurationSeconds: job.requestedDurationSeconds ?? null,
+        error: job.error || null,
+        createdAt: toIso(job.createdAt),
+        updatedAt: toIso(job.updatedAt),
+        completedAt: toIso(job.completedAt),
+    };
+    if (job.status === 'Complete') {
+        result.finalVideoUrl = job.finalVideoUrl || null;
+        result.finalVideoExpiresAt = toIso(job.finalVideoExpiresAt);
+        result.outputDurationSeconds = job.outputDurationSeconds ?? null;
+        result.outputSizeBytes = job.outputSizeBytes ?? null;
+    }
+    if (includeSegments && Array.isArray(job.segments)) {
+        result.segments = job.segments.map((s) => ({
+            videoId: s.videoId,
+            startTimeSeconds: s.startTimeSeconds,
+            endTimeSeconds: s.endTimeSeconds,
+            videoTitle: s.videoTitle || '',
+        }));
+    }
+    return result;
+}
+
+// Polled by status.html. Only returns the caller's own job.
+export const getVideoJob = onCall({
     memory: "256MiB",
-    timeoutSeconds: 30,
-    maxInstances: 5,
+    timeoutSeconds: 15,
+    maxInstances: 10,
     minInstances: 0,
 }, async (request) => {
-    try {
-        // Require authentication for Stripe operations
-        if (!request.auth) {
-            throw new HttpsError("unauthenticated", "Please sign in to subscribe to premium features");
-        }
-
-        const userId = request.auth.uid;
-        const userEmail = request.auth.token.email;
-
-        logger.info("createCheckoutSessionAuth called for user:", userId);
-
-        if (!stripe) {
-            logger.error("Stripe not initialized");
-            throw new HttpsError("failed-precondition", "Payment service not available");
-        }
-
-        const userRecord = await auth.getUser(userId);
-        const customClaims = userRecord.customClaims || {};
-        let userPlan = customClaims.plan || 'free';
-        let subscriptionStatus = customClaims.subscriptionStatus || null;
-
-        if (!customClaims.plan) {
-            try {
-                const subscriptionRef = db.collection('subscriptions').doc(userId);
-                const subscriptionDoc = await subscriptionRef.get();
-                
-                if (subscriptionDoc.exists) {
-                    const subscriptionData = subscriptionDoc.data();
-                    userPlan = subscriptionData.plan || 'free';
-                    subscriptionStatus = subscriptionData.stripeSubscriptionStatus || null;
-                    
-                    if (subscriptionData.plan === 'pro' && !subscriptionData.stripeSubscriptionId) {
-                        logger.warn(`User ${userId} has pro plan but no stripeSubscriptionId - data inconsistency detected`);
-                        userPlan = 'free';
-                        subscriptionStatus = null;
-                    }
-                }
-                
-                logger.info("User subscription data retrieved:", { 
-                    plan: userPlan, 
-                    hasSubscription: !!subscriptionStatus,
-                    userId: userId 
-                });
-            } catch (firestoreError) {
-                logger.error("Firestore error when checking user status:", firestoreError);
-                userPlan = 'free';
-                subscriptionStatus = null;
-            }
-        }
-
-        if (userPlan === 'pro' && subscriptionStatus === 'active') {
-            throw new HttpsError("failed-precondition", "You are already a Pro subscriber");
-        }
-
-        logger.info("Creating Stripe checkout session with price ID:", STRIPE_PRICE_ID);
-
-        const session = await stripe.checkout.sessions.create({
-            mode: 'subscription',
-            payment_method_types: ['card'],
-            line_items: [
-                {
-                    price: STRIPE_PRICE_ID,
-                    quantity: 1,
-                },
-            ],
-            success_url: `${DOMAIN}/success.html?session_id={CHECKOUT_SESSION_ID}`,
-            cancel_url: `${DOMAIN}/index.html`,
-            client_reference_id: userId,
-            metadata: {
-                userId: userId,
-                plan: 'pro',
-                email: userEmail
-            },
-            customer_email: userEmail
-        });
-
-        logger.info("Stripe checkout session created successfully:", session.id);
-
-        try {
-            const pendingData = {
-                plan: 'free',
-                email: userEmail,
-                userId: userId,
-                createdAt: new Date(),
-                lastUpdated: new Date(),
-                pendingSubscription: {
-                    sessionId: session.id,
-                    createdAt: new Date(),
-                    status: 'pending',
-                    amount: session.amount_total ? session.amount_total / 100 : null,
-                    currency: session.currency
-                }
-            };
-
-            await db.collection('subscriptions').doc(userId).set(pendingData, { merge: true });
-            logger.info("Pending subscription stored in subscriptions collection");
-        } catch (firestoreError) {
-            logger.error("Failed to store pending subscription, but continuing:", firestoreError);
-        }
-
-        return { sessionId: session.id };
-    } catch (error) {
-        logger.error("Stripe checkout error:", error);
-
-        if (error instanceof HttpsError) {
-            throw error;
-        }
-
-        if (error.type === 'StripeInvalidRequestError') {
-            throw new HttpsError("invalid-argument", `Stripe configuration error: ${error.message}`);
-        }
-
-        throw new HttpsError("internal", `Payment service error: ${error.message}`);
+    const auth = requireAuth(request, "Please sign in to view this job.");
+    const jobId = request.data?.jobId;
+    if (typeof jobId !== 'string' || !JOB_ID_RE.test(jobId)) {
+        throw new HttpsError("invalid-argument", "A valid job ID is required.");
     }
+    const snapshot = await jobsCollection().doc(jobId).get();
+    const job = snapshot.exists ? snapshot.data() : null;
+    if (!job || (job.userId !== auth.uid && !isAdmin(auth))) {
+        throw new HttpsError("not-found", "Job not found.");
+    }
+    return serializeJob(snapshot.id, job, { includeSegments: TERMINAL_STATUSES.has(job.status) });
 });
 
-// Cancel subscription function
-export const cancelSubscription = onCall({
-    enforceAppCheck: false,
-    memory: "256MiB",
-    timeoutSeconds: 30,
-    maxInstances: 2,
-    minInstances: 0,
-}, async (request) => {
-    try {
-        // Require authentication
-        if (!request.auth) {
-            throw new HttpsError("unauthenticated", "Please sign in to cancel subscription");
-        }
-
-        const userId = request.auth.uid;
-        logger.info("cancelSubscription called for user:", userId);
-
-        // Check Stripe initialization
-        if (!stripe) {
-            logger.error("Stripe not initialized");
-            throw new HttpsError("failed-precondition", "Payment service not available");
-        }
-
-        // Get user's subscription data from Firestore
-        const subscriptionRef = db.collection('subscriptions').doc(userId);
-        const subscriptionDoc = await subscriptionRef.get();
-
-        if (!subscriptionDoc.exists) {
-            throw new HttpsError("not-found", "No subscription found for this user");
-        }
-
-        const subscriptionData = subscriptionDoc.data();
-        const stripeSubscriptionId = subscriptionData.stripeSubscriptionId;
-
-        if (!stripeSubscriptionId) {
-            throw new HttpsError("not-found", "No active Stripe subscription found");
-        }
-
-        if (subscriptionData.stripeSubscriptionStatus === 'canceled') {
-            throw new HttpsError("failed-precondition", "Subscription is already canceled");
-        }
-
-        // Cancel the subscription in Stripe (at period end)
-        const canceledSubscription = await stripe.subscriptions.update(stripeSubscriptionId, {
-            cancel_at_period_end: true,
-            metadata: {
-                canceledBy: 'user',
-                canceledAt: new Date().toISOString()
-            }
-        });
-
-        logger.info("Stripe subscription canceled:", canceledSubscription.id);
-
-        // Update subscription in Firestore
-        await subscriptionRef.update({
-            stripeSubscriptionStatus: 'cancel_at_period_end',
-            canceledAt: new Date(),
-            canceledBy: 'user',
-            periodEnd: new Date(canceledSubscription.current_period_end * 1000)
-        });
-
-        // Update custom claims
-        await auth.setCustomUserClaims(userId, {
-            plan: 'pro', // Still pro until period ends
-            subscriptionStatus: 'cancel_at_period_end',
-            subscriptionId: stripeSubscriptionId,
-            canceledAt: new Date().toISOString()
-        });
-
-        // Send cancellation email notification
-        const userRecord = await auth.getUser(userId);
-        await sendEmailNotification(
-            userRecord.email,
-            'JRE Clipper - Subscription Canceled',
-            `
-            <h2>Subscription Canceled</h2>
-            <p>Your JRE Clipper Pro subscription has been canceled and will expire at the end of your current billing period.</p>
-            <p>You will continue to have access to Pro features until ${new Date(canceledSubscription.current_period_end * 1000).toLocaleDateString()}.</p>
-            <p>You can reactivate your subscription anytime before the expiration date.</p>
-            <p>Thank you for using JRE Clipper!</p>
-            `
-        );
-
-        return {
-            success: true,
-            message: 'Subscription canceled successfully',
-            periodEnd: canceledSubscription.current_period_end
-        };
-
-    } catch (error) {
-        logger.error("Cancel subscription error:", error);
-
-        if (error instanceof HttpsError) {
-            throw error;
-        }
-
-        if (error.type === 'StripeInvalidRequestError') {
-            throw new HttpsError("invalid-argument", `Stripe error: ${error.message}`);
-        }
-
-        throw new HttpsError("internal", `Failed to cancel subscription: ${error.message}`);
-    }
-});
-
-// Create Stripe Customer Portal session for billing management
-export const createCustomerPortalSession = onCall({
-    enforceAppCheck: false,
-    memory: "256MiB",
-    timeoutSeconds: 30,
-    maxInstances: 2,
-    minInstances: 0,
-}, async (request) => {
-    try {
-        // Require authentication
-        if (!request.auth) {
-            throw new HttpsError("unauthenticated", "Please sign in to access billing management");
-        }
-
-        const userId = request.auth.uid;
-        logger.info("createCustomerPortalSession called for user:", userId);
-
-        // Check Stripe initialization
-        if (!stripe) {
-            logger.error("Stripe not initialized");
-            throw new HttpsError("failed-precondition", "Payment service not available");
-        }
-
-        // Get user's subscription data from Firestore
-        const subscriptionRef = db.collection('subscriptions').doc(userId);
-        const subscriptionDoc = await subscriptionRef.get();
-
-        if (!subscriptionDoc.exists) {
-            throw new HttpsError("not-found", "No subscription found for this user");
-        }
-
-        const subscriptionData = subscriptionDoc.data();
-        const stripeCustomerId = subscriptionData.stripeCustomerId;
-
-        if (!stripeCustomerId) {
-            throw new HttpsError("not-found", "No Stripe customer found");
-        }
-
-        // Create customer portal session
-        const session = await stripe.billingPortal.sessions.create({
-            customer: stripeCustomerId,
-            return_url: `${DOMAIN}/account.html`,
-        });
-
-        logger.info("Customer portal session created:", session.id);
-
-        return {
-            success: true,
-            url: session.url
-        };
-
-    } catch (error) {
-        logger.error("Create customer portal error:", error);
-
-        if (error instanceof HttpsError) {
-            throw error;
-        }
-
-        if (error.type === 'StripeInvalidRequestError') {
-            throw new HttpsError("invalid-argument", `Stripe error: ${error.message}`);
-        }
-
-        throw new HttpsError("internal", `Failed to create customer portal: ${error.message}`);
-    }
-});
-
-// Get user usage statistics
+// Account page: today's quota plus the last 7 days of jobs (download links are
+// 7-day signed URLs, so older jobs have nothing to download anyway).
 export const getUserUsageStats = onCall({
-    enforceAppCheck: false,
     memory: "256MiB",
-    timeoutSeconds: 10,
+    timeoutSeconds: 15,
     maxInstances: 5,
     minInstances: 0,
 }, async (request) => {
-    try {
-        logger.info("getUserUsageStats called");
-        
-        // If no authentication, return default stats
-        if (!request.auth) {
-            return {
-                searchesThisMonth: 0,
-                videosGenerated: 0,
-                totalSearches: 0,
-                accountCreated: null,
-                generatedVideos: []
-            };
-        }
+    const auth = requireAuth(request);
+    const uid = auth.uid;
+    const admin = isAdmin(auth);
 
-        const userId = request.auth.uid;
-        
-        const now = new Date();
-        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-        
-        // Get all video generation jobs for this user from videoJobs collection
-        // userSessionId now references the User Account UID
-        // Get all video generation jobs for this user from videoJobs collection
-        // userSessionId now references the User Account UID
-        let videosGeneratedThisMonth = 0;
-        let totalVideosGenerated = 0;
-        const generatedVideos = [];
-        
-        try {
-            // First attempt: Try query with composite index
-            logger.info(`Fetching video jobs for user ${userId} with ordered query`);
-            const videoJobsQuery = await db.collection('videoJobs')
-                .where('userSessionId', '==', userId)
-                .orderBy('createdAt', 'desc')
-                .get();
-            
-            videoJobsQuery.forEach(doc => {
-                const jobData = doc.data();
-                const jobId = doc.id;
-                const createdAt = jobData.createdAt?.toDate();
-            
-            if (createdAt) {
-                // Count total videos generated
-                totalVideosGenerated++;
-                
-                // Count videos generated this month
-                if (createdAt >= startOfMonth) {
-                    videosGeneratedThisMonth++;
-                }
-                
-                // Only include completed jobs with final video URLs
-                if (jobData.status === 'Complete' && jobData.finalVideoUrl) {
-                    generatedVideos.push({
-                        jobId: jobId,
-                        createdAt: createdAt.toISOString(),
-                        status: jobData.status,
-                        finalVideoUrl: jobData.finalVideoUrl,
-                        segmentCount: jobData.segmentCount || 0,
-                        totalVideos: jobData.totalVideos || 0,
-                        progressMessage: jobData.progressMessage || null
-                    });
-                }
-            }
-            });
-            logger.info(`Successfully retrieved ${videoJobsQuery.size} video jobs for user ${userId}`);
-            
-        } catch (indexError) {
-            // If the index doesn't exist, fall back to a simpler query
-            logger.warn(`Index error fetching ordered video jobs: ${indexError.message}. Falling back to unordered query.`);
-            
-            // Fallback to a simpler query without ordering
-            const simpleQuery = await db.collection('videoJobs')
-                .where('userSessionId', '==', userId)
-                .get();
-                
-            simpleQuery.forEach(doc => {
-                const jobData = doc.data();
-                const jobId = doc.id;
-                const createdAt = jobData.createdAt?.toDate();
-                
-                if (createdAt) {
-                    // Count total videos generated
-                    totalVideosGenerated++;
-                    
-                    // Count videos generated this month
-                    if (createdAt >= startOfMonth) {
-                        videosGeneratedThisMonth++;
-                    }
-                    
-                    // Only include completed jobs with final video URLs
-                    if (jobData.status === 'Complete' && jobData.finalVideoUrl) {
-                        generatedVideos.push({
-                            jobId: jobId,
-                            createdAt: createdAt.toISOString(),
-                            status: jobData.status,
-                            finalVideoUrl: jobData.finalVideoUrl,
-                            segmentCount: jobData.segmentCount || 0,
-                            totalVideos: jobData.totalVideos || 0,
-                            progressMessage: jobData.progressMessage || null
-                        });
-                    }
-                }
-            });
-            
-            // Sort manually since we couldn't use orderBy
-            generatedVideos.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-            logger.info(`Successfully retrieved ${simpleQuery.size} video jobs using simple query for user ${userId}`);
-        }
-        
-        // Get account creation date
-        const userRecord = await auth.getUser(userId);
-        
-        // Since we no longer track searches separately, we'll use video generation as proxy
-        // In the future, you might want to add search tracking separately
-        const searchesThisMonth = videosGeneratedThisMonth; // Proxy measure
-        const totalSearches = totalVideosGenerated; // Proxy measure
-        
-        return {
-            searchesThisMonth,
-            videosGenerated: videosGeneratedThisMonth,
-            totalSearches,
-            accountCreated: userRecord.metadata.creationTime,
-            generatedVideos: generatedVideos.slice(0, 10) // Return last 10 generated videos
-        };
-        
-    } catch (error) {
-        logger.error("Error getting usage stats:", error);
-        // Return safe defaults instead of throwing
-        return {
-            searchesThisMonth: 0,
-            videosGenerated: 0,
-            totalSearches: 0,
-            accountCreated: null,
-            generatedVideos: [],
-            error: 'Could not load usage statistics'
-        };
+    const now = new Date();
+    const days = Array.from({ length: 7 }, (_, i) => utcDay(new Date(now.getTime() - i * 86400000)));
+    const usageSnapshots = await db.getAll(...days.map((day) => usageRef(uid, day)), { fieldMask: ['count', 'jobIds'] });
+
+    const usedToday = usageSnapshots[0].exists ? Number(usageSnapshots[0].get('count')) || 0 : 0;
+    const recentJobIds = [];
+    for (const snapshot of usageSnapshots) {
+        const ids = snapshot.exists && Array.isArray(snapshot.get('jobIds')) ? snapshot.get('jobIds') : [];
+        recentJobIds.push(...[...ids].reverse());
     }
+
+    const jobIds = recentJobIds.slice(0, 20);
+    const jobSnapshots = jobIds.length
+        ? await db.getAll(...jobIds.map((id) => jobsCollection().doc(id)), {
+            fieldMask: ['userId', 'status', 'createdAt', 'segmentCount', 'totalVideos', 'progress',
+                'finalVideoUrl', 'finalVideoExpiresAt', 'outputDurationSeconds'],
+        })
+        : [];
+
+    const recentJobs = jobSnapshots
+        .filter((snapshot) => snapshot.exists && snapshot.get('userId') === uid)
+        .map((snapshot) => {
+            const job = snapshot.data();
+            const expiresAt = toIso(job.finalVideoExpiresAt);
+            const linkValid = job.status === 'Complete' && job.finalVideoUrl
+                && (!expiresAt || Date.parse(expiresAt) > Date.now());
+            return {
+                jobId: snapshot.id,
+                status: job.status || 'Unknown',
+                createdAt: toIso(job.createdAt),
+                segmentCount: job.segmentCount ?? null,
+                totalVideos: job.totalVideos ?? null,
+                progress: typeof job.progress === 'number' ? job.progress : null,
+                outputDurationSeconds: job.outputDurationSeconds ?? null,
+                finalVideoUrl: linkValid ? job.finalVideoUrl : null,
+                finalVideoExpiresAt: linkValid ? expiresAt : null,
+            };
+        });
+
+    const nextUtcMidnight = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+    return {
+        unlimited: admin,
+        dailyLimit: DAILY_JOB_LIMIT,
+        usedToday,
+        remainingToday: admin ? null : Math.max(0, DAILY_JOB_LIMIT - usedToday),
+        resetsAt: nextUtcMidnight.toISOString(),
+        recentJobs,
+    };
 });
+
+// ===== Analytics =====
+// Write pattern (all O(1), no reads, no transactions, no unbounded documents):
+//   searchActivity/{auto}                         one raw record per search
+//   dailySearchStats/{date}                       counters via FieldValue.increment
+//   dailySearchStats/{date}/visitors/{hash}       first-seen marker; create() fails on repeats,
+//                                                 so unique counters only increment once per visitor/day
+//   dailySearchStats/{date}/terms/{hash}          per-term counts (top terms: orderBy('count', 'desc'))
+// The previous version re-wrote one daily doc in a transaction with ever-growing user/session
+// id arrays (1 MB document limit, contention on every search) and trimmed terms to a top 20
+// on each write, which reset any new term before it could accumulate.
+
+const sha = (value) => createHash('sha256').update(value).digest('hex').slice(0, 32);
+const ALREADY_EXISTS = 6;
 
 export const recordSearchActivity = onCall({
     enforceAppCheck: false,
@@ -1407,119 +699,73 @@ export const recordSearchActivity = onCall({
     minInstances: 0,
 }, async (request) => {
     try {
-        const { searchQuery, sessionId, userAgent, ipAddress } = request.data;
-        
+        const { searchQuery, sessionId, userAgent } = request.data || {};
+
         if (!searchQuery || typeof searchQuery !== 'string') {
             throw new HttpsError("invalid-argument", "Search query is required");
         }
 
         const userId = request.auth?.uid || null;
         const isAuthenticated = !!request.auth;
+        const session = typeof sessionId === 'string' && sessionId ? sessionId.slice(0, 128) : null;
         const now = new Date();
         const dateString = now.toISOString().split('T')[0]; // YYYY-MM-DD format
-        
-        // Record individual search
-        const searchRecord = {
-            searchQuery: searchQuery.toLowerCase().trim(),
-            userId: userId,
-            sessionId: sessionId || null,
-            isAuthenticated: isAuthenticated,
+        const normalizedQuery = searchQuery.toLowerCase().trim().slice(0, MAX_QUERY_LENGTH);
+        const dailyStatsRef = db.collection('dailySearchStats').doc(dateString);
+
+        const batch = db.batch();
+        batch.create(db.collection('searchActivity').doc(), {
+            searchQuery: normalizedQuery,
+            userId,
+            sessionId: session,
+            isAuthenticated,
             timestamp: now,
             date: dateString,
-            userAgent: userAgent || null,
-            ipAddress: ipAddress || null,
-            createdAt: now
-        };
-
-        // Store individual search record
-        await db.collection('searchActivity').add(searchRecord);
-        
-        // Update daily search statistics
-        const dailyStatsRef = db.collection('dailySearchStats').doc(dateString);
-        
-        await db.runTransaction(async (transaction) => {
-            const dailyStatsDoc = await transaction.get(dailyStatsRef);
-            
-            if (dailyStatsDoc.exists) {
-                const currentStats = dailyStatsDoc.data();
-                const updates = {
-                    totalSearches: (currentStats.totalSearches || 0) + 1,
-                    lastUpdated: now
-                };
-                
-                if (isAuthenticated) {
-                    updates.authenticatedSearches = (currentStats.authenticatedSearches || 0) + 1;
-                    
-                    // Track unique authenticated users
-                    const authenticatedUsers = new Set(currentStats.authenticatedUserIds || []);
-                    authenticatedUsers.add(userId);
-                    updates.authenticatedUserIds = Array.from(authenticatedUsers);
-                    updates.uniqueAuthenticatedUsers = authenticatedUsers.size;
-                } else {
-                    updates.anonymousSearches = (currentStats.anonymousSearches || 0) + 1;
-                    
-                    // Track unique anonymous sessions
-                    if (sessionId) {
-                        const anonymousSessions = new Set(currentStats.anonymousSessionIds || []);
-                        anonymousSessions.add(sessionId);
-                        updates.anonymousSessionIds = Array.from(anonymousSessions);
-                        updates.uniqueAnonymousUsers = anonymousSessions.size;
-                    }
-                }
-                
-                // Update popular search terms (top 20)
-                const searchTerms = currentStats.searchTerms || {};
-                const normalizedQuery = searchQuery.toLowerCase().trim();
-                searchTerms[normalizedQuery] = (searchTerms[normalizedQuery] || 0) + 1;
-                
-                // Keep only top 20 search terms
-                const sortedTerms = Object.entries(searchTerms)
-                    .sort(([,a], [,b]) => b - a)
-                    .slice(0, 20)
-                    .reduce((obj, [term, count]) => {
-                        obj[term] = count;
-                        return obj;
-                    }, {});
-                
-                updates.searchTerms = sortedTerms;
-                
-                transaction.update(dailyStatsRef, updates);
-            } else {
-                // Create new daily stats document
-                const newStats = {
-                    date: dateString,
-                    totalSearches: 1,
-                    authenticatedSearches: isAuthenticated ? 1 : 0,
-                    anonymousSearches: isAuthenticated ? 0 : 1,
-                    authenticatedUserIds: isAuthenticated ? [userId] : [],
-                    anonymousSessionIds: (!isAuthenticated && sessionId) ? [sessionId] : [],
-                    uniqueAuthenticatedUsers: isAuthenticated ? 1 : 0,
-                    uniqueAnonymousUsers: (!isAuthenticated && sessionId) ? 1 : 0,
-                    searchTerms: {
-                        [searchQuery.toLowerCase().trim()]: 1
-                    },
-                    createdAt: now,
-                    lastUpdated: now
-                };
-                
-                transaction.set(dailyStatsRef, newStats);
-            }
+            userAgent: typeof userAgent === 'string' ? userAgent.slice(0, 500) : null,
+            createdAt: now,
         });
-        
-        logger.info(`Search activity recorded: ${searchQuery} (authenticated: ${isAuthenticated})`);
-        
+        batch.set(dailyStatsRef, {
+            date: dateString,
+            totalSearches: FieldValue.increment(1),
+            [isAuthenticated ? 'authenticatedSearches' : 'anonymousSearches']: FieldValue.increment(1),
+            lastUpdated: now,
+        }, { merge: true });
+        batch.set(dailyStatsRef.collection('terms').doc(sha(normalizedQuery)), {
+            term: normalizedQuery,
+            count: FieldValue.increment(1),
+            lastSearchedAt: now,
+        }, { merge: true });
+        await batch.commit();
+
+        const visitorKey = isAuthenticated ? `user:${userId}` : (session ? `session:${session}` : null);
+        if (visitorKey) {
+            try {
+                await dailyStatsRef.collection('visitors').doc(sha(visitorKey)).create({
+                    kind: isAuthenticated ? 'authenticated' : 'anonymous',
+                    firstSeenAt: now,
+                });
+                await dailyStatsRef.set({
+                    [isAuthenticated ? 'uniqueAuthenticatedUsers' : 'uniqueAnonymousUsers']: FieldValue.increment(1),
+                }, { merge: true });
+            } catch (error) {
+                if (error.code !== ALREADY_EXISTS) throw error;
+            }
+        }
+
+        logger.info(`Search activity recorded: ${normalizedQuery} (authenticated: ${isAuthenticated})`);
+
         return {
             success: true,
             recorded: true
         };
-        
+
     } catch (error) {
         logger.error("Error recording search activity:", error);
-        
+
         if (error instanceof HttpsError) {
             throw error;
         }
-        
+
         // Don't fail the search if logging fails
         return {
             success: false,

@@ -64,6 +64,53 @@ h1 {
   }
 }
 
+/* Click-to-load YouTube facade (a <button>, so reset PicoCSS button styles) */
+.video-facade {
+  display: block;
+  position: relative;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: #000;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.video-facade img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.video-facade-play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 68px;
+  height: 48px;
+  transform: translate(-50%, -50%);
+  background: rgba(33, 33, 33, 0.8);
+  border-radius: 12px;
+  transition: background-color 0.2s;
+}
+
+.video-facade-play::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 54%;
+  transform: translate(-50%, -50%);
+  border-style: solid;
+  border-width: 11px 0 11px 19px;
+  border-color: transparent transparent transparent #fff;
+}
+
+.video-facade:hover .video-facade-play,
+.video-facade:focus-visible .video-facade-play {
+  background: #f00;
+}
+
 .segments-list {
   margin-top: 1rem;
 }
@@ -430,6 +477,10 @@ h1 {
   margin: 0; /* Ensure no margin */
 }
 
+.footer-bottom p {
+  color: #bdc3c7;
+}
+
 .contact-links {
   list-style: none;
   padding: 0;
@@ -444,47 +495,6 @@ h1 {
 .contact-links i {
   margin-right: 0.5rem;
   width: 16px;
-}
-
-.pricing-highlight {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  padding: 0.6rem; /* Further reduced padding */
-  border-radius: 4px; /* Smaller border radius */
-  text-align: center;
-}
-
-.pricing-highlight h3 {
-  color: white !important;
-  margin-bottom: 0.25rem; /* Further reduced margin */
-  font-size: 0.9rem; /* Smaller font size */
-}
-
-.pricing-highlight p {
-  color: #f8f9fa;
-  margin-bottom: 0.4rem; /* Further reduced margin */
-  font-size: 0.75rem; /* Smaller font size */
-  line-height: 1.2; /* Tighter line height */
-}
-
-.pricing-btn {
-  display: inline-block;
-  background: #fff;
-  color: #2c3e50; /* Dark text for better contrast on white background */
-  padding: 0.3rem 0.6rem; /* Further reduced padding */
-  border-radius: 3px; /* Smaller border radius */
-  text-decoration: none;
-  font-weight: 600;
-  font-size: 0.75rem; /* Smaller font size */
-  transition: all 0.3s ease;
-  border: 1px solid transparent; /* Thinner border */
-}
-
-.pricing-btn:hover {
-  background: #f8f9fa;
-  color: #1a252f; /* Even darker on hover */
-  border-color: #dee2e6;
-  transform: translateY(-1px);
-  box-shadow: 0 1px 2px rgba(0,0,0,0.1); /* Smaller shadow */
 }
 
 /* Video Generation Controls */
@@ -541,6 +551,22 @@ h1 {
   cursor: not-allowed;
   transform: none;
   box-shadow: none;
+}
+
+.generate-video-btn.requires-signin {
+  background: linear-gradient(135deg, #6c757d, #5a6268);
+  border: 2px solid #6c757d;
+}
+
+.generation-limits {
+  font-size: 0.85rem;
+  color: #666;
+  margin: 0.5rem 0 0 0;
+}
+
+.generation-limits.warning {
+  color: #b45309;
+  font-weight: 600;
 }
 
 .select-all-btn, .clear-selection-btn {
@@ -727,6 +753,7 @@ h1 {
   position: sticky;
   top: 0;
   z-index: 100;
+  background-color: var(--background-color, #fff); /* sticky: page content scrolls underneath */
   box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
 
@@ -896,6 +923,142 @@ h1 {
   white-space: unset;
 }
 
+/* Pico adds bullets to FirebaseUI's provider list and dark text on this dark box. */
+.signin-box .firebaseui-list-item {
+  list-style: none;
+}
+
+.signin-footer p,
+.signin-footer small {
+  color: #cfd8dc;
+}
+
+/* ===== SIGN-IN MODAL (index.html) ===== */
+.auth-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 10000;
+}
+
+.auth-modal .modal-content {
+  background: #1a1a1a;
+  border-radius: 12px;
+  max-width: 560px;
+  width: 90%;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  border: 1px solid #333;
+}
+
+.auth-modal .modal-header {
+  padding: 20px;
+  border-bottom: 1px solid #333;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.auth-modal .modal-header h2 {
+  margin: 0;
+  color: #ff6b35;
+}
+
+.auth-modal .close-modal {
+  background: none;
+  border: none;
+  color: #ccc;
+  font-size: 24px;
+  cursor: pointer;
+  padding: 0;
+  margin: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.auth-modal .close-modal:hover {
+  color: #fff;
+}
+
+.auth-modal .modal-body {
+  padding: 20px;
+  color: #ccc;
+}
+
+.auth-modal .modal-body ul {
+  margin: 15px 0;
+  padding-left: 20px;
+}
+
+.auth-modal .modal-body li {
+  margin: 8px 0;
+  list-style: none;
+}
+
+/* Pico colors p/li directly, which would override the dark modal's text color. */
+.auth-modal .modal-body p,
+.auth-modal .modal-body li {
+  color: inherit;
+}
+
+.auth-modal .modal-error {
+  color: #ff8a80;
+}
+
+.auth-modal .modal-footer {
+  padding: 20px;
+  border-top: 1px solid #333;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.auth-modal .btn-primary,
+.auth-modal .btn-secondary {
+  width: auto;
+  margin: 0;
+  padding: 12px 24px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+  text-decoration: none;
+  display: inline-block;
+  transition: all 0.2s;
+}
+
+.auth-modal .btn-primary {
+  background: linear-gradient(135deg, #ff6b35, #ffa500);
+  color: white;
+}
+
+.auth-modal .btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(255, 107, 53, 0.4);
+}
+
+.auth-modal .btn-secondary {
+  background: #333;
+  color: #ccc;
+  border: 1px solid #555;
+}
+
+.auth-modal .btn-secondary:hover {
+  background: #444;
+  color: #fff;
+}
+
 /* Responsive adjustments */
 @media (max-width: 768px) {
   .header-content {
@@ -914,5 +1077,39 @@ h1 {
   .signin-box {
     padding: 1.5rem;
     margin: 0 1rem;
+  }
+}
+
+/* Phones: keep the signed-in header on one line and give the search box its own row. */
+@media (max-width: 600px) {
+  .user-email {
+    display: none;
+  }
+
+  .user-info {
+    gap: 0.5rem;
+  }
+
+  .account-btn {
+    margin-left: 0;
+  }
+
+  .sign-out-btn {
+    width: auto;
+    margin: 0;
+    white-space: nowrap;
+  }
+
+  .primary-search-section {
+    flex-wrap: wrap;
+  }
+
+  .primary-search-section #searchInput,
+  .search-buttons {
+    flex: 1 1 100%;
+  }
+
+  .search-buttons .primary-search-btn {
+    flex: 1;
   }
 }

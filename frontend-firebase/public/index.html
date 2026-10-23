@@ -5,18 +5,17 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>What would Joe Rogan say? - JRE Clipper</title>
+  <link rel="preconnect" href="https://us-central1-gen-lang-client-demo.cloudfunctions.net" crossorigin>
+  <link rel="preconnect" href="https://i.ytimg.com">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
-  <link type="text/css" rel="stylesheet" href="https://www.gstatic.com/firebasejs/ui/4.8.1/firebase-ui-auth.css" />
-  <link rel="stylesheet" href="main.css">
-  <script src="https://cloud.google.com/ai/gen-app-builder/client?hl=en_US"></script>
-  <script src="https://js.stripe.com/v3/"></script>
+  <link rel="stylesheet" href="main.css?v=20261023c">
 
-  <!-- Firebase SDK via CDN (Firebase Hosting Init) -->
-  <script src="/__/firebase/11.9.1/firebase-app-compat.js"></script>
-  <script src="/__/firebase/11.9.1/firebase-auth-compat.js"></script>
-  <script src="/__/firebase/11.9.1/firebase-functions-compat.js"></script>
-  <script src="/__/firebase/init.js"></script>
-  <script type="module" src="main.js"></script>
+  <!-- Firebase SDK via CDN (Firebase Hosting Init). Deferred: they run in order before main.js. -->
+  <script defer src="/__/firebase/11.9.1/firebase-app-compat.js"></script>
+  <script defer src="/__/firebase/11.9.1/firebase-auth-compat.js"></script>
+  <script defer src="/__/firebase/11.9.1/firebase-functions-compat.js"></script>
+  <script defer src="/__/firebase/init.js"></script>
+  <script type="module" src="main.js?v=20261022"></script>
 </head>
 
 <body>
@@ -31,9 +30,9 @@
             <a href="signin.html" class="signin-btn">Sign In</a>
           </div>
           <div id="user-info" class="user-info" style="display: none;">
-            <img id="user-photo" src="" alt="User Photo" class="user-photo">
+            <img id="user-photo" src="" alt="User Photo" class="user-photo" referrerpolicy="no-referrer">
             <span id="user-email" class="user-email"></span>
-            <a href="account.html" class="account-btn" title="Account Management">⚙️</a>
+            <a href="account.html" class="account-btn" title="Account">⚙️</a>
             <button id="sign-out" class="sign-out-btn">Sign Out</button>
           </div>
         </div>
@@ -47,11 +46,8 @@
       clickable timestamps.</p>
 
     <div class="main-search-container">
-      <!-- <div class="usage-display">
-        <span id="searches-remaining">∞</span> unlimited searches
-      </div> -->
       <div class="primary-search-section">
-        <input type="search" placeholder="Authenticating, please wait..." id="searchInput" disabled />
+        <input type="search" placeholder="Loading..." id="searchInput" disabled />
         <div class="search-buttons">
           <button id="instructionToggleBtn" class="instruction-toggle-btn" title="Custom Instructions">
             ⚙️
@@ -64,7 +60,7 @@
         <label for="instructionInput" class="instruction-label">
           Custom Instructions
         </label>
-        <input type="text" id="instructionInput" class="instruction-input"
+        <input type="text" id="instructionInput" class="instruction-input" maxlength="500"
           placeholder="e.g., Prioritize results from specific JRE guests that you know..." />
         <div class="instruction-help">
           Customize how Joe responds. Leave empty for default Joe Rogan style.
@@ -90,19 +86,10 @@
         <h3>👨‍💻 Developer Contact</h3>
         <ul class="contact-links">
           <li>📧 <a href="mailto:vohoanvu96@gmail.com">vohoanvu96@gmail.com</a></li>
-          <li>🐙 <a href="https://github.com/vohoanvu" target="_blank">GitHub Profile</a></li>
-          <li>💼 <a href="https://www.linkedin.com/in/thevuture/" target="_blank">LinkedIn</a></li>
+          <li>🐙 <a href="https://github.com/vohoanvu" target="_blank" rel="noopener">GitHub Profile</a></li>
+          <li>💼 <a href="https://www.linkedin.com/in/thevuture/" target="_blank" rel="noopener">LinkedIn</a></li>
         </ul>
       </div>
-
-      <!-- <div class="footer-section">
-        <div class="pricing-highlight">
-          <h3>🚀 Premium Features</h3>
-          <p>Free: Unlimited searches<br>
-            Pro: Instant video generation!</p>
-          <a href="/pricing.html" class="pricing-btn">Sign In & Upgrade</a>
-        </div>
-      </div> -->
     </div>
 
     <div class="footer-bottom">

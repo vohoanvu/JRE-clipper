@@ -5,7 +5,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Video Generation Status - JRE Clipper</title>
+  <link rel="preconnect" href="https://us-central1-gen-lang-client-demo.cloudfunctions.net" crossorigin>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
+
+  <!-- Firebase SDK via CDN (Firebase Hosting Init). Deferred: they run before DOMContentLoaded. -->
+  <script defer src="/__/firebase/11.9.1/firebase-app-compat.js"></script>
+  <script defer src="/__/firebase/11.9.1/firebase-auth-compat.js"></script>
+  <script defer src="/__/firebase/11.9.1/firebase-functions-compat.js"></script>
+  <script defer src="/__/firebase/init.js"></script>
 
   <style media="screen">
     main {
@@ -20,16 +27,104 @@
       border-radius: 8px;
     }
 
-    /* Vertical Stepper Styles */
+    [hidden] {
+      display: none !important;
+    }
+
+    .job-info {
+      background-color: #f8f9fa;
+      padding: 1rem;
+      border-radius: 4px;
+      margin-bottom: 1.5rem;
+    }
+
+    .job-info p {
+      margin-bottom: 0.5rem;
+    }
+
+    .eta-note {
+      margin-top: 1rem;
+      padding: 0.75rem;
+      background: #e8f4fd;
+      border-radius: 4px;
+      border-left: 4px solid #2196F3;
+      font-size: 0.9rem;
+    }
+
+    .notice {
+      padding: 1rem;
+      border-radius: 6px;
+      margin-bottom: 1.5rem;
+    }
+
+    .notice.error {
+      background: #ffebee;
+      border: 1px solid #f44336;
+      color: #b71c1c;
+    }
+
+    .notice.warning {
+      background: #fff3cd;
+      border: 1px solid #FF9800;
+      color: #7a4b00;
+    }
+
+    .notice.info {
+      background: #e3f2fd;
+      border: 1px solid #2196F3;
+      color: #0d47a1;
+    }
+
+    .notice button {
+      width: auto;
+      display: inline-block;
+      margin: 0.75rem 0 0 0;
+      padding: 0.5rem 1rem;
+    }
+
+    /* Progress */
+    .progress-wrap {
+      margin-bottom: 1.5rem;
+    }
+
+    .progress-row {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .progress-bar {
+      flex: 1;
+      height: 10px;
+      background-color: #e0e0e0;
+      border-radius: 5px;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      width: 0;
+      background: linear-gradient(90deg, #2196F3, #21CBF3);
+      border-radius: 5px;
+      transition: width 0.5s ease;
+    }
+
+    .progress-message {
+      color: #555;
+      font-size: 0.9rem;
+      margin: 0.5rem 0 0 0;
+    }
+
+    /* Vertical Stepper */
     .stepper {
       position: relative;
       padding: 0;
-      margin: 2rem 0;
+      margin: 1rem 0 2rem 0;
     }
 
     .stepper-step {
       position: relative;
-      padding: 1.5rem 0 1.5rem 4rem;
+      padding: 1rem 0 1rem 4rem;
       border-left: 3px solid #e0e0e0;
       margin-left: 1.5rem;
     }
@@ -50,14 +145,10 @@
       border-left-color: #F44336;
     }
 
-    .stepper-step.warning {
-      border-left-color: #FF9800;
-    }
-
     .stepper-icon {
       position: absolute;
-      left: -3rem;
-      top: 1.5rem;
+      left: -1.4rem;
+      top: 1rem;
       width: 2.5rem;
       height: 2.5rem;
       border-radius: 50%;
@@ -67,7 +158,6 @@
       background-color: #e0e0e0;
       color: #757575;
       font-weight: bold;
-      font-size: 1rem;
       border: 3px solid #e0e0e0;
     }
 
@@ -90,34 +180,21 @@
       color: white;
     }
 
-    .stepper-step.warning .stepper-icon {
-      background-color: #FF9800;
-      border-color: #FF9800;
-      color: white;
-    }
-
     @keyframes pulse {
-      0% {
-        transform: scale(1);
-      }
-
-      50% {
-        transform: scale(1.1);
-      }
-
-      100% {
-        transform: scale(1);
-      }
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.1); }
     }
 
-    .stepper-content {
-      margin-left: 0.5rem;
+    @media (prefers-reduced-motion: reduce) {
+      .stepper-step.active .stepper-icon {
+        animation: none;
+      }
     }
 
     .stepper-title {
       font-size: 1.1rem;
       font-weight: 600;
-      margin: 0 0 0.5rem 0;
+      margin: 0 0 0.25rem 0;
       color: #333;
     }
 
@@ -133,229 +210,59 @@
       color: #F44336;
     }
 
-    .stepper-step.warning .stepper-title {
-      color: #FF9800;
-    }
-
     .stepper-description {
       color: #666;
-      margin: 0 0 0.5rem 0;
+      margin: 0;
       font-size: 0.9rem;
     }
 
-    .stepper-details {
-      background-color: #f8f9fa;
-      padding: 1rem;
-      border-radius: 4px;
-      margin-top: 0.5rem;
-      font-size: 0.85rem;
-    }
-
-    .stepper-step.failed .stepper-details {
-      background-color: #ffebee;
-      border: 1px solid #f44336;
-    }
-
-    .stepper-step.active .stepper-details {
-      background-color: #e3f2fd;
-      border: 1px solid #2196F3;
-    }
-
-    .stepper-step.warning .stepper-details {
-      background-color: #fff3cd;
-      border: 1px solid #FF9800;
-    }
-
-    .loading-spinner {
-      display: inline-block;
-      width: 1rem;
-      height: 1rem;
-      border: 2px solid #f3f3f3;
-      border-top: 2px solid #2196F3;
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
-      margin-right: 0.5rem;
-    }
-
-    @keyframes spin {
-      0% {
-        transform: rotate(0deg);
-      }
-
-      100% {
-        transform: rotate(360deg);
-      }
-    }
-
-    /* Enhanced progress indicator for long tasks */
-    .progress-indicator {
-      display: flex;
-      align-items: center;
-      margin: 1rem 0;
-    }
-
-    .progress-bar {
-      flex: 1;
-      height: 6px;
-      background-color: #e0e0e0;
-      border-radius: 3px;
-      margin: 0 1rem;
-      overflow: hidden;
-    }
-
-    .progress-fill {
-      height: 100%;
-      background: linear-gradient(90deg, #2196F3, #21CBF3);
-      border-radius: 3px;
-      animation: progressPulse 2s ease-in-out infinite;
-      transition: width 0.5s ease;
-    }
-
-    @keyframes progressPulse {
-
-      0%,
-      100% {
-        opacity: 0.7;
-      }
-
-      50% {
-        opacity: 1;
-      }
-    }
-
-    .time-estimate {
-      background: #f0f8ff;
-      border: 1px solid #2196F3;
-      border-radius: 6px;
-      padding: 0.75rem;
-      margin: 0.5rem 0;
-      font-size: 0.85rem;
-    }
-
-    .time-estimate .icon {
-      color: #2196F3;
-      margin-right: 0.5rem;
-      font-weight: bold;
-    }
-
-    .helpful-tips {
-      background: #fff3cd;
-      border: 1px solid #ffc107;
-      border-radius: 6px;
-      padding: 1rem;
-      margin: 1rem 0;
-      font-size: 0.85rem;
-    }
-
-    .helpful-tips h4 {
-      margin: 0 0 0.5rem 0;
-      color: #856404;
-      font-size: 0.9rem;
-    }
-
-    .helpful-tips ul {
-      margin: 0.5rem 0 0 0;
-      padding-left: 1.2rem;
-    }
-
-    .helpful-tips li {
-      margin-bottom: 0.3rem;
-      color: #856404;
-    }
-
-    /* Warning styles for missing videos */
     .warning-notice {
       background: #fff3cd;
       border: 1px solid #FF9800;
       border-radius: 6px;
       padding: 1rem;
       margin: 1rem 0;
-      font-size: 0.85rem;
+      font-size: 0.9rem;
     }
 
     .warning-notice h4 {
       margin: 0 0 0.5rem 0;
       color: #e65100;
-      font-size: 0.9rem;
+      font-size: 0.95rem;
     }
 
-    /* Resume/retry styles */
-    .resume-container {
-      background: #e3f2fd;
-      border: 1px solid #2196F3;
-      border-radius: 6px;
-      padding: 1rem;
-      margin: 1rem 0;
-      text-align: center;
+    .warning-notice ul {
+      margin: 0.5rem 0 0 0;
     }
 
-    .resume-button {
-      background-color: #2196F3;
-      color: white;
-      border: none;
-      padding: 0.75rem 1.5rem;
-      border-radius: 4px;
-      font-size: 0.9rem;
-      cursor: pointer;
-      margin: 0.5rem;
-      transition: background-color 0.2s;
-    }
-
-    .resume-button:hover {
-      background-color: #1976D2;
-    }
-
-    .resume-button:disabled {
-      background-color: #ccc;
-      cursor: not-allowed;
-    }
-
-    /* Animated dots for long loading */
-    .loading-dots::after {
-      content: '';
-      animation: dots 2s infinite;
-    }
-
-    @keyframes dots {
-
-      0%,
-      20% {
-        content: '';
-      }
-
-      40% {
-        content: '.';
-      }
-
-      60% {
-        content: '..';
-      }
-
-      80%,
-      100% {
-        content: '...';
-      }
-    }
-
-    .job-info {
-      background-color: #f8f9fa;
-      padding: 1rem;
-      border-radius: 4px;
-      margin-bottom: 2rem;
-    }
-
-    .job-info strong {
-      color: #333;
-    }
-
-    .download-container {
-      margin-top: 2rem;
+    .result-box {
+      margin-top: 1.5rem;
       padding: 1.5rem;
-      background-color: #e8f5e8;
-      border: 1px solid #4caf50;
       border-radius: 8px;
       text-align: center;
-      display: none;
+    }
+
+    .result-box.success {
+      background-color: #e8f5e8;
+      border: 1px solid #4caf50;
+    }
+
+    .result-box.failure {
+      background-color: #ffebee;
+      border: 1px solid #f44336;
+    }
+
+    .result-box .actions {
+      display: flex;
+      gap: 0.75rem;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-top: 1rem;
+    }
+
+    .result-box .actions > * {
+      width: auto;
+      margin: 0;
     }
 
     .download-button {
@@ -365,997 +272,453 @@
       padding: 1rem 2rem;
       border-radius: 4px;
       font-size: 1rem;
-      cursor: pointer;
+      font-weight: bold;
       text-decoration: none;
       display: inline-block;
-      margin-top: 1rem;
     }
 
     .download-button:hover {
       background-color: #45a049;
-    }
-
-    .error-actions {
-      margin-top: 1rem;
-    }
-
-    .error-actions button {
-      margin-right: 0.5rem;
-      margin-bottom: 0.5rem;
-    }
-
-    /* Export button for downloaded videos */
-    .export-container {
-      margin-top: 1rem;
-      padding: 1rem;
-      background-color: #f0f8ff;
-      border: 1px solid #2196F3;
-      border-radius: 6px;
-    }
-
-    .export-button {
-      background-color: #2196F3;
       color: white;
-      border: none;
-      padding: 0.75rem 1.5rem;
-      border-radius: 4px;
-      font-size: 0.9rem;
-      cursor: pointer;
-      text-decoration: none;
-      display: inline-block;
-      margin-top: 0.5rem;
-      transition: background-color 0.2s;
     }
 
-    .export-button:hover {
-      background-color: #1976D2;
-    }
-
-    .export-button:disabled {
-      background-color: #ccc;
-      cursor: not-allowed;
-    }
-
-    .export-info {
+    .small-note {
       font-size: 0.85rem;
       color: #555;
-      margin-bottom: 0.5rem;
+      margin: 0.75rem 0 0 0;
+    }
+
+    .error-text {
+      color: #b71c1c;
+      white-space: pre-wrap;
+      word-break: break-word;
     }
   </style>
 </head>
 
 <body>
   <main class="container">
-    <a href="index.html">← Back to Search</a>
+    <a id="back-link" href="index.html">← Back to Search</a>
     <h1>Video Generation Status</h1>
 
     <div id="status-container">
       <div class="job-info">
         <p><strong id="job-id-display">Job ID: Loading...</strong></p>
-        <p><strong>Status:</strong> <span id="job-status">Initializing...</span></p>
+        <p><strong>Status:</strong> <span id="job-status">Loading...</span></p>
         <p id="job-metrics"></p>
-        <div
-          style="margin-top: 1rem; padding: 0.75rem; background: #e8f4fd; border-radius: 4px; border-left: 4px solid #2196F3;">
-          <strong>⏰ Expected Total Time:</strong> 5-15 minutes<br>
-          <small style="color: #666;">Using pre-downloaded videos from storage. This page will automatically update as
-            your job progresses.</small>
+        <div class="eta-note">
+          <strong>⏰ Most compilations finish within a few minutes.</strong>
+          This page updates automatically; you can also come back later from your account page.
         </div>
       </div>
 
-      <!-- Resume/Retry Container (shown when job needs to be resumed) -->
-      <div class="resume-container" id="resume-container" style="display: none;">
-        <h4>🔄 Job Resume Options</h4>
-        <p id="resume-message">This job appears to be incomplete or failed. You can resume processing or start fresh.
-        </p>
-        <button id="resume-button" class="resume-button" onclick="resumeVideoJob()">
-          🚀 Resume/Retry Processing
-        </button>
-        <button class="resume-button" onclick="goBackToSelection()" style="background-color: #757575;">
-          ← Start New Job
-        </button>
+      <div id="notice" class="notice" hidden></div>
+
+      <div id="progress-wrap" class="progress-wrap" hidden>
+        <div class="progress-row">
+          <div class="progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"
+            id="progress-bar">
+            <div class="progress-fill" id="progress-fill"></div>
+          </div>
+          <span id="progress-percent">0%</span>
+        </div>
+        <p class="progress-message" id="progress-message"></p>
       </div>
 
-      <!-- Vertical Stepper -->
       <div class="stepper" id="stepper">
-        <div class="stepper-step" id="step-initiated">
+        <div class="stepper-step" data-step="Queued">
           <div class="stepper-icon">1</div>
-          <div class="stepper-content">
-            <div class="stepper-title">Job Initiated</div>
-            <div class="stepper-description">Video processing job created and queued</div>
-          </div>
+          <div class="stepper-title">Queued</div>
+          <p class="stepper-description">Job created and waiting for the renderer to start</p>
         </div>
-
-        <div class="stepper-step" id="step-verified">
+        <div class="stepper-step" data-step="Processing">
           <div class="stepper-icon">2</div>
-          <div class="stepper-content">
-            <div class="stepper-title">Videos Verified</div>
-            <div class="stepper-description">Checking video availability in storage</div>
-          </div>
+          <div class="stepper-title">Processing Segments</div>
+          <p class="stepper-description">Cutting and compiling your selected segments</p>
         </div>
-
-        <div class="stepper-step" id="step-processing">
+        <div class="stepper-step" data-step="Uploading">
           <div class="stepper-icon">3</div>
-          <div class="stepper-content">
-            <div class="stepper-title">Processing Segments</div>
-            <div class="stepper-description">Extracting and compiling selected video segments</div>
-          </div>
+          <div class="stepper-title">Uploading Result</div>
+          <p class="stepper-description">Uploading the final video to cloud storage</p>
         </div>
-
-        <div class="stepper-step" id="step-uploading">
-          <div class="stepper-icon">4</div>
-          <div class="stepper-content">
-            <div class="stepper-title">Uploading Result</div>
-            <div class="stepper-description">Uploading final video to cloud storage</div>
-          </div>
-        </div>
-
-        <div class="stepper-step" id="step-complete">
+        <div class="stepper-step" data-step="Complete">
           <div class="stepper-icon">✓</div>
-          <div class="stepper-content">
-            <div class="stepper-title">Complete</div>
-            <div class="stepper-description">Video segments compilation is ready for download</div>
-          </div>
+          <div class="stepper-title">Complete</div>
+          <p class="stepper-description">Your compilation is ready to download</p>
         </div>
       </div>
 
-      <!-- Download Container -->
-      <div class="download-container" id="download-container">
+      <div id="missing-videos" class="warning-notice" hidden>
+        <h4>⚠️ Some episodes were skipped</h4>
+        <p id="missing-videos-text"></p>
+        <ul id="missing-videos-list"></ul>
+      </div>
+
+      <div id="download-container" class="result-box success" hidden>
         <h3>🎉 Your Video is Ready!</h3>
-        <p>Your custom JRE compilation has been generated successfully.</p>
-        <a id="download-button" class="download-button" href="#" target="_blank">
-          📥 Download Video
-        </a>
+        <p id="output-details"></p>
+        <div class="actions">
+          <a id="download-button" class="download-button" href="#" target="_blank" rel="noopener" hidden>
+            📥 Download Video
+          </a>
+          <button id="regenerate-button" class="secondary" hidden>🔄 Generate again</button>
+        </div>
+        <p class="small-note" id="expiry-note"></p>
+        <p class="small-note error-text" id="regenerate-error" hidden></p>
+      </div>
+
+      <div id="failure-container" class="result-box failure" hidden>
+        <h3>❌ Video generation failed</h3>
+        <p class="error-text" id="failure-message"></p>
+        <div class="actions">
+          <button id="retry-button" hidden>🔄 Try again</button>
+          <a href="index.html" role="button" class="secondary" id="new-search-link">← Start a new search</a>
+        </div>
+        <p class="small-note error-text" id="retry-error" hidden></p>
       </div>
     </div>
-
   </main>
 
   <script>
     document.addEventListener('DOMContentLoaded', () => {
-      const jobIdDisplay = document.getElementById('job-id-display');
-      const jobStatus = document.getElementById('job-status');
-      const jobMetrics = document.getElementById('job-metrics');
-      const downloadContainer = document.getElementById('download-container');
-      const downloadButton = document.getElementById('download-button');
-      const resumeContainer = document.getElementById('resume-container');
-      const resumeButton = document.getElementById('resume-button');
-      const resumeMessage = document.getElementById('resume-message');
+      const $ = (id) => document.getElementById(id);
+      const STEPS = ['Queued', 'Processing', 'Uploading', 'Complete'];
+      const ACTIVE = new Set(['Queued', 'Processing', 'Uploading']);
+      const TERMINAL = new Set(['Complete', 'Failed']);
+      const MIN_DELAY_MS = 3000;
+      const MAX_DELAY_MS = 15000;
+      const MAX_POLL_MS = 60 * 60 * 1000;
+      const MAX_CONSECUTIVE_ERRORS = 5;
 
-      const videoProcessorUrl = 'https://jre-video-processor-py-408323719521.us-central1.run.app';
-
-      // Store current job data and timing
-      let currentJobData = null;
-      let pollInterval = null;
-      let eventSource = null;
-      let isResuming = false;
-      let autoResumeAttempted = false;
-
-      // 1. Get Job ID from URL
       const params = new URLSearchParams(window.location.search);
       const jobId = params.get('jobId');
 
-      if (jobId) {
-        jobIdDisplay.textContent = `Job ID: ${jobId}`;
-        // First check job status immediately, then decide next action
-        checkJobStatusAndInitialize(jobId);
-      } else {
-        jobStatus.textContent = 'No Job ID provided in the URL.';
-        jobIdDisplay.textContent = 'Job ID: Not Found';
-        updateStepperUI({ status: 'Error', error: 'No job ID provided' });
-      }
+      let job = null;
+      let lastActiveStatus = null;
+      let pollTimer = null;
+      let pollInFlight = false;
+      let polling = false;
+      let pollStartedAt = 0;
+      let delay = MIN_DELAY_MS;
+      let consecutiveErrors = 0;
+      let lastSignature = '';
 
-      // 2. Check job status first, then decide whether to stream, auto-resume, or show manual resume
-      function checkJobStatusAndInitialize(id) {
-        console.log("Initial job status check for:", id);
-
-        // Show loading state while checking
-        jobStatus.textContent = 'Checking job status...';
-        updateStepperUI({ status: 'Initializing' });
-
-        fetch(`${videoProcessorUrl}/getJobStatus?jobId=${id}`, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-          }
-        })
-          .then(response => {
-            if (!response.ok) {
-              throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            return response.json();
-          })
-          .then(data => {
-            console.log("Initial job status response:", data);
-            currentJobData = data;
-
-            // Update UI with current job data
-            updateUI(data);
-
-            // Decide what to do based on job status
-            if (shouldAutoResume(data)) {
-              console.log("Job needs auto-resume - starting automatic resume");
-              autoResumeJob(id);
-            } else if (data.status === 'Complete') {
-              console.log("Job is complete - no streaming needed");
-              // Job is complete, no need to stream
-            } else if (data.status === 'Processing' || data.status === 'Queued' || data.status === 'Uploading') {
-              console.log("Job is active - starting status stream");
-              // Job is actively processing, start streaming
-              startStatusStream(id);
-            } else {
-              console.log("Job status unclear - starting polling as fallback");
-              // Fallback to polling for unclear states
-              startStatusPolling(id);
-            }
-          })
-          .catch(error => {
-            console.error("Error in initial job status check:", error);
-
-            // If job not found (404), try auto-resume if we have segments data
-            if (error.message.includes('404')) {
-              console.log("Job not found - cannot auto-resume without existing data");
-              updateUI({
-                status: 'Error',
-                error: 'Job not found in database',
-              });
-            } else {
-              // For other errors, try polling as fallback
-              console.log("Status check failed - trying polling fallback");
-              startStatusPolling(id);
-            }
-          });
-      }
-
-      // 3. Determine if job should be automatically resumed
-      function shouldAutoResume(jobData) {
-        if (!jobData || autoResumeAttempted || isResuming) return false;
-
-        const status = jobData.status || '';
-        const hasSegments = jobData.segments && jobData.segments.length > 0;
-        const hasOriginalSegments = jobData.originalSegments && jobData.originalSegments.length > 0;
-
-        // Auto-resume if job has failed/error status and has segment data
-        return (
-          (status === 'Failed' ||
-            status === 'Error' ||
-            status === '' ||
-            status === 'Downloading' ||
-            status === 'Initializing' ||
-            !status) &&
-          (hasSegments || hasOriginalSegments)
-        );
-      }
-
-      // 4. Automatically resume job without user interaction
-      function autoResumeJob(id) {
-        if (autoResumeAttempted || isResuming) return;
-
-        autoResumeAttempted = true;
-        isResuming = true;
-
-        console.log("Auto-resuming job:", id);
-
-        // Update UI to show auto-resume in progress
-        jobStatus.textContent = 'Auto-resuming job...';
-        updateStepperUI({
-          status: 'Processing',
-          progressMessage: 'Automatically resuming job...'
-        });
-
-        // Call the resume endpoint with the existing job ID
-        fetch(`${videoProcessorUrl}/resumeVideoJob`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            jobId: id
-          })
-        })
-          .then(response => {
-            if (!response.ok) {
-              throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            return response.json();
-          })
-          .then(data => {
-            console.log('Auto-resume job response:', data);
-
-            if (data.jobId && data.jobId === id) {
-              // Job resumed successfully with same ID
-              console.log('Job auto-resumed successfully');
-
-              // Update UI with resumed job data
-              updateUI({
-                status: data.status || 'Queued',
-                totalVideos: data.totalVideos,
-                totalSegments: data.totalSegments,
-                progressMessage: 'Job auto-resumed and queued for processing...',
-                missingVideos: data.missingVideos
-              });
-
-              // Start monitoring the resumed job
-              startStatusStream(id);
-
-            } else {
-              throw new Error('Resume response missing job ID or ID mismatch');
-            }
-          })
-          .catch(error => {
-            console.error('Auto-resume failed:', error);
-            autoResumeAttempted = false;
-            isResuming = false;
-
-            // Show manual resume options as fallback
-            updateUI({
-              status: 'Error',
-              error: `Auto-resume failed: ${error.message}`,
-              segments: currentJobData?.segments || currentJobData?.originalSegments || []
-            });
-
-            if (currentJobData && (currentJobData.segments || currentJobData.originalSegments)) {
-              showResumeOptions(currentJobData);
-            }
-          });
-      }
-
-      // 5. Manual resume function (fallback)
-      window.resumeVideoJob = function () {
-        if (!currentJobData) {
-          alert('No job data available to resume');
-          return;
+      // Back link returns to the last search (main.js re-runs ?q=).
+      try {
+        const lastQuery = localStorage.getItem('lastSearchQuery');
+        if (lastQuery) {
+          const href = `index.html?q=${encodeURIComponent(lastQuery)}`;
+          $('back-link').href = href;
+          $('new-search-link').href = href;
         }
-
-        // Disable resume button and show loading state
-        resumeButton.disabled = true;
-        resumeButton.textContent = '🔄 Resuming Job...';
-        isResuming = true;
-
-        // Hide resume container
-        resumeContainer.style.display = 'none';
-
-        console.log('Manually resuming job:', jobId);
-
-        // Call the resume endpoint
-        fetch(`${videoProcessorUrl}/resumeVideoJob`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            jobId: jobId
-          })
-        })
-          .then(response => {
-            if (!response.ok) {
-              throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            return response.json();
-          })
-          .then(data => {
-            console.log('Manual resume job response:', data);
-
-            if (data.jobId && data.jobId === jobId) {
-              // Job resumed successfully with same ID
-              updateUI({
-                status: data.status || 'Queued',
-                totalVideos: data.totalVideos,
-                totalSegments: data.totalSegments,
-                progressMessage: 'Job resumed and queued for processing...',
-                missingVideos: data.missingVideos
-              });
-
-              // Start monitoring the resumed job
-              startStatusStream(jobId);
-
-              console.log('Job manually resumed successfully');
-            } else {
-              throw new Error('Resume response missing job ID or ID mismatch');
-            }
-          })
-          .catch(error => {
-            console.error('Error resuming job:', error);
-
-            // Re-enable resume button and show error
-            resumeButton.disabled = false;
-            resumeButton.textContent = '❌ Resume Failed - Retry';
-            isResuming = false;
-
-            // Show resume container again
-            resumeContainer.style.display = 'block';
-            resumeMessage.textContent = `Failed to resume job: ${error.message}. You can try again or start a new job.`;
-
-            // Reset resume button after 3 seconds
-            setTimeout(() => {
-              if (resumeButton.textContent.includes('Failed')) {
-                resumeButton.textContent = '🚀 Resume/Retry Processing';
-              }
-            }, 3000);
-          });
-      };
-
-      // 6. Start Server-Sent Events for real-time status updates
-      function startStatusStream(id) {
-        console.log("Starting SSE stream for job:", id);
-
-        // Set up Server-Sent Events connection
-        const sseUrl = `https://us-central1-gen-lang-client-demo.cloudfunctions.net/streamJobStatus/${id}`;
-
-        try {
-          eventSource = new EventSource(sseUrl);
-
-          eventSource.onopen = function (event) {
-            console.log("SSE connection opened for job:", id);
-            updateConnectionStatus('connected');
-          };
-
-          eventSource.onmessage = function (event) {
-            try {
-              const data = JSON.parse(event.data);
-              console.log("Received SSE update:", data);
-
-              switch (data.type) {
-                case 'connected':
-                  console.log("SSE connection confirmed for job:", data.jobId);
-                  break;
-
-                case 'status':
-                  currentJobData = data;
-                  updateUI(data);
-                  break;
-
-                case 'complete':
-                  console.log("Job completed, SSE connection will close:", data.finalStatus);
-                  break;
-
-                case 'ping':
-                  // Keep-alive ping, no action needed
-                  break;
-
-                case 'error':
-                  console.error("SSE error:", data.error);
-                  updateUI({ status: 'Error', error: data.error });
-                  break;
-
-                default:
-                  console.log("Unknown SSE message type:", data.type);
-              }
-            } catch (error) {
-              console.error("Error parsing SSE data:", error, event.data);
-            }
-          };
-
-          eventSource.onerror = function (event) {
-            console.error("SSE connection error:", event);
-            updateConnectionStatus('error');
-
-            // Implement reconnection logic with exponential backoff
-            if (eventSource.readyState === EventSource.CLOSED) {
-              console.log("SSE connection closed, attempting to reconnect...");
-              setTimeout(() => {
-                if (!isJobFinished()) {
-                  console.log("Reconnecting SSE...");
-                  startStatusStream(id);
-                }
-              }, 5000); // Retry after 5 seconds
-            }
-          };
-
-        } catch (error) {
-          console.error("Failed to create SSE connection:", error);
-          // Fallback to polling if SSE is not supported
-          console.log("Falling back to polling...");
-          startStatusPolling(id);
-        }
+      } catch (e) {
+        // Storage unavailable; keep plain links.
       }
 
-      // 7. Fallback polling function
-      function startStatusPolling(id) {
-        console.log("Starting fallback polling for job:", id);
+      if (!jobId || !/^[A-Za-z0-9_-]{1,128}$/.test(jobId)) {
+        $('job-id-display').textContent = 'Job ID: Not Found';
+        $('job-status').textContent = 'No job';
+        showNotice('No valid job ID was provided in the URL.', 'error');
+        return;
+      }
+      $('job-id-display').textContent = `Job ID: ${jobId}`;
 
-        // Initial check
-        checkJobStatus(id);
-
-        // Poll every 5 seconds for quick processing jobs
-        pollInterval = setInterval(() => {
-          checkJobStatus(id);
-        }, 5000);
+      if (typeof firebase === 'undefined') {
+        showNotice('Could not load the page. Please refresh.', 'error');
+        return;
       }
 
-      function updateConnectionStatus(status) {
-        console.log("Connection status:", status);
-      }
+      const functions = firebase.functions();
+      const getVideoJob = functions.httpsCallable('getVideoJob');
+      const createVideoJob = functions.httpsCallable('createVideoJob');
 
-      function isJobFinished() {
-        return currentJobData &&
-          (currentJobData.status === 'Complete' ||
-            (currentJobData.status && currentJobData.status.startsWith('Failed') &&
-              !currentJobData.status.includes('Retry')));
-      }
-
-      function checkJobStatus(id) {
-        console.log("Checking job status for:", id);
-
-        fetch(`${videoProcessorUrl}/getJobStatus?jobId=${id}`, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-          }
-        })
-          .then(response => {
-            if (!response.ok) {
-              throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            return response.json();
-          })
-          .then(data => {
-            console.log("Job status response:", data);
-            currentJobData = data;
-            updateUI(data);
-          })
-          .catch(error => {
-            console.error("Error checking job status:", error);
-            updateUI({
-              status: 'Error',
-              error: `Failed to check job status: ${error.message}`
-            });
-          });
-      }
-
-      function updateUI(jobData) {
-        // Update basic info
-        jobStatus.textContent = jobData.status || 'Unknown';
-
-        // Update page title with status
-        document.title = `${jobData.status || 'Processing'} - Video Generation Status - JRE Clipper`;
-
-        // Update metrics with missing video information
-        if (jobData.totalVideos || jobData.totalSegments) {
-          let metricsHtml = `
-            <strong>Videos:</strong> ${jobData.totalVideos || 'N/A'} | 
-            <strong>Segments:</strong> ${jobData.totalSegments || 'N/A'}
-          `;
-
-          // Add missing video information if available
-          if (jobData.missingVideos && jobData.missingVideos.length > 0) {
-            metricsHtml += ` | <strong style="color: #FF9800;">Missing:</strong> ${jobData.missingVideos.length}`;
-          }
-
-          // Add original counts if different
-          if (jobData.originalTotalVideos && jobData.originalTotalVideos !== jobData.totalVideos) {
-            metricsHtml += ` (Originally: ${jobData.originalTotalVideos} videos, ${jobData.originalTotalSegments || 'N/A'} segments)`;
-          }
-
-          jobMetrics.innerHTML = metricsHtml;
-        }
-
-        // Only show manual resume options if auto-resume failed and we're not actively processing
-        if (!autoResumeAttempted && !isResuming && needsManualResume(jobData)) {
-          showResumeOptions(jobData);
+      firebase.auth().onAuthStateChanged(user => {
+        if (user) {
+          hideNotice();
+          if (!polling) startPolling();
         } else {
-          hideResumeOptions();
-        }
-
-        // Update stepper UI
-        updateStepperUI(jobData);
-
-        // Handle download link
-        if (jobData.status === 'Complete' && jobData.finalVideoUrl) {
-          downloadContainer.style.display = 'block';
-          downloadButton.href = jobData.finalVideoUrl;
-        }
-
-        // Close SSE connection if job is complete or permanently failed
-        if (jobData.status === 'Complete' ||
-          (jobData.status && jobData.status.startsWith('Failed') && !jobData.status.includes('Retry'))) {
-          if (eventSource) {
-            eventSource.close();
-            eventSource = null;
-            console.log("Closed SSE connection - job finished");
-          }
-          if (pollInterval) {
-            clearInterval(pollInterval);
-            pollInterval = null;
-            console.log("Stopped polling - job finished");
-          }
-        }
-      }
-
-      function needsManualResume(jobData) {
-        if (!jobData) return false;
-
-        const status = jobData.status || '';
-        const hasSegments = jobData.segments && jobData.segments.length > 0;
-        const hasOriginalSegments = jobData.originalSegments && jobData.originalSegments.length > 0;
-
-        // Show manual resume only if auto-resume was not attempted or failed
-        return (
-          (status === 'Failed' || status === 'Error') &&
-          (hasSegments || hasOriginalSegments) &&
-          !isResuming
-        );
-      }
-
-      function showResumeOptions(jobData) {
-        const segmentCount = (jobData.segments && jobData.segments.length) ||
-          (jobData.originalSegments && jobData.originalSegments.length) || 0;
-        const videoCount = (jobData.videoIds && jobData.videoIds.length) ||
-          (jobData.originalVideoIds && jobData.originalVideoIds.length) || 0;
-
-        let message = `This job (${segmentCount} segments from ${videoCount} videos) failed to auto-resume.`;
-        message += ' You can manually retry the processing.';
-
-        resumeMessage.textContent = message;
-        resumeContainer.style.display = 'block';
-      }
-
-      function hideResumeOptions() {
-        resumeContainer.style.display = 'none';
-      }
-
-      // Rest of the functions remain the same...
-      function updateStepperUI(jobData) {
-        const status = jobData.status || 'Unknown';
-        const progressMessage = jobData.progressMessage || '';
-        const missingVideos = jobData.missingVideos || [];
-        const hasWarnings = missingVideos.length > 0;
-
-        const steps = {
-          'step-initiated': document.getElementById('step-initiated'),
-          'step-verified': document.getElementById('step-verified'),
-          'step-processing': document.getElementById('step-processing'),
-          'step-uploading': document.getElementById('step-uploading'),
-          'step-complete': document.getElementById('step-complete')
-        };
-
-        // Reset all steps
-        Object.values(steps).forEach(step => {
-          step.className = 'stepper-step';
-          const details = step.querySelector('.stepper-details');
-          if (details) details.remove();
-        });
-
-        // Update steps based on status
-        switch (status) {
-          case 'Queued':
-          case 'Processing':
-          case 'Downloading':
-            steps['step-initiated'].className = 'stepper-step completed';
-            steps['step-verified'].className = hasWarnings ? 'stepper-step warning' : 'stepper-step completed';
-            steps['step-processing'].className = 'stepper-step active';
-
-            // Add verification step details
-            if (hasWarnings) {
-              addStepDetails(steps['step-verified'], `
-                <div class="warning-notice">
-                  <h4>⚠️ Some Videos Missing</h4>
-                  <p><strong>${missingVideos.length} videos</strong> were not found in storage and will be skipped:</p>
-                  <ul>
-                    ${missingVideos.slice(0, 5).map(videoId => `<li><code>${videoId}</code></li>`).join('')}
-                    ${missingVideos.length > 5 ? `<li><em>... and ${missingVideos.length - 5} more</em></li>` : ''}
-                  </ul>
-                  <p><strong>Processing will continue</strong> with the ${jobData.totalVideos || 0} available videos.</p>
-                </div>
-              `, 'warning');
-            } else {
-              addStepDetails(steps['step-verified'], `
-                <div class="time-estimate">
-                  <span class="icon">✅</span>
-                  <strong>All videos verified!</strong> Found ${jobData.totalVideos || 0} videos in storage
-                </div>
-                <div class="helpful-tips">
-                  <h4>🚀 Storage Optimization</h4>
-                  <ul>
-                    <li>All required videos are pre-downloaded in cloud storage</li>
-                    <li>No download time needed - processing immediately</li>
-                    <li>Estimated processing time: 5-15 minutes</li>
-                  </ul>
-                </div>
-              `, 'completed');
-            }
-
-            // Add processing step details
-            addStepDetails(steps['step-processing'], `
-              <div class="progress-indicator">
-                <div class="loading-spinner"></div>
-                <div class="progress-bar">
-                  <div class="progress-fill" style="width: 60%"></div>
-                </div>
-                <span>Processing</span>
-              </div>
-              <div class="time-estimate">
-                <span class="icon">⚡</span>
-                <strong>Fast processing!</strong> Extracting and compiling selected segments
-              </div>
-              <p>${progressMessage || 'Processing video segments from pre-downloaded files...'}</p>
-              ${hasWarnings ? `
-                <div style="background: #fff3cd; padding: 0.75rem; border-radius: 4px; margin: 0.5rem 0; border-left: 4px solid #ffc107;">
-                  <small><strong>ℹ️ Note:</strong> Processing ${jobData.totalVideos || 0} available videos (${missingVideos.length} skipped)</small>
-                </div>
-              ` : ''}
-            `, 'active');
-            break;
-
-          case 'Uploading':
-            steps['step-initiated'].className = 'stepper-step completed';
-            steps['step-verified'].className = hasWarnings ? 'stepper-step warning' : 'stepper-step completed';
-            steps['step-processing'].className = 'stepper-step completed';
-            steps['step-uploading'].className = 'stepper-step active';
-
-            addStepDetails(steps['step-uploading'], `
-              <div class="progress-indicator">
-                <div class="loading-spinner"></div>
-                <div class="progress-bar">
-                  <div class="progress-fill" style="width: 90%"></div>
-                </div>
-                <span>Uploading</span>
-              </div>
-              <div class="time-estimate">
-                <span class="icon">☁️</span>
-                <strong>Final step:</strong> Uploading your compiled video to cloud storage
-              </div>
-              <p class="loading-dots">Uploading final video</p>
-            `, 'active');
-            break;
-
-          case 'Complete':
-            Object.values(steps).forEach(step => {
-              if (step.id === 'step-verified' && hasWarnings) {
-                step.className = 'stepper-step warning';
-              } else {
-                step.className = 'stepper-step completed';
-              }
-            });
-
-            // Create complete step content
-            let completeContent = `
-              <div class="time-estimate">
-                <span class="icon">🎉</span>
-                <strong>Video generation completed successfully!</strong>
-              </div>
-            `;
-
-            // Add final video download section if available
-            if (jobData.finalVideoUrl) {
-              completeContent += `
-                <div style="background: #e8f5e8; padding: 1rem; border-radius: 4px; border: 1px solid #4caf50; margin: 1rem 0;">
-                  <h4 style="margin: 0 0 0.5rem 0; color: #2e7d32;">🎬 Your Final Video is Ready!</h4>
-                  <a href="${jobData.finalVideoUrl}" target="_blank" 
-                     style="background: #4caf50; color: white; padding: 0.75rem 1.5rem; border-radius: 4px; text-decoration: none; display: inline-block; font-weight: bold; margin: 0.5rem 0;">
-                    📥 Download Final Video
-                  </a>
-                  <p style="margin: 0.5rem 0 0 0; font-size: 0.85rem; color: #666;">
-                    💡 Right-click and "Save As" to download to your device
-                  </p>
-                </div>
-              `;
-            }
-
-            // Add warning summary if videos were skipped
-            if (hasWarnings) {
-              completeContent += `
-                <div class="warning-notice">
-                  <h4>⚠️ Processing Summary</h4>
-                  <ul>
-                    <li><strong>${jobData.totalVideos || 0} videos</strong> were successfully processed</li>
-                    <li><strong>${missingVideos.length} videos</strong> were missing from storage and skipped</li>
-                    <li>Your compilation includes all available content from your selection</li>
-                  </ul>
-                </div>
-              `;
-            }
-
-            // Add next steps
-            completeContent += `
-              <div class="helpful-tips">
-                <h4>🎯 What's Next?</h4>
-                <ul>
-                  <li>Your personalized JRE compilation video is ready to download</li>
-                  <li>Share it with friends or save it for later viewing</li>
-                  <li>Create more compilations by searching for different topics</li>
-                  ${hasWarnings ? '<li>Try searching for alternative content to replace missing videos</li>' : ''}
-                </ul>
-              </div>
-              <div style="text-align: center; margin-top: 1rem;">
-                <button onclick="goBackToSelection()" style="background: #2196f3; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 4px; cursor: pointer; font-weight: bold;">
-                  🔍 Create Another Compilation
-                </button>
-              </div>
-            `;
-
-            addStepDetails(steps['step-complete'], completeContent, 'completed');
-
-            // Also update verification step if there were warnings
-            if (hasWarnings) {
-              addStepDetails(steps['step-verified'], `
-                <div class="warning-notice">
-                  <h4>⚠️ Some Videos Missing</h4>
-                  <p><strong>${missingVideos.length} videos</strong> were not found in storage and were skipped.</p>
-                  <p><strong>Processing completed successfully</strong> with the ${jobData.totalVideos || 0} available videos.</p>
-                </div>
-              `, 'warning');
-            }
-            break;
-
-          case 'Failed':
-          case 'Error':
-            // Determine which step failed
-            let failedStep = steps['step-processing']; // Default to processing step for most errors
-            steps['step-initiated'].className = 'stepper-step completed';
-            steps['step-verified'].className = hasWarnings ? 'stepper-step warning' : 'stepper-step completed';
-
-            failedStep.className = 'stepper-step failed';
-            const errorMsg = jobData.error || 'An unknown error occurred';
-            addStepDetails(failedStep,
-              `❌ ${errorMsg}${getErrorSuggestions(errorMsg)}`,
-              'failed');
-            break;
-
-          default: // Initializing, Unknown, etc.
-            steps['step-initiated'].className = 'stepper-step active';
-            addStepDetails(steps['step-initiated'], `
-              <div class="progress-indicator">
-                <div class="loading-spinner"></div>
-                <div class="progress-bar">
-                  <div class="progress-fill" style="width: 10%"></div>
-                </div>
-                <span>Starting</span>
-              </div>
-              <div class="time-estimate">
-                <span class="icon">🚀</span>
-                <strong>Getting ready...</strong> Your job is queued and will start shortly
-              </div>
-              <div class="helpful-tips">
-                <h4>📋 What happens next:</h4>
-                <ul>
-                  <li><strong>Step 1:</strong> Verify videos in storage (instant)</li>
-                  <li><strong>Step 2:</strong> Extract your selected segments (5-10 min)</li>
-                  <li><strong>Step 3:</strong> Upload final video (2-5 min)</li>
-                </ul>
-              </div>
-              <p class="loading-dots">Initializing job</p>
-            `, 'active');
-        }
-      }
-
-      function addStepDetails(stepElement, content, type) {
-        const existingDetails = stepElement.querySelector('.stepper-details');
-        if (existingDetails) existingDetails.remove();
-
-        const details = document.createElement('div');
-        details.className = 'stepper-details';
-        details.innerHTML = content;
-        stepElement.querySelector('.stepper-content').appendChild(details);
-      }
-
-      function getErrorSuggestions(errorMsg) {
-        if (errorMsg.includes('missing') || errorMsg.includes('not found')) {
-          return `
-            <div class="error-actions">
-              <p><strong>💡 Suggestions:</strong></p>
-              <ul>
-                <li>The requested videos may not be available in storage</li>
-                <li>Try searching for different content</li>
-                <li>Contact support if you believe this is an error</li>
-              </ul>
-              <button onclick="goBackToSelection()" style="background: #2196F3; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer;">
-                ← Try Different Videos
-              </button>
-            </div>
-          `;
-        } else {
-          return `
-            <div class="error-actions">
-              <p><strong>💡 You can:</strong></p>
-              <button onclick="resumeVideoJob()" style="background: #ff9800; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; margin-right: 0.5rem;">
-                🔄 Retry Job
-              </button>
-              <button onclick="goBackToSelection()" style="background: #2196F3; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer;">
-                ← Start New Job
-              </button>
-            </div>
-          `;
-        }
-      }
-
-      // Global function to go back to selection
-      window.goBackToSelection = function () {
-        const searchQuery = localStorage.getItem('lastSearchQuery') || '';
-        window.location.href = `index.html?showSelection=true&query=${encodeURIComponent(searchQuery)}`;
-      };
-
-      // Global function to export source videos
-      window.exportSourceVideos = function () {
-        // Get jobId from URL
-        const params = new URLSearchParams(window.location.search);
-        const jobId = params.get('jobId');
-
-        if (!jobId) {
-          alert('No job ID found');
-          return;
-        }
-
-        const button = event.target;
-        const originalText = button.textContent;
-
-        // Disable button and show loading state
-        button.disabled = true;
-        button.textContent = '🔄 Preparing Export...';
-
-        console.log('Requesting source video export for job:', jobId);
-
-        // Call the backend endpoint to get source video URLs
-        fetch(`${videoProcessorUrl}/getSourceVideos?jobId=${jobId}`, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-          }
-        })
-          .then(response => {
-            if (!response.ok) {
-              throw new Error(`Failed to get source videos: ${response.status}`);
-            }
-            return response.json();
-          })
-          .then(data => {
-            console.log('Source videos response:', data);
-
-            if (data.sourceVideos && data.sourceVideos.length > 0) {
-              // Create download links for each video
-              const downloadContainer = document.createElement('div');
-              downloadContainer.style.marginTop = '1rem';
-              downloadContainer.innerHTML = `
-              <div style="background: #e8f5e8; padding: 1rem; border-radius: 4px; border: 1px solid #4caf50;">
-                <h4 style="margin: 0 0 0.5rem 0; color: #2e7d32;">📁 Full Source Videos Available:</h4>
-                ${data.sourceVideos.map((video, index) => `
-                  <div style="margin: 0.5rem 0;">
-                    <a href="${video.url}" target="_blank" 
-                       style="background: #4caf50; color: white; padding: 0.5rem 1rem; border-radius: 4px; text-decoration: none; display: inline-block; margin-right: 0.5rem;">
-                      📥 Download Video ${index + 1} (${video.title || video.videoId})
-                    </a>
-                  </div>
-                `).join('')}
-                <p style="margin: 0.5rem 0 0 0; font-size: 0.8rem; color: #666;">
-                  💡 Right-click and "Save As" to download to your device
-                </p>
-              </div>
-            `;
-
-              // Replace the export button with download links
-              button.parentNode.replaceChild(downloadContainer, button);
-
-              // Show success message
-              console.log('Source video export prepared successfully');
-
-            } else {
-              throw new Error('No source videos available for export');
-            }
-          })
-          .catch(error => {
-            console.error('Error exporting source videos:', error);
-
-            // Re-enable button and show error
-            button.disabled = false;
-            button.textContent = originalText;
-            button.style.backgroundColor = '#f44336';
-            button.textContent = '❌ Export Failed';
-
-            setTimeout(() => {
-              button.style.backgroundColor = '#2196F3';
-              button.textContent = originalText;
-            }, 3000);
-          });
-      };
-
-      // Cleanup on page unload
-      window.addEventListener('beforeunload', () => {
-        if (eventSource) {
-          eventSource.close();
-        }
-        if (pollInterval) {
-          clearInterval(pollInterval);
+          stopPolling();
+          $('job-status').textContent = 'Sign-in required';
+          showSignInNotice();
         }
       });
+
+      // Pause while the tab is hidden; check right away when it comes back.
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden && polling && !pollTimer && !pollInFlight) poll();
+      });
+
+      $('retry-button').addEventListener('click', (e) => retryWithSameSegments(e.currentTarget, $('retry-error')));
+      $('regenerate-button').addEventListener('click', (e) => retryWithSameSegments(e.currentTarget, $('regenerate-error')));
+
+      // ===== Polling =====
+      function startPolling() {
+        polling = true;
+        pollStartedAt = Date.now();
+        delay = MIN_DELAY_MS;
+        consecutiveErrors = 0;
+        poll();
+      }
+
+      function stopPolling() {
+        polling = false;
+        clearTimeout(pollTimer);
+        pollTimer = null;
+      }
+
+      function scheduleNext(ms) {
+        clearTimeout(pollTimer);
+        pollTimer = null;
+        if (!polling || document.hidden) return;
+        pollTimer = setTimeout(poll, ms);
+      }
+
+      async function poll() {
+        pollTimer = null;
+        if (!polling || pollInFlight) return;
+        pollInFlight = true;
+        try {
+          const { data } = await getVideoJob({ jobId });
+          consecutiveErrors = 0;
+          const signature = `${data.status}|${data.progress}|${data.progressMessage}`;
+          const changed = signature !== lastSignature;
+          lastSignature = signature;
+          render(data);
+
+          if (TERMINAL.has(data.status)) {
+            stopPolling();
+            return;
+          }
+          if (Date.now() - pollStartedAt > MAX_POLL_MS) {
+            stopPolling();
+            showNotice('This job is taking longer than expected. Refresh the page later to check on it.', 'warning');
+            return;
+          }
+          // Poll quickly while things change, back off while they don't.
+          delay = changed ? MIN_DELAY_MS : Math.min(Math.round(delay * 1.5), MAX_DELAY_MS);
+          scheduleNext(delay);
+        } catch (error) {
+          const code = errorCode(error);
+          console.error('getVideoJob failed:', error);
+          if (code === 'not-found' || code === 'invalid-argument' || code === 'permission-denied') {
+            stopPolling();
+            $('job-status').textContent = 'Not found';
+            showNotice('Job not found. It may belong to a different account.', 'error');
+          } else if (code === 'unauthenticated') {
+            stopPolling();
+            showSignInNotice();
+          } else if (++consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+            stopPolling();
+            showNotice('Lost connection while checking the job status.', 'error', {
+              label: 'Retry',
+              onClick: () => { hideNotice(); startPolling(); }
+            });
+          } else {
+            delay = Math.min(delay * 2, MAX_DELAY_MS);
+            scheduleNext(delay);
+          }
+        } finally {
+          pollInFlight = false;
+        }
+      }
+
+      // ===== Rendering =====
+      function render(data) {
+        job = data;
+        const status = data.status || 'Unknown';
+        if (ACTIVE.has(status)) lastActiveStatus = status;
+
+        $('job-status').textContent = status;
+        document.title = `${status} - Video Generation Status - JRE Clipper`;
+        renderMetrics(data);
+        renderProgress(data, status);
+        renderStepper(data, status);
+        renderMissingVideos(data);
+        renderComplete(data, status);
+        renderFailure(data, status);
+      }
+
+      function renderMetrics(data) {
+        const parts = [];
+        if (data.segmentCount != null) parts.push(`Segments: ${data.segmentCount}`);
+        if (data.totalVideos != null) parts.push(`Episodes: ${data.totalVideos}`);
+        if (data.requestedDurationSeconds != null) parts.push(`Length: ${formatDuration(data.requestedDurationSeconds)}`);
+        if (data.createdAt) parts.push(`Created: ${new Date(data.createdAt).toLocaleString()}`);
+        $('job-metrics').textContent = parts.join(' | ');
+      }
+
+      function renderProgress(data, status) {
+        const wrap = $('progress-wrap');
+        if (!ACTIVE.has(status)) {
+          wrap.hidden = true;
+          return;
+        }
+        const pct = Math.max(0, Math.min(100, Math.round(Number(data.progress) || 0)));
+        wrap.hidden = false;
+        $('progress-fill').style.width = `${pct}%`;
+        $('progress-bar').setAttribute('aria-valuenow', String(pct));
+        $('progress-percent').textContent = `${pct}%`;
+        $('progress-message').textContent = data.progressMessage || '';
+      }
+
+      function renderStepper(data, status) {
+        let currentIndex;
+        let failed = false;
+        if (status === 'Complete') {
+          currentIndex = STEPS.length; // everything completed
+        } else if (status === 'Failed') {
+          failed = true;
+          const failedAt = lastActiveStatus || ((Number(data.progress) || 0) > 0 ? 'Processing' : 'Queued');
+          currentIndex = STEPS.indexOf(failedAt);
+        } else {
+          currentIndex = Math.max(0, STEPS.indexOf(status));
+          if (STEPS.indexOf(status) === -1) currentIndex = 1; // unknown in-flight status
+        }
+
+        document.querySelectorAll('.stepper-step').forEach((step, index) => {
+          let state = '';
+          if (index < currentIndex) state = 'completed';
+          else if (index === currentIndex) state = failed ? 'failed' : 'active';
+          step.className = `stepper-step ${state}`.trim();
+        });
+      }
+
+      function renderMissingVideos(data) {
+        const missing = Array.isArray(data.missingVideoIds) ? data.missingVideoIds : [];
+        $('missing-videos').hidden = missing.length === 0;
+        if (missing.length === 0) return;
+
+        $('missing-videos-text').textContent =
+          `${missing.length} episode${missing.length > 1 ? 's were' : ' was'} not available for video generation, so ` +
+          `${missing.length > 1 ? 'their' : 'its'} segments were left out of your compilation.`;
+        const list = $('missing-videos-list');
+        list.replaceChildren(...missing.slice(0, 5).map(videoId => {
+          const li = document.createElement('li');
+          const a = document.createElement('a');
+          a.href = `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`;
+          a.target = '_blank';
+          a.rel = 'noopener';
+          a.textContent = videoId;
+          li.appendChild(a);
+          return li;
+        }));
+        if (missing.length > 5) {
+          const li = document.createElement('li');
+          li.textContent = `... and ${missing.length - 5} more`;
+          list.appendChild(li);
+        }
+      }
+
+      function renderComplete(data, status) {
+        const container = $('download-container');
+        container.hidden = status !== 'Complete';
+        if (status !== 'Complete') return;
+
+        const details = [];
+        if (data.outputDurationSeconds != null) details.push(`Length: ${formatDuration(data.outputDurationSeconds)}`);
+        if (data.outputSizeBytes != null) details.push(`Size: ${formatBytes(data.outputSizeBytes)}`);
+        $('output-details').textContent = details.length
+          ? details.join(' | ')
+          : 'Your custom JRE compilation has been generated successfully.';
+
+        const expiresAt = data.finalVideoExpiresAt ? new Date(data.finalVideoExpiresAt) : null;
+        const expired = expiresAt && expiresAt.getTime() <= Date.now();
+        const hasLink = !!data.finalVideoUrl && !expired;
+
+        const downloadButton = $('download-button');
+        downloadButton.hidden = !hasLink;
+        if (hasLink) downloadButton.href = data.finalVideoUrl;
+
+        $('regenerate-button').hidden = hasLink || !Array.isArray(data.segments) || data.segments.length === 0;
+
+        if (expired) {
+          $('expiry-note').textContent = `This download link expired on ${expiresAt.toLocaleString()}. Generate the video again to get a new link.`;
+        } else if (!data.finalVideoUrl) {
+          $('expiry-note').textContent = 'The video finished, but no download link is available.';
+        } else if (expiresAt) {
+          $('expiry-note').textContent = `The download link is valid until ${expiresAt.toLocaleString()}.`;
+        } else {
+          $('expiry-note').textContent = '';
+        }
+      }
+
+      function renderFailure(data, status) {
+        const container = $('failure-container');
+        container.hidden = status !== 'Failed';
+        if (status !== 'Failed') return;
+        $('failure-message').textContent = data.error || 'An unknown error occurred.';
+        $('retry-button').hidden = !Array.isArray(data.segments) || data.segments.length === 0;
+      }
+
+      // ===== Actions =====
+      async function retryWithSameSegments(button, errorEl) {
+        if (!job || !Array.isArray(job.segments) || job.segments.length === 0) return;
+        const originalText = button.textContent;
+        button.disabled = true;
+        button.setAttribute('aria-busy', 'true');
+        errorEl.hidden = true;
+        try {
+          const { data } = await createVideoJob({ segments: job.segments });
+          window.location.href = `status.html?jobId=${encodeURIComponent(data.jobId)}`;
+        } catch (error) {
+          console.error('createVideoJob failed:', error);
+          button.disabled = false;
+          button.removeAttribute('aria-busy');
+          button.textContent = originalText;
+          errorEl.textContent = error.message || 'Could not start a new job. Please try again.';
+          errorEl.hidden = false;
+        }
+      }
+
+      function showSignInNotice() {
+        const next = window.location.pathname + window.location.search;
+        showNotice('Please sign in to view this job.', 'info', {
+          label: 'Sign In',
+          onClick: () => { window.location.href = `signin.html?next=${encodeURIComponent(next)}`; }
+        });
+      }
+
+      function showNotice(message, type, action) {
+        const notice = $('notice');
+        notice.className = `notice ${type}`;
+        const text = document.createElement('div');
+        text.textContent = message;
+        notice.replaceChildren(text);
+        if (action) {
+          const button = document.createElement('button');
+          button.textContent = action.label;
+          button.addEventListener('click', action.onClick);
+          notice.appendChild(button);
+        }
+        notice.hidden = false;
+      }
+
+      function hideNotice() {
+        $('notice').hidden = true;
+      }
+
+      // ===== Utils =====
+      function errorCode(error) {
+        return String(error?.code || '').replace(/^functions\//, '');
+      }
+
+      function formatDuration(seconds) {
+        const total = Math.round(Number(seconds) || 0);
+        const h = Math.floor(total / 3600);
+        const m = Math.floor((total % 3600) / 60);
+        const s = total % 60;
+        return h > 0
+          ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+          : `${m}:${String(s).padStart(2, '0')}`;
+      }
+
+      function formatBytes(bytes) {
+        const n = Number(bytes) || 0;
+        if (n >= 1024 ** 3) return `${(n / 1024 ** 3).toFixed(2)} GB`;
+        if (n >= 1024 ** 2) return `${(n / 1024 ** 2).toFixed(1)} MB`;
+        if (n >= 1024) return `${(n / 1024).toFixed(0)} KB`;
+        return `${n} B`;
+      }
     });
   </script>
 </body>

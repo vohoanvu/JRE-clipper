@@ -4,16 +4,17 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Account Management - JRE Clipper</title>
+  <title>Account - JRE Clipper</title>
+  <link rel="preconnect" href="https://us-central1-gen-lang-client-demo.cloudfunctions.net" crossorigin>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
-  <link rel="stylesheet" href="main.css">
-  <script src="https://js.stripe.com/v3/"></script>
+  <link rel="stylesheet" href="main.css?v=20261023c">
 
-  <!-- Firebase SDK via CDN (Firebase Hosting Init) -->
-  <script src="/__/firebase/11.9.1/firebase-app-compat.js"></script>
-  <script src="/__/firebase/11.9.1/firebase-auth-compat.js"></script>
-  <script src="/__/firebase/11.9.1/firebase-functions-compat.js"></script>
-  <script src="/__/firebase/init.js"></script>
+  <!-- Firebase SDK via CDN (Firebase Hosting Init). Deferred: they run in order before account.js. -->
+  <script defer src="/__/firebase/11.9.1/firebase-app-compat.js"></script>
+  <script defer src="/__/firebase/11.9.1/firebase-auth-compat.js"></script>
+  <script defer src="/__/firebase/11.9.1/firebase-functions-compat.js"></script>
+  <script defer src="/__/firebase/init.js"></script>
+  <script defer src="account.js?v=20261022"></script>
 
   <style>
     .account-container {
@@ -56,10 +57,6 @@
       gap: 0.5rem;
     }
 
-    .profile-info {
-      margin-bottom: 1.5rem;
-    }
-
     .info-item {
       display: flex;
       justify-content: space-between;
@@ -80,128 +77,6 @@
     .info-value {
       color: #5a6c7d;
       text-align: right;
-    }
-
-    .status-badge {
-      padding: 0.25rem 0.75rem;
-      border-radius: 20px;
-      font-size: 0.8rem;
-      font-weight: 600;
-      text-transform: uppercase;
-    }
-
-    .status-free {
-      background: #f8f9fa;
-      color: #6c757d;
-      border: 1px solid #dee2e6;
-    }
-
-    .status-pro {
-      background: #d4edda;
-      color: #155724;
-      border: 1px solid #c3e6cb;
-    }
-
-    .status-canceled {
-      background: #f8d7da;
-      color: #721c24;
-      border: 1px solid #f5c6cb;
-    }
-
-    .btn-upgrade {
-      background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
-      color: white;
-      border: none;
-      padding: 1rem 2rem;
-      border-radius: 8px;
-      font-size: 1.1rem;
-      font-weight: 700;
-      cursor: pointer;
-      transition: all 0.3s ease;
-      width: 100%;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      position: relative;
-      overflow: hidden;
-    }
-
-    .btn-upgrade::before {
-      content: '';
-      position: absolute;
-      top: 0;
-      left: -100%;
-      width: 100%;
-      height: 100%;
-      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
-      transition: left 0.5s ease;
-    }
-
-    .btn-upgrade:hover::before {
-      left: 100%;
-    }
-
-    .btn-upgrade:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 8px 20px rgba(40, 167, 69, 0.3);
-    }
-
-    .btn-cancel {
-      background: #dc3545;
-      color: white;
-      border: none;
-      padding: 0.75rem 1.5rem;
-      border-radius: 6px;
-      font-size: 1rem;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.3s ease;
-      width: 100%;
-    }
-
-    .btn-cancel:hover {
-      background: #c82333;
-      transform: translateY(-1px);
-    }
-
-    .btn-secondary {
-      background: #6c757d;
-      color: white;
-      border: none;
-      padding: 0.75rem 1.5rem;
-      border-radius: 6px;
-      font-size: 1rem;
-      cursor: pointer;
-      transition: background 0.3s ease;
-      width: 100%;
-      margin-bottom: 1rem;
-    }
-
-    .btn-secondary:hover {
-      background: #5a6268;
-    }
-
-    .features-list {
-      list-style: none;
-      padding: 0;
-      margin: 1.5rem 0;
-    }
-
-    .features-list li {
-      padding: 0.5rem 0;
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      color: #2c3e50;
-    }
-
-    .features-list .check {
-      color: #28a745;
-      font-weight: bold;
-    }
-
-    .features-list .cross {
-      color: #dc3545;
-      font-weight: bold;
     }
 
     .loading-spinner {
@@ -226,22 +101,10 @@
       margin-bottom: 1rem;
     }
 
-    .alert-success {
-      background: #d4edda;
-      border: 1px solid #c3e6cb;
-      color: #155724;
-    }
-
     .alert-error {
       background: #f8d7da;
       border: 1px solid #f5c6cb;
       color: #721c24;
-    }
-
-    .alert-warning {
-      background: #fff3cd;
-      border: 1px solid #ffeaa7;
-      color: #856404;
     }
 
     .back-link {
@@ -250,11 +113,9 @@
       text-decoration: none;
       margin-bottom: 2rem;
       font-size: 1.1rem;
-      transition: color 0.3s ease;
     }
 
     .back-link:hover {
-      color: #0056b3;
       text-decoration: underline;
     }
 
@@ -267,22 +128,15 @@
       display: block;
     }
 
-    .usage-stats {
-      background: #f8f9fa;
-      border-radius: 8px;
-      padding: 1.5rem;
-      margin-bottom: 1.5rem;
+    .quota-number {
+      font-size: 2.5rem;
+      font-weight: 700;
+      color: #28a745;
+      line-height: 1.1;
     }
 
-    .usage-item {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 0.75rem;
-    }
-
-    .usage-item:last-child {
-      margin-bottom: 0;
+    .quota-number.exhausted {
+      color: #dc3545;
     }
 
     .usage-bar {
@@ -291,73 +145,20 @@
       background: #e9ecef;
       border-radius: 4px;
       overflow: hidden;
-      margin-top: 0.5rem;
+      margin: 1rem 0 0.5rem 0;
     }
 
     .usage-fill {
       height: 100%;
+      width: 0;
       background: linear-gradient(90deg, #28a745, #20c997);
       border-radius: 4px;
       transition: width 0.3s ease;
     }
 
-    .modal {
-      display: none;
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: rgba(0,0,0,0.5);
-      z-index: 1000;
-      justify-content: center;
-      align-items: center;
-    }
-
-    .modal.show {
-      display: flex;
-    }
-
-    .modal-content {
-      background: white;
-      border-radius: 12px;
-      padding: 2rem;
-      max-width: 500px;
-      width: 90%;
-      text-align: center;
-    }
-
-    .modal-buttons {
-      display: flex;
-      gap: 1rem;
-      justify-content: center;
-      margin-top: 1.5rem;
-    }
-
-    .btn-confirm {
-      background: #dc3545;
-      color: white;
-      border: none;
-      padding: 0.75rem 1.5rem;
-      border-radius: 6px;
-      cursor: pointer;
-    }
-
-    .btn-confirm:hover {
-      background: #c82333;
-    }
-
-    .btn-cancel-modal {
-      background: #6c757d;
-      color: white;
-      border: none;
-      padding: 0.75rem 1.5rem;
-      border-radius: 6px;
-      cursor: pointer;
-    }
-
-    .btn-cancel-modal:hover {
-      background: #5a6268;
+    .muted {
+      color: #6c757d;
+      font-size: 0.9rem;
     }
 
     .hidden {
@@ -376,19 +177,18 @@
       border-radius: 8px;
       padding: 1rem;
       border: 1px solid #eaeaea;
-      transition: all 0.3s ease;
-    }
-
-    .video-item:hover {
-      box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1);
-      transform: translateY(-2px);
     }
 
     .video-item-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
+      gap: 1rem;
       margin-bottom: 0.5rem;
+    }
+
+    .video-item-title {
+      font-weight: 600;
     }
 
     .video-date {
@@ -396,56 +196,77 @@
       color: #666;
     }
 
-    .video-title {
-      font-weight: 600;
-      margin-bottom: 0.5rem;
-    }
-
     .video-stats {
       font-size: 0.9rem;
       color: #555;
-      margin-bottom: 0.75rem;
     }
 
     .video-actions {
       display: flex;
       gap: 0.5rem;
-      margin-top: 1rem;
+      flex-wrap: wrap;
+      margin-top: 0.75rem;
     }
 
-    .btn-view-video {
-      background: #4caf50;
+    .video-actions a {
       color: white;
       border: none;
       padding: 0.5rem 1rem;
       border-radius: 4px;
       font-size: 0.9rem;
-      cursor: pointer;
       text-decoration: none;
-      display: inline-flex;
-      align-items: center;
-      gap: 0.5rem;
+    }
+
+    .btn-view-video {
+      background: #4caf50;
     }
 
     .btn-view-video:hover {
       background: #43a047;
     }
 
-    .btn-copy-url {
+    .btn-job-status {
       background: #2196f3;
-      color: white;
-      border: none;
-      padding: 0.5rem 1rem;
-      border-radius: 4px;
-      font-size: 0.9rem;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      gap: 0.5rem;
     }
 
-    .btn-copy-url:hover {
+    .btn-job-status:hover {
       background: #1e88e5;
+    }
+
+    .status-pill {
+      padding: 0.15rem 0.6rem;
+      border-radius: 20px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      background: #e9ecef;
+      color: #495057;
+      white-space: nowrap;
+    }
+
+    .status-pill.complete {
+      background: #d4edda;
+      color: #155724;
+    }
+
+    .status-pill.failed {
+      background: #f8d7da;
+      color: #721c24;
+    }
+
+    .status-pill.active {
+      background: #cce5ff;
+      color: #004085;
+    }
+
+    .signin-cta {
+      display: inline-block;
+      text-decoration: none;
+      background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+      color: white;
+      padding: 1rem 2rem;
+      border-radius: 8px;
+      font-weight: 700;
     }
   </style>
 </head>
@@ -461,7 +282,7 @@
         </div>
         <div class="auth-section">
           <div id="user-info" class="user-info" style="display: none;">
-            <img id="user-photo" src="" alt="User Photo" class="user-photo">
+            <img id="user-photo" src="" alt="User Photo" class="user-photo" referrerpolicy="no-referrer">
             <span id="user-email" class="user-email"></span>
             <button id="sign-out" class="sign-out-btn">Sign Out</button>
           </div>
@@ -472,157 +293,80 @@
 
   <main class="account-container">
     <a href="index.html" class="back-link">← Back to JRE Clipper</a>
-    
+
     <div class="account-header">
-      <h1>Account Management</h1>
-      <p>Manage your profile and subscription settings</p>
+      <h1>Your Account</h1>
+      <p>Your profile, today's video allowance and recent compilations</p>
     </div>
 
     <!-- Loading State -->
-    <div id="loading-section" class="loading" style="text-align: center; padding: 3rem;">
+    <div id="loading-section" style="text-align: center; padding: 3rem;">
       <div class="loading-spinner"></div>
       <p>Loading your account information...</p>
     </div>
 
     <!-- Authentication Required -->
     <div id="auth-required" class="hidden" style="text-align: center; padding: 3rem;">
-      <h2>🔐 Authentication Required</h2>
-      <p>Please sign in to access your account management page.</p>
-      <a href="signin.html" class="btn-upgrade" style="display: inline-block; text-decoration: none; max-width: 300px;">
-        Sign In
-      </a>
+      <h2>🔐 Sign In Required</h2>
+      <p>Please sign in to see your account and videos.</p>
+      <a href="signin.html?next=%2Faccount.html" class="signin-cta">Sign In</a>
     </div>
 
     <!-- Main Account Content -->
     <div id="account-content" class="hidden">
-      <!-- Alert Messages -->
       <div id="alert-container"></div>
 
       <div class="account-grid">
         <!-- Profile Information -->
         <div class="account-card">
           <h3>👤 Profile Information</h3>
-          <div class="profile-info">
-            <img id="profile-photo" src="" alt="Profile Photo" class="user-photo-large">
-            <div class="info-item">
-              <span class="info-label">Email</span>
-              <span class="info-value" id="profile-email">-</span>
-            </div>
-            <div class="info-item">
-              <span class="info-label">Display Name</span>
-              <span class="info-value" id="profile-name">-</span>
-            </div>
-            <div class="info-item">
-              <span class="info-label">Member Since</span>
-              <span class="info-value" id="profile-created">-</span>
-            </div>
-            <div class="info-item">
-              <span class="info-label">Last Sign In</span>
-              <span class="info-value" id="profile-last-signin">-</span>
-            </div>
+          <img id="profile-photo" src="" alt="Profile Photo" class="user-photo-large" referrerpolicy="no-referrer">
+          <div class="info-item">
+            <span class="info-label">Email</span>
+            <span class="info-value" id="profile-email">-</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">Display Name</span>
+            <span class="info-value" id="profile-name">-</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">Member Since</span>
+            <span class="info-value" id="profile-created">-</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">Last Sign In</span>
+            <span class="info-value" id="profile-last-signin">-</span>
           </div>
         </div>
 
-        <!-- Subscription Status -->
+        <!-- Daily video allowance -->
         <div class="account-card">
-          <h3>💎 Subscription Status</h3>
-          <div class="profile-info">
-            <div class="info-item">
-              <span class="info-label">Current Plan</span>
-              <span class="status-badge" id="plan-status">Free</span>
+          <h3>🎬 Video Generation</h3>
+          <div id="quota-loading" class="muted">Loading...</div>
+          <div id="quota-content" class="hidden">
+            <div class="quota-number" id="quota-remaining">-</div>
+            <div id="quota-label" class="muted">videos left today</div>
+            <div class="usage-bar" id="usage-bar">
+              <div class="usage-fill" id="usage-fill"></div>
             </div>
-            <div class="info-item">
-              <span class="info-label">Status</span>
-              <span class="info-value" id="subscription-status">-</span>
-            </div>
-            <div class="info-item" id="upgrade-date-item" style="display: none;">
-              <span class="info-label">Upgraded On</span>
-              <span class="info-value" id="upgrade-date">-</span>
-            </div>
-            <div class="info-item" id="next-billing-item" style="display: none;">
-              <span class="info-label">Next Billing</span>
-              <span class="info-value" id="next-billing">-</span>
-            </div>
+            <div class="muted" id="quota-reset"></div>
           </div>
-
-          <!-- Free Plan Features -->
-          <div id="free-features" class="hidden">
-            <h4>Free Plan Features</h4>
-            <ul class="features-list">
-              <li><span class="check">✓</span> Unlimited searches</li>
-              <li><span class="cross">✗</span> Video compilation generation</li>
-              <li><span class="cross">✗</span> Priority support</li>
-              <li><span class="cross">✗</span> Export results</li>
-            </ul>
-            <button id="upgrade-btn" class="btn-upgrade">
-              🚀 UPGRADE TO PRO
-            </button>
-          </div>
-
-          <!-- Pro Plan Features -->
-          <div id="pro-features" class="hidden">
-            <h4>Pro Plan Features</h4>
-            <ul class="features-list">
-              <li><span class="check">✓</span> Unlimited searches</li>
-              <li><span class="check">✓</span> Video compilation generation</li>
-              <li><span class="check">✓</span> Priority support</li>
-              <li><span class="check">✓</span> Export results</li>
-              <li><span class="check">✓</span> Early access to new features</li>
-            </ul>
-            <button id="manage-subscription-btn" class="btn-secondary">
-              Manage Billing
-            </button>
-            <button id="cancel-subscription-btn" class="btn-cancel">
-              Cancel Subscription
-            </button>
-          </div>
+          <p class="muted" style="margin-top: 1.5rem;">
+            Video generation is free for signed-in users. Each video can include up to 30 segments
+            (20 minutes total). Download links stay valid for 7 days.
+          </p>
         </div>
       </div>
 
-      <!-- Usage Statistics -->
+      <!-- Recent videos -->
       <div class="account-card">
-        <h3>📊 Usage Statistics</h3>
-        <div class="usage-stats">
-          <div class="usage-item">
-            <span class="info-label">Video Generations This Month</span>
-            <span class="info-value" id="videos-generated">-</span>
-          </div>
-          <div class="usage-item">
-            <span class="info-label">Total Video Generations</span>
-            <span class="info-value" id="total-videos-generated">-</span>
-          </div>
-          <div class="usage-item">
-            <span class="info-label">Account Activity</span>
-            <span class="info-value status-pro">Active</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Generated Videos History -->
-      <div id="generated-videos-section" class="account-card hidden">
-        <h3>🎬 Your Generated Videos</h3>
+        <h3>📼 Your Videos (last 7 days)</h3>
         <div id="generated-videos-list" class="generated-videos-list">
-          <!-- Videos will be populated here -->
+          <p class="muted">Loading...</p>
         </div>
       </div>
     </div>
   </main>
-
-  <!-- Cancellation Confirmation Modal -->
-  <div id="cancel-modal" class="modal">
-    <div class="modal-content">
-      <h2>Cancel Subscription</h2>
-      <p>Are you sure you want to cancel your Pro subscription?</p>
-      <p><strong>You will still have access to Pro features until the end of your current billing period.</strong></p>
-      <div class="modal-buttons">
-        <button id="confirm-cancel" class="btn-confirm">
-          <span class="loading-spinner hidden"></span>
-          Yes, Cancel
-        </button>
-        <button id="modal-cancel" class="btn-cancel-modal">Keep Subscription</button>
-      </div>
-    </div>
-  </div>
 
   <!-- Footer Section -->
   <footer class="footer">
@@ -631,25 +375,16 @@
         <h3>👨‍💻 Developer Contact</h3>
         <ul class="contact-links">
           <li>📧 <a href="mailto:vohoanvu96@gmail.com">vohoanvu96@gmail.com</a></li>
-          <li>🐙 <a href="https://github.com/vohoanvu" target="_blank">GitHub Profile</a></li>
-          <li>💼 <a href="https://www.linkedin.com/in/thevuture/" target="_blank">LinkedIn</a></li>
+          <li>🐙 <a href="https://github.com/vohoanvu" target="_blank" rel="noopener">GitHub Profile</a></li>
+          <li>💼 <a href="https://www.linkedin.com/in/thevuture/" target="_blank" rel="noopener">LinkedIn</a></li>
         </ul>
       </div>
-      <!-- <div class="footer-section">
-        <div class="pricing-highlight">
-          <h3>⚡ Upgrade Your Experience</h3>
-          <p>Unlock video compilation generation<br>and priority support!</p>
-          <a href="/pricing.html" class="pricing-btn">View Pricing</a>
-        </div>
-      </div> -->
     </div>
 
     <div class="footer-bottom">
       <p>&copy; 2025 JRE Clipper. Built for educational purposes. Joe Rogan Experience content belongs to respective owners.</p>
     </div>
   </footer>
-
-  <script src="account.js"></script>
 </body>
 
 </html>

@@ -84,3 +84,6 @@ node_modules/
 
 # Optional npm cache directory
 .npm
+# Incremental ingestion (ingestion/): local virtualenv
+ingestion/.venv/
+__pycache__/
