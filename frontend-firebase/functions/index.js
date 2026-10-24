@@ -98,6 +98,51 @@ class TtlLru {
     }
 }
 
+// Per-client fixed-window limiter, in memory per instance. With maxInstances 10
+// the worst case is 10x the limit for one IP; App Check is the stronger guard.
+class RateLimiter {
+    constructor(limit, windowMs, maxKeys = 10000) {
+        this.limit = limit;
+        this.windowMs = windowMs;
+        this.maxKeys = maxKeys;
+        this.windows = new Map(); // key -> { start, count }
+    }
+
+    // Returns true if the call is allowed.
+    take(key) {
+        const now = Date.now();
+        let w = this.windows.get(key);
+        if (!w || now - w.start >= this.windowMs) {
+            if (this.windows.size >= this.maxKeys) {
+                for (const [k, v] of this.windows) {
+                    if (now - v.start >= this.windowMs) this.windows.delete(k);
+                }
+                if (this.windows.size >= this.maxKeys) this.windows.delete(this.windows.keys().next().value);
+            }
+            w = { start: now, count: 0 };
+            this.windows.set(key, w);
+        }
+        w.count++;
+        return w.count <= this.limit;
+    }
+}
+
+// Express trusts X-Forwarded-For, so req.ip is its leftmost (client-supplied) entry.
+// Google's front end appends the address it saw, so use the rightmost entry.
+function clientIp(request) {
+    const raw = request.rawRequest;
+    const forwarded = String(raw?.headers?.['x-forwarded-for'] || '').split(',').map((s) => s.trim()).filter(Boolean);
+    return forwarded.at(-1) || raw?.socket?.remoteAddress || 'unknown';
+}
+
+function enforceRateLimit(limiter, request, what) {
+    const ip = clientIp(request);
+    if (!limiter.take(ip)) {
+        logger.warn(`${what}: rate limited`, { ip });
+        throw new HttpsError("resource-exhausted", "You're searching too fast. Please wait a minute and try again.");
+    }
+}
+
 function cachedCall(cache, key, producer, shouldCache = () => true) {
     const hit = cache.get(key);
     if (hit) return hit;
@@ -128,6 +173,9 @@ const DEFAULT_JOE_PERSONA = " You are an expert at the Joe Rogan Experience podc
 
 const searchCache = new TtlLru(300, 10 * 60 * 1000);
 const answerCache = new TtlLru(300, 10 * 60 * 1000);
+// answerQuery is the expensive call (LLM answer generation).
+const searchLimiter = new RateLimiter(30, 60 * 1000);
+const answerLimiter = new RateLimiter(10, 60 * 1000);
 
 const SEARCH_FUNCTION_OPTIONS = {
     serviceAccount: SEARCH_SERVICE_ACCOUNT,
@@ -207,6 +255,7 @@ async function runSearch(normalizedQuery, timeZone) {
 }
 
 export const searchSegments = onCall({ ...SEARCH_FUNCTION_OPTIONS, timeoutSeconds: 30 }, async (request) => {
+    enforceRateLimit(searchLimiter, request, "searchSegments");
     const queryText = cleanQueryText(request.data?.query);
     const cacheKey = queryText.toLowerCase();
     const timeZone = cleanTimeZone(request.data?.timeZone);
@@ -258,6 +307,7 @@ async function runAnswer(queryText, instruction, session, queryId) {
 }
 
 export const answerQuery = onCall({ ...SEARCH_FUNCTION_OPTIONS, timeoutSeconds: 90 }, async (request) => {
+    enforceRateLimit(answerLimiter, request, "answerQuery");
     const queryText = cleanQueryText(request.data?.query);
     const rawInstruction = request.data?.instruction;
     const instruction = typeof rawInstruction === 'string'
@@ -455,6 +505,12 @@ export const createVideoJob = onCall({
     minInstances: 0,
 }, async (request) => {
     const auth = requireAuth(request, "Please sign in to generate videos.");
+    // Keeps throwaway email/password accounts from multiplying the daily quota.
+    // Google sign-ins are always verified.
+    if (auth.token?.email_verified !== true) {
+        throw new HttpsError("failed-precondition", "Please verify your email address to generate videos.",
+            { reason: "email-unverified" });
+    }
     const uid = auth.uid;
     const admin = isAdmin(auth);
     const requestedSegments = validateSegments(request.data?.segments);

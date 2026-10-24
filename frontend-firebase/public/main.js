@@ -90,7 +90,7 @@ function handleResultsClick(event) {
 
   switch (target.dataset.action) {
     case 'play':
-      activatePlayer(target.dataset.videoId, null);
+      activatePlayer(target.dataset.videoId, Number(target.dataset.start));
       break;
     case 'seek':
       seekToTime(target.dataset.videoId, Number(target.dataset.start), target);
@@ -109,6 +109,9 @@ function handleResultsClick(event) {
       break;
     case 'dismiss-status':
       hideGenerationStatus();
+      break;
+    case 'resend-verification':
+      resendVerificationEmail(target);
       break;
   }
 }
@@ -410,7 +413,7 @@ function renderVideoPlayers(groups, videos) {
           </div>
         </div>
         <div style="font-size: 0.9rem; color: #666; margin-bottom: 1rem;">${escapeHtml(details)}</div>
-        ${playerFacadeHtml(videoId, title)}
+        ${playerFacadeHtml(videoId, title, segments[0].startTimeSeconds)}
         <div class="segments-list">
           <div class="segments-header">Relevant Segments (${segments.length}):</div>
           ${segments.map(segment => segmentHtml(segment, title)).join('')}
@@ -477,12 +480,14 @@ function segmentHtml(segment, title) {
 
 // Click-to-load facade: a thumbnail instead of a YouTube iframe. Each iframe
 // pulls ~1 MB of player JS, so only the player the user interacts with is loaded.
-function playerFacadeHtml(videoId, title) {
+// Playing from the thumbnail starts at the first matching segment.
+function playerFacadeHtml(videoId, title, startSeconds) {
   const id = escapeHtml(videoId);
   const safeTitle = escapeHtml(title);
+  const start = Number.isFinite(startSeconds) ? startSeconds : 0;
   return `
     <button class="video-embed video-facade" id="player-${id}" data-action="play" data-video-id="${id}"
-            data-title="${safeTitle}" aria-label="Play: ${safeTitle}">
+            data-title="${safeTitle}" data-start="${start}" aria-label="Play: ${safeTitle}">
       <img src="https://i.ytimg.com/vi/${id}/hqdefault.jpg" alt="" loading="lazy" decoding="async">
       <span class="video-facade-play" aria-hidden="true"></span>
     </button>
@@ -507,7 +512,8 @@ function activatePlayer(videoId, startSeconds) {
   if (activePlayerId && activePlayerId !== videoId) {
     const previous = document.getElementById(`player-${activePlayerId}`);
     if (previous && previous.tagName === 'IFRAME') {
-      previous.replaceWith(createElementFromHtml(playerFacadeHtml(activePlayerId, previous.dataset.title || '')));
+      previous.replaceWith(createElementFromHtml(
+        playerFacadeHtml(activePlayerId, previous.dataset.title || '', Number(previous.dataset.start))));
     }
   }
 
@@ -526,6 +532,7 @@ function activatePlayer(videoId, startSeconds) {
     iframe.id = `player-${videoId}`;
     iframe.className = 'video-embed';
     iframe.dataset.title = current.dataset.title || '';
+    iframe.dataset.start = current.dataset.start || '';
     iframe.title = current.dataset.title || 'YouTube video player';
     iframe.src = src;
     iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share';
@@ -671,6 +678,11 @@ async function initiateVideoGeneration() {
     return;
   }
 
+  if (!(await ensureEmailVerified())) {
+    showVerifyEmailStatus();
+    return;
+  }
+
   const button = document.getElementById('generateVideoBtn');
   if (button) {
     button.disabled = true;
@@ -708,6 +720,8 @@ async function initiateVideoGeneration() {
     if (code === 'unauthenticated') {
       hideGenerationStatus();
       showSignInModal();
+    } else if (code === 'failed-precondition' && error.details?.reason === 'email-unverified') {
+      showVerifyEmailStatus();
     } else {
       const showTips = code !== 'resource-exhausted' && code !== 'invalid-argument';
       showGenerationStatus(`
@@ -729,6 +743,57 @@ async function initiateVideoGeneration() {
     }
     updateGenerateVideoButton();
   }
+}
+
+// ===== EMAIL VERIFICATION =====
+// createVideoJob requires a verified email. Google accounts always are; email/password
+// users get a verification link (sent at sign-up, resendable here).
+async function ensureEmailVerified() {
+  const user = firebase.auth().currentUser;
+  if (!user) return false;
+  if (user.emailVerified) return true;
+  try {
+    await user.reload(); // the link may have been clicked in another tab
+  } catch (error) {
+    console.error('Could not refresh the user record:', error);
+  }
+  if (!firebase.auth().currentUser?.emailVerified) return false;
+  await user.getIdToken(true); // the server reads email_verified from the ID token
+  return true;
+}
+
+function showVerifyEmailStatus() {
+  const email = firebase.auth().currentUser?.email || 'your email address';
+  showGenerationStatus(`
+    <div>
+      <h4>📧 Please verify your email</h4>
+      <p>Video generation needs a verified email address. Click the link we sent to <strong>${escapeHtml(email)}</strong>, then try again.</p>
+      <p class="verify-email-result" hidden></p>
+      <div class="verify-email-actions">
+        <button data-action="generate">I've verified, try again</button>
+        <button class="secondary" data-action="resend-verification">Resend the email</button>
+        <button class="secondary" data-action="dismiss-status">Dismiss</button>
+      </div>
+    </div>
+  `, 'error');
+}
+
+async function resendVerificationEmail(button) {
+  const user = firebase.auth().currentUser;
+  const result = document.querySelector('#generation-status .verify-email-result');
+  if (!user || !result) return;
+  button.disabled = true;
+  try {
+    await user.sendEmailVerification();
+    result.textContent = `Sent. Check your inbox (and spam folder) for ${user.email}.`;
+  } catch (error) {
+    console.error('sendEmailVerification failed:', error);
+    result.textContent = error.code === 'auth/too-many-requests'
+      ? 'An email was sent recently. Please wait a few minutes before asking for another.'
+      : `Could not send the email: ${error.message || 'Unknown error'}`;
+    button.disabled = false;
+  }
+  result.hidden = false;
 }
 
 // ===== SIGN-IN MODAL =====

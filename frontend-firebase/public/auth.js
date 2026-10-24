@@ -5,6 +5,7 @@ let authInitialized = false;
 let isSigningIn = false;
 let authStateListener = null;
 let redirectTimeout = null;
+let verificationEmailPromise = null; // the redirect waits for it so the request isn't cut off
 
 document.addEventListener('DOMContentLoaded', function () {
   console.log('Auth page loaded, initializing...');
@@ -168,7 +169,9 @@ function redirectToHome() {
   }
   
   // Use replace to prevent back button loop
-  window.location.replace(redirectUrl);
+  Promise.resolve(verificationEmailPromise)
+    .catch(error => console.error('Could not send the verification email:', error))
+    .finally(() => window.location.replace(redirectUrl));
 }
 
 function initializeSignInWidget() {
@@ -215,6 +218,13 @@ function initializeSignInWidget() {
           isNewUser: authResult.additionalUserInfo ? authResult.additionalUserInfo.isNewUser : false
         });
         
+        // Video generation requires a verified email; Google accounts already are.
+        const user = authResult.user;
+        if (authResult.additionalUserInfo?.isNewUser && !user.emailVerified
+            && user.providerData.some(p => p.providerId === 'password')) {
+          verificationEmailPromise = user.sendEmailVerification();
+        }
+
         // Let the auth state listener handle the redirect
         return false;
       },

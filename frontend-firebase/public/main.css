@@ -483,13 +483,48 @@ h1 {
 
 .contact-links {
   list-style: none;
+  color: inherit; /* Pico colors ul too */
   padding: 0;
   margin: 0; /* Remove any default margin */
 }
 
+/* Pico sets list-style (bullets) and color on li itself, so the ul rule alone doesn't remove them. */
 .contact-links li {
+  list-style: none;
+  color: inherit;
   margin-bottom: 0.15rem; /* Further reduced margin */
   font-size: 0.8rem; /* Smaller font size */
+}
+
+/* Email verification prompts (index.html generation status, account.html) */
+.verify-email-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: center;
+  margin-top: 0.75rem;
+}
+
+.verify-email-actions button {
+  width: auto;
+  margin: 0;
+}
+
+.verify-email-note {
+  border: 1px solid #f0ad4e;
+  background: #fff8e6;
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.verify-email-note p {
+  color: #6b4e00;
+  margin-bottom: 0.5rem;
+}
+
+.verify-email-note button {
+  width: auto;
 }
 
 .contact-links i {

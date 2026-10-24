@@ -37,7 +37,32 @@ function loadUserAccount(user) {
 
     updateHeaderUserInfo(user);
     updateProfileInfo(user);
+    showEmailVerification(user);
     loadUsage();
+}
+
+// createVideoJob requires a verified email (Google accounts always are).
+function showEmailVerification(user) {
+    const note = document.getElementById('verify-email-note');
+    if (!note || user.emailVerified) return;
+    note.classList.remove('hidden');
+
+    const button = document.getElementById('resend-verification');
+    const result = document.getElementById('verify-email-result');
+    button.addEventListener('click', async () => {
+        button.disabled = true;
+        try {
+            await user.sendEmailVerification();
+            result.textContent = `Sent. Check your inbox (and spam folder) for ${user.email}.`;
+        } catch (error) {
+            console.error('sendEmailVerification failed:', error);
+            result.textContent = error.code === 'auth/too-many-requests'
+                ? 'An email was sent recently. Please wait a few minutes before asking for another.'
+                : `Could not send the email: ${error.message || 'Unknown error'}`;
+            button.disabled = false;
+        }
+        result.classList.remove('hidden');
+    });
 }
 
 function setPhoto(img, user) {

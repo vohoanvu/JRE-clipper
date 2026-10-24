@@ -7,14 +7,14 @@
   <title>Account - JRE Clipper</title>
   <link rel="preconnect" href="https://us-central1-gen-lang-client-demo.cloudfunctions.net" crossorigin>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
-  <link rel="stylesheet" href="main.css?v=20261023c">
+  <link rel="stylesheet" href="main.css?v=20261024b">
 
   <!-- Firebase SDK via CDN (Firebase Hosting Init). Deferred: they run in order before account.js. -->
   <script defer src="/__/firebase/11.9.1/firebase-app-compat.js"></script>
   <script defer src="/__/firebase/11.9.1/firebase-auth-compat.js"></script>
   <script defer src="/__/firebase/11.9.1/firebase-functions-compat.js"></script>
   <script defer src="/__/firebase/init.js"></script>
-  <script defer src="account.js?v=20261022"></script>
+  <script defer src="account.js?v=20261024"></script>
 
   <style>
     .account-container {
@@ -342,6 +342,11 @@
         <!-- Daily video allowance -->
         <div class="account-card">
           <h3>🎬 Video Generation</h3>
+          <div id="verify-email-note" class="verify-email-note hidden">
+            <p>📧 Verify your email address to generate videos. Click the link we sent you.</p>
+            <button id="resend-verification" class="secondary">Resend the email</button>
+            <p id="verify-email-result" class="muted hidden"></p>
+          </div>
           <div id="quota-loading" class="muted">Loading...</div>
           <div id="quota-content" class="hidden">
             <div class="quota-number" id="quota-remaining">-</div>
