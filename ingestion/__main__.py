@@ -49,7 +49,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--sleep-max", type=float, default=config.CAPTION_SLEEP_RANGE[1])
     p.add_argument("--calibration", action="store_true",
                    help="ids are OLD episodes: write to calibration\\caption_transcripts, don't touch state")
-    p.add_argument("--cookies-from-browser", help="pass through to yt-dlp if YouTube asks to sign in (e.g. 'firefox')")
+    p.add_argument("--cookies-from-browser", help="if YouTube asks to sign in: a browser name (e.g. 'firefox') or a cookies.txt path")
 
     p = sub.add_parser("transcribe", help="Whisper fallback for episodes without YouTube captions")
     _add_selection(p)

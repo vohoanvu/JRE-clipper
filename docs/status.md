@@ -11,7 +11,7 @@
 | Runner | PID | Window title | State at 21:55 | Expected finish |
 |---|---|---|---|---|
 | `run_bulk.ps1 download` | 20740 | `run_bulk download` | new episodes: 196 done, 34 pending + 2 error (being retried now) | ~3–4 h if YouTube cooperates (~5 min per episode) |
-| `run_bulk.ps1 backfill` | 24188 | `run_bulk backfill` | captions phase: 32 done, 141 `no_captions`, 5 error, 17 pending; then Whisper `transcribe` on ~146 episodes, then `chunk` | ~1–1.5 days (~9 min of Whisper per episode) |
+| `run_bulk.ps1 backfill` | 22216 (relaunched 22:50) | `run_bulk backfill` | captions phase: 32 done, 141 `no_captions`, 5 error, 17 pending; then Whisper `transcribe` on ~146 episodes, then `chunk` | ~1–1.5 days (~9 min of Whisper per episode) |
 
 - Check: `ingestion\.venv\Scripts\python -m ingestion status` (from the repo root) and `F:\jre-all-episodes\ingestion\ingestion.log`.
 - Both windows have QuickEdit off, so clicking in them is harmless now. If a window is gone with work still pending, relaunch it with the command at the top of `ingestion/run_bulk.ps1`.
@@ -25,7 +25,9 @@
 - **Backfill episodes YouTube won't serve** (captions step `error`; none are in `gs://jre-all-episodes` either):
   - Age-restricted, need `--cookies-from-browser` (owner's OK required, it uses their YouTube session): #1169 `ycPr5-27vSI`, #1579 `XEmDWhEUwrQ`, #1733 `AW9nwZN3A5Q`, `9pVgh7__CZg` (found 21:56); more may turn up as the captions step finishes, so list all backfill `captions` errors from `state.json`.
   - Copyright-blocked, no source anywhere: #648 `UR2wxWxGhr4`, #1148 `yi0dq1AjVq8`. Leave them unindexed.
-  - The backfill runner will keep retrying these (8 × 30 min) before moving on to `transcribe`; that's ~4 h of wasted waiting but harmless.
+  - **Fixed 22:50:** these errors used to count as throttling (age errors matched the "Sign in to confirm" bot marker), so the runner backed off, stopped after 3 and retried 8 × 30 min. Now `yt.unavailable_reason` records them as status `unavailable` (`reason: age_restricted|blocked`), with no backoff, and they no longer count as pending. The 10 existing errors were reclassified (5 age-restricted: `XEmDWhEUwrQ AW9nwZN3A5Q roYHf3MTsno ycPr5-27vSI 9pVgh7__CZg`; 5 blocked: `yi0dq1AjVq8 7frzhxAReSE fF9YZYyYhl4 UR2wxWxGhr4 3Do-i4OFz1M`), and the backfill runner was relaunched as **PID 22216** (captions: 6 left). Retry an `unavailable` one only by naming it: `captions --ids <id> --cookies-from-browser <browser|cookies.txt>` (then `transcribe --ids` with the same flag if it has no captions).
+  - **Age-restricted ones done 23:30–23:46** with a Chrome cookies.txt export from the owner (Chrome cookies can't be read directly on Windows: DPAPI error, yt-dlp#10927). `--cookies-from-browser` now also takes a cookies.txt path. Captions: #1169, #1579, #1759, #1872. Whisper: #1733 `AW9nwZN3A5Q`. The cookie file was deleted afterwards. All 5 await the runner's `chunk` step.
+  - **Permanently unavailable (copyright-blocked), 9:** #648 `UR2wxWxGhr4`, #1148 `yi0dq1AjVq8`, #1753 `3Do-i4OFz1M`, #1974 `fF9YZYyYhl4`, #1987 `7frzhxAReSE`, #2003 `Go0OmztyEqo`, #2024 `4o1rnl8w6Rg`, #2075 `ocePykx_OQI`, #2081 `c2Cx6dD909E`. Leave unindexed.
 
 ### Next session (in order)
 1. **Commit** today's work on `clipper-redesign` (leave `JREClipper.*/obj/` out).
@@ -34,7 +36,7 @@
    - `import --source-uri gs://jre-processed-clips-bucker/final-semantic-chunks/jre-segments-all.ndjson --apply` (finishes the 24k gap; idempotent).
    - `import --new-only --apply` (84,274 docs), spot-check search for a few new episodes, `mark --new-only --apply`.
    - Backfill `import`/`mark` once its chunk step is done.
-4. **Backfill leftovers:** ask the owner about cookies for the 3 age-restricted episodes; mark the 2 blocked ones as permanently skipped (e.g. a `skip` status so runners stop retrying).
+4. ~~**Backfill leftovers**~~ done 2026-10-24 night: age-restricted episodes fetched with cookies, blocked ones marked `unavailable` (see above). Commit the `ingestion/` changes (`unavailable` status, cookies.txt support).
 5. **Visual check still owed:** the "verify your email" panel on index.html and the notice on account.html (needs an unverified email/password account signed in on the live site; delete it afterwards).
 
 ### Task backlog (future sessions)

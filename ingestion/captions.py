@@ -255,10 +255,11 @@ def run(args, state: State) -> dict:
             log.info("calibration captions %s: %s", vid, done[vid])
         return {"calibration": done}
 
-    pending = lambda v: args.force or v.get("captions", {}).get("status") not in ("done", "empty", "no_captions")
+    # `unavailable` is only retried when named with --ids (e.g. age-restricted ones with --cookies-from-browser)
+    pending = lambda v: args.force or v.get("captions", {}).get("status") not in ("done", "empty", "no_captions", "unavailable")
     todo = state.select(args.ids, args.limit, pending)
     log.info("captions: %d episode(s) to process", len(todo))
-    summary = {"done": 0, "empty": 0, "no_captions": 0, "error": 0}
+    summary = {"done": 0, "empty": 0, "no_captions": 0, "unavailable": 0, "error": 0}
     fails = 0
     for i, v in enumerate(todo):
         vid = v["videoId"]
@@ -268,6 +269,11 @@ def run(args, state: State) -> dict:
             res = process_one(vid, config.TRANSCRIPTS_DIR, args.cookies_from_browser)
             fails = 0
         except Exception as e:  # noqa: BLE001 - keep going, record the failure
+            if reason := yt.unavailable_reason(e):
+                log.warning("captions %s #%s unavailable (%s), skipping: %s", vid, v.get("episode"), reason, e)
+                state.set_step(vid, "captions", status="unavailable", reason=reason, error=str(e)[:500])
+                summary["unavailable"] += 1
+                continue
             fails += 1
             blocked = yt.looks_like_block(e)
             log.error("captions %s failed: %s", vid, e)

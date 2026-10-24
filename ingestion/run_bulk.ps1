@@ -29,7 +29,7 @@ if ([Win32.Console]::GetConsoleMode($stdin, [ref]$mode)) {
 
 # $filter: Python expression over v (state record) selecting the episodes this pipeline works on
 function Get-Pending([string]$step, [string]$filter) {
-    $cond = if ($step -eq 'transcribe') { 'needs_transcription(v)' } else { "(v.get('$step') or {}).get('status') not in ('done', 'empty', 'no_captions')" }
+    $cond = if ($step -eq 'transcribe') { 'needs_transcription(v)' } else { "(v.get('$step') or {}).get('status') not in ('done', 'empty', 'no_captions', 'unavailable')" }
     & $py -c "from ingestion.state import State; from ingestion.transcribe import needs_transcription; s = State(); print(sum(1 for v in s.videos.values() if ($filter) and $cond))"
 }
 

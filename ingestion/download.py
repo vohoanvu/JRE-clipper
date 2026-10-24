@@ -81,11 +81,11 @@ def download_mp4(vid: str, rate_limit: str | None, cookies: str | None) -> dict:
 
 
 def run(args, state: State) -> dict:
-    pending = lambda v: (v.get("download") or {}).get("status") != "done" and (
+    pending = lambda v: (v.get("download") or {}).get("status") not in ("done", "unavailable") and (
         args.include_backfill or not v.get("backfill"))
     todo = state.select(args.ids, args.limit, pending)
     log.info("download: %d episode(s)", len(todo))
-    summary = {"done": 0, "skipped_in_bucket": 0, "error": 0}
+    summary = {"done": 0, "skipped_in_bucket": 0, "unavailable": 0, "error": 0}
     fails = 0
     downloaded_before = False
     for v in todo:
@@ -133,6 +133,11 @@ def run(args, state: State) -> dict:
             fails = 0
             log.info("download %s done: %s", vid, {k: rec.get(k) for k in ("formats", "vcodec", "acodec", "downloadSeconds", "uploadSeconds")})
         except Exception as e:  # noqa: BLE001
+            if reason := yt.unavailable_reason(e):
+                log.warning("download %s #%s unavailable (%s), skipping: %s", vid, v.get("episode"), reason, e)
+                state.set_step(vid, "download", status="unavailable", reason=reason, error=str(e)[:500])
+                summary["unavailable"] += 1
+                continue
             fails += 1
             blocked = yt.looks_like_block(e)
             log.error("download %s failed: %s", vid, e)

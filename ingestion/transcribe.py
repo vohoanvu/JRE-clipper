@@ -32,7 +32,7 @@ SAMPLE_RATE = 16000
 
 def needs_transcription(v: dict) -> bool:
     status = (v.get("captions") or {}).get("status")
-    return status == "no_captions" or (bool(v.get("backfill")) and status not in ("done", "empty"))
+    return status == "no_captions" or (bool(v.get("backfill")) and status not in ("done", "empty", "unavailable"))
 
 
 def fetch_info(vid: str, cookies: str | None) -> dict:
@@ -151,7 +151,7 @@ def process_one(vid: str, args) -> dict:
 def run(args, state: State) -> dict:
     todo = state.select(args.ids, args.limit, needs_transcription)
     log.info("transcribe: %d episode(s) to process with %s", len(todo), args.model)
-    summary = {"done": 0, "empty": 0, "error": 0, "viaCaptions": 0}
+    summary = {"done": 0, "empty": 0, "unavailable": 0, "error": 0, "viaCaptions": 0}
     fails = 0
     for i, v in enumerate(todo):
         vid = v["videoId"]
@@ -162,6 +162,11 @@ def run(args, state: State) -> dict:
             res = process_one(vid, args)
             fails = 0
         except Exception as e:  # noqa: BLE001 - record and continue, like the other steps
+            if reason := yt.unavailable_reason(e):
+                log.warning("transcribe %s #%s unavailable (%s), skipping: %s", vid, v.get("episode"), reason, e)
+                state.set_step(vid, "captions", status="unavailable", reason=reason, error=f"transcribe: {str(e)[:480]}")
+                summary["unavailable"] += 1
+                continue
             fails += 1
             blocked = yt.looks_like_block(e)
             log.error("transcribe %s failed: %s", vid, e)

@@ -5,11 +5,11 @@ state.json layout:
   "videos": {
     "<videoId>": {
       "videoId", "episode", "title", "url", "discoveredAt", "playlistIndex",
-      "captions": {"status": "done|no_captions|error", ...},
+      "captions": {"status": "done|empty|no_captions|unavailable|error", ...},  # unavailable: reason age_restricted|blocked
       "chunk":    {"status": "done|empty|error", "segments", "threshold", "model", "file", ...},
       "import":   {"status": "done", "docIds": [...], "batch": "...", ...},
       "mark":     {"status": "done", ...},
-      "download": {"status": "done|error", "gcs", "size", ...}
+      "download": {"status": "done|unavailable|error", "gcs", "size", ...}
     }
   },
   "runs": [ {step, startedAt, finishedAt, args, summary} ]

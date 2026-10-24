@@ -7,12 +7,21 @@ challenge solver scripts come from the `yt-dlp-ejs` package (yt-dlp[default]).
 from __future__ import annotations
 
 import logging
+import os
 import random
 import time
 
 log = logging.getLogger("ingestion.yt")
 
 BOT_MARKERS = ("Sign in to confirm", "HTTP Error 429", "Too Many Requests", "not a bot", "rate-limit", "rate limit")
+
+# Permanent per-video errors: retrying (or backing off) can't help. Plain "Video unavailable"
+# isn't listed because YouTube also says that when it throttles ("... try again later").
+UNAVAILABLE_MARKERS = {
+    "age_restricted": ("confirm your age", "inappropriate for some users"),  # works with --cookies-from-browser
+    "blocked": ("blocked due to the claimed content", "blocked it on copyright grounds", "blocked it in your country",
+                "Private video", "video has been removed", "account associated with this video has been terminated"),
+}
 
 
 class _YtLogger:
@@ -42,14 +51,23 @@ def base_opts(cookies_from_browser: str | None = None) -> dict:
         "sleep_interval_requests": 1.0,   # polite: 1 s between API requests of one extraction
         "socket_timeout": 60,
     }
-    if cookies_from_browser:
+    # A browser name, or a Netscape cookies.txt path (Chrome's cookies can't be decrypted on Windows).
+    if cookies_from_browser and os.path.isfile(cookies_from_browser):
+        opts["cookiefile"] = cookies_from_browser
+    elif cookies_from_browser:
         opts["cookiesfrombrowser"] = (cookies_from_browser,)
     return opts
 
 
+def unavailable_reason(err: BaseException | str) -> str | None:
+    """'age_restricted' / 'blocked' if the error means this video can't be fetched, else None."""
+    s = str(err).lower()
+    return next((reason for reason, markers in UNAVAILABLE_MARKERS.items() if any(m.lower() in s for m in markers)), None)
+
+
 def looks_like_block(err: BaseException | str) -> bool:
     s = str(err)
-    return any(m.lower() in s.lower() for m in BOT_MARKERS)
+    return unavailable_reason(s) is None and any(m.lower() in s.lower() for m in BOT_MARKERS)
 
 
 def polite_sleep(lo: float, hi: float, why: str = "") -> None:
