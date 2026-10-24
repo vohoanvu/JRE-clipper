@@ -1,60 +1,93 @@
 #!/bin/bash
 
-# List of all expected video IDs
-declare -a ALL_VIDEO_IDS=("ws2ZsG3NNQc" "COyRH27wc84" "6G59zsjM2UI" "WHBfB7usIcU" "HwyAX69xG1Q" 
-                          "qe64ayAbDjM" "TOiTI5LrCSA" "8M8jBaA8_Gk" "ETEUC8AcjwU" "ELGY6HfkENg" 
-                          "qVEwIx2uG1A" "hgdJnpVccWg" "K1VZq949niU" "aC7p0Upkh34" "mgVpwYUrsRU" 
-                          "IVZ-qJ92y2I" "hOnefFVBEb0" "x2qwRJT4WGY" "02ux1dKNPXo" "5VoVIpIzj_c")
+# Script to check for missing videos in Google Cloud Storage and write URLs to download to youtube_urls.txt
 
-# Output file for missing videos
-OUTPUT_FILE="missing_videos.txt"
+# Configuration
+source_file="jre_filtered_urls.txt"  # Source file with all YouTube URLs
+output_file="youtube_urls.txt"  # Output file for URLs of videos not yet downloaded
+gcloud_project="gen-lang-client-demo"  # Your Google Cloud project ID
+gcloud_bucket="gs://jre-all-episodes"  # Your Google Cloud Storage bucket
+gcloud_path="gcloud"  # Adjust if not in PATH, e.g., "/path/to/gcloud"
 
-# Get the list of MP4 files from the GCS bucket
-echo "Fetching MP4 files from GCS bucket..."
-MP4_FILES=$(gcloud storage ls "gs://jre-all-episodes/*.mp4" 2>/dev/null)
-
-if [ $? -ne 0 ]; then
-  echo "Error: Failed to access GCS bucket. Please check your authentication and permissions."
-  exit 1
+# Check if source file exists
+if [ ! -f "$source_file" ]; then
+    echo "Error: Source file $source_file not found in current directory!"
+    exit 1
 fi
 
-# Extract video IDs from the GCS file list
-declare -a EXISTING_VIDEO_IDS=()
-while IFS= read -r file; do
-  # Extract the filename from the path
-  filename=$(basename "$file")
-  # Extract video ID using regex pattern matching
-  if [[ $filename =~ ^([a-zA-Z0-9_-]+)_ ]]; then
-    video_id="${BASH_REMATCH[1]}"
-    EXISTING_VIDEO_IDS+=("$video_id")
-  fi
-done <<< "$MP4_FILES"
+# Read all URLs from source file, skipping empty lines
+mapfile -t all_urls < <(grep -v '^$' "$source_file")
+total_urls=${#all_urls[@]}
+echo "Found $total_urls URLs in $source_file."
 
-echo "Found ${#EXISTING_VIDEO_IDS[@]} videos in the bucket"
+# Initialize counters and arrays
+missing_urls=()
+processed_count=0
 
-# Find missing video IDs
-declare -a MISSING_VIDEO_IDS=()
-for id in "${ALL_VIDEO_IDS[@]}"; do
-  found=false
-  for existing_id in "${EXISTING_VIDEO_IDS[@]}"; do
-    if [ "$id" == "$existing_id" ]; then
-      found=true
-      break
+# Get list of existing objects in GCS bucket
+echo "Fetching list of existing objects in $gcloud_bucket... (this may take a while)"
+existing_objects=$("$gcloud_path" storage ls "$gcloud_bucket/*.mp4" 2>/dev/null | grep -oP '(?<=gs://jre-all-episodes/)[^/]+')
+if [ $? -ne 0 ]; then
+    echo "Error: Failed to fetch existing objects from $gcloud_bucket. Check your permissions or network."
+    exit 1
+fi
+
+# Extract video IDs from GCS filenames, handling different naming conventions
+declare -A existing_videos
+while IFS= read -r obj; do
+    # Remove .mp4 extension
+    obj_no_ext=$(echo "$obj" | sed 's/\.mp4$//')
+    # Extract video ID: check if there's an underscore, take part before it; otherwise, take the whole name
+    if [[ $obj_no_ext =~ ^([a-zA-Z0-9_-]+)_ ]]; then
+        video_id="${BASH_REMATCH[1]}"
+        echo "Extracted video ID $video_id from filename $obj (pattern: <videoId>_Title_Description.mp4)"
+    elif [[ $obj_no_ext =~ ^([a-zA-Z0-9_-]+)$ ]]; then
+        video_id="${BASH_REMATCH[1]}"
+        echo "Extracted video ID $video_id from filename $obj (pattern: <videoId>.mp4)"
+    else
+        echo "Warning: Could not extract video ID from filename $obj. Skipping this object."
+        continue
     fi
-  done
-  
-  if [ "$found" == false ]; then
-    MISSING_VIDEO_IDS+=("$id")
-  fi
+    existing_videos["$video_id"]=1
+done <<< "$existing_objects"
+
+echo "Found ${#existing_videos[@]} unique existing videos in $gcloud_bucket."
+
+# Process each URL to check if the video is already in GCS
+for url in "${all_urls[@]}"; do
+    url=$(echo "$url" | xargs)  # Trim whitespace
+    if [ -z "$url" ]; then continue; fi  # Skip empty lines
+
+    # Extract Video ID from URL (assuming standard YouTube URL format)
+    video_id=$(echo "$url" | grep -oP '(?<=v=)[^&]+')
+    if [ -z "$video_id" ]; then
+        echo "Warning: Could not extract Video ID from $url. Skipping."
+        continue
+    fi
+
+    # Check if video ID exists in GCS bucket objects
+    if [[ -n "${existing_videos[$video_id]}" ]]; then
+        echo "Video $video_id already exists in $gcloud_bucket. Skipping."
+    else
+        echo "Video $video_id not found in $gcloud_bucket. Adding to download list."
+        missing_urls+=("$url")
+    fi
+
+    ((processed_count++))
+    # Print progress every 100 URLs to avoid flooding output
+    if [ $((processed_count % 100)) -eq 0 ]; then
+        echo "Processed $processed_count/$total_urls URLs..."
+    fi
 done
 
-# Generate YouTube URLs for missing videos
-echo "Generating YouTube URLs for missing videos..."
-for id in "${MISSING_VIDEO_IDS[@]}"; do
-  youtube_url="https://www.youtube.com/watch?v=$id"
-  echo "$youtube_url" >> "$OUTPUT_FILE"
-  echo "Missing: $youtube_url"
-done
+# Write missing URLs to output file
+if [ ${#missing_urls[@]} -gt 0 ]; then
+    echo "Writing ${#missing_urls[@]} missing URLs to $output_file."
+    printf "%s\n" "${missing_urls[@]}" > "$output_file"
+else
+    echo "No missing URLs found. All videos from $source_file are already in $gcloud_bucket."
+    # Create an empty file if no URLs are missing to avoid errors in other scripts
+    touch "$output_file"
+fi
 
-echo "Found ${#MISSING_VIDEO_IDS[@]} missing videos"
-echo "Results written to $OUTPUT_FILE"
+echo "Process completed. Checked $processed_count URLs, found ${#missing_urls[@]} videos to download."

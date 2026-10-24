@@ -1,73 +1,13 @@
-// Account Management JavaScript
-// Handles user profile, subscription management, and billing
+// Account page: profile, today's video allowance and recent compilations.
+// Loaded with `defer` after the Firebase compat SDK scripts.
 
-let currentUser = null;
-let userSubscriptionData = null;
-let functions = null;
-let stripe = null;
-
-// Initialize Stripe
-if (typeof Stripe !== 'undefined') {
-    stripe = Stripe('pk_test_51Rco8nR9HLu4Z6TSlSjCZypyASEmikaanI10fX2UA0tQSYJZy5A2rQU7eaMNB0jATz9NHNDTPO47cXBoLGsfAnuR00GC3QLQwi');
-}
-
-document.addEventListener('DOMContentLoaded', function() {
-    console.log('Account page loaded, initializing...');
-    
-    // Wait for Firebase to be ready
-    waitForFirebase().then(() => {
-        initializeAccountPage();
-    }).catch(error => {
-        console.error('Failed to initialize Firebase:', error);
+document.addEventListener('DOMContentLoaded', function () {
+    if (typeof firebase === 'undefined' || !firebase.auth || !firebase.functions) {
+        hideLoading();
         showError('Failed to initialize. Please refresh the page.');
-    });
-});
+        return;
+    }
 
-function waitForFirebase() {
-    return new Promise((resolve, reject) => {
-        let attempts = 0;
-        const maxAttempts = 20;
-        
-        const checkFirebase = () => {
-            attempts++;
-            
-            if (typeof firebase !== 'undefined' && firebase.auth && firebase.functions) {
-                console.log('Firebase ready');
-                functions = firebase.functions();
-                resolve();
-            } else if (attempts >= maxAttempts) {
-                reject(new Error('Firebase failed to load'));
-            } else {
-                console.log(`Waiting for Firebase... attempt ${attempts}`);
-                setTimeout(checkFirebase, 500);
-            }
-        };
-        
-        checkFirebase();
-    });
-}
-
-function initializeAccountPage() {
-    console.log('Initializing account page...');
-    
-    // Set up auth state listener
-    firebase.auth().onAuthStateChanged(async (user) => {
-        console.log('Auth state changed:', user ? user.email : 'No user');
-        
-        if (user) {
-            currentUser = user;
-            await loadUserAccount(user);
-        } else {
-            showAuthRequired();
-        }
-    });
-    
-    // Set up event listeners
-    setupEventListeners();
-}
-
-function setupEventListeners() {
-    // Sign out button
     const signOutBtn = document.getElementById('sign-out');
     if (signOutBtn) {
         signOutBtn.addEventListener('click', async () => {
@@ -80,574 +20,220 @@ function setupEventListeners() {
             }
         });
     }
-    
-    // Upgrade button
-    const upgradeBtn = document.getElementById('upgrade-btn');
-    if (upgradeBtn) {
-        upgradeBtn.addEventListener('click', initiateUpgrade);
-    }
-    
-    // Manage subscription button
-    const manageBtn = document.getElementById('manage-subscription-btn');
-    if (manageBtn) {
-        manageBtn.addEventListener('click', openStripeCustomerPortal);
-    }
-    
-    // Cancel subscription button
-    const cancelBtn = document.getElementById('cancel-subscription-btn');
-    if (cancelBtn) {
-        cancelBtn.addEventListener('click', showCancelModal);
-    }
-    
-    // Modal buttons
-    const confirmCancelBtn = document.getElementById('confirm-cancel');
-    const modalCancelBtn = document.getElementById('modal-cancel');
-    const cancelModal = document.getElementById('cancel-modal');
-    
-    if (confirmCancelBtn) {
-        confirmCancelBtn.addEventListener('click', confirmCancelSubscription);
-    }
-    
-    if (modalCancelBtn) {
-        modalCancelBtn.addEventListener('click', hideCancelModal);
-    }
-    
-    // Close modal when clicking outside
-    if (cancelModal) {
-        cancelModal.addEventListener('click', (e) => {
-            if (e.target === cancelModal) {
-                hideCancelModal();
-            }
-        });
-    }
+
+    firebase.auth().onAuthStateChanged((user) => {
+        if (user) {
+            loadUserAccount(user);
+        } else {
+            showAuthRequired();
+        }
+    });
+});
+
+function loadUserAccount(user) {
+    hideLoading();
+    document.getElementById('auth-required').classList.add('hidden');
+    document.getElementById('account-content').classList.remove('hidden');
+
+    updateHeaderUserInfo(user);
+    updateProfileInfo(user);
+    showEmailVerification(user);
+    loadUsage();
 }
 
-async function loadUserAccount(user) {
-    console.log('Loading account for user:', user.email);
-    
-    try {
-        // Hide loading and show content
-        hideLoading();
-        showAccountContent();
-        
-        // Update header user info
-        updateHeaderUserInfo(user);
-        
-        // Load profile information
-        updateProfileInfo(user);
-        
-        // Load subscription status
-        await loadSubscriptionStatus();
-        
-        // Load usage statistics (placeholder for now)
-        updateUsageStats();
-        
-        // Set up real-time claims monitoring
-        setupClaimsWatcher();
-        
-    } catch (error) {
-        console.error('Error loading user account:', error);
-        showError('Failed to load account information. Please refresh the page.');
+// createVideoJob requires a verified email (Google accounts always are).
+function showEmailVerification(user) {
+    const note = document.getElementById('verify-email-note');
+    if (!note || user.emailVerified) return;
+    note.classList.remove('hidden');
+
+    const button = document.getElementById('resend-verification');
+    const result = document.getElementById('verify-email-result');
+    button.addEventListener('click', async () => {
+        button.disabled = true;
+        try {
+            await user.sendEmailVerification();
+            result.textContent = `Sent. Check your inbox (and spam folder) for ${user.email}.`;
+        } catch (error) {
+            console.error('sendEmailVerification failed:', error);
+            result.textContent = error.code === 'auth/too-many-requests'
+                ? 'An email was sent recently. Please wait a few minutes before asking for another.'
+                : `Could not send the email: ${error.message || 'Unknown error'}`;
+            button.disabled = false;
+        }
+        result.classList.remove('hidden');
+    });
+}
+
+function setPhoto(img, user) {
+    if (!img) return;
+    if (user.photoURL) {
+        img.src = user.photoURL;
+        img.alt = user.displayName || user.email || 'Profile photo';
+        img.style.display = '';
+    } else {
+        img.style.display = 'none';
     }
 }
 
 function updateHeaderUserInfo(user) {
     const userInfo = document.getElementById('user-info');
-    const userPhoto = document.getElementById('user-photo');
     const userEmail = document.getElementById('user-email');
-    
-    if (userInfo && userPhoto && userEmail) {
-        userPhoto.src = user.photoURL || 'https://via.placeholder.com/40/2c3e50/ffffff?text=👤';
-        userPhoto.alt = user.displayName || user.email;
-        userEmail.textContent = user.email;
-        userInfo.style.display = 'flex';
-    }
+    setPhoto(document.getElementById('user-photo'), user);
+    if (userEmail) userEmail.textContent = user.email || user.displayName || '';
+    if (userInfo) userInfo.style.display = 'flex';
 }
 
 function updateProfileInfo(user) {
-    // Profile photo
-    const profilePhoto = document.getElementById('profile-photo');
-    if (profilePhoto) {
-        profilePhoto.src = user.photoURL || 'https://via.placeholder.com/80/2c3e50/ffffff?text=👤';
-        profilePhoto.alt = user.displayName || user.email;
-    }
-    
-    // Profile details
-    const profileEmail = document.getElementById('profile-email');
-    const profileName = document.getElementById('profile-name');
-    const profileCreated = document.getElementById('profile-created');
-    const profileLastSignin = document.getElementById('profile-last-signin');
-    
-    if (profileEmail) profileEmail.textContent = user.email;
-    if (profileName) profileName.textContent = user.displayName || 'Not set';
-    if (profileCreated) profileCreated.textContent = formatDate(user.metadata.creationTime);
-    if (profileLastSignin) profileLastSignin.textContent = formatDate(user.metadata.lastSignInTime);
+    setPhoto(document.getElementById('profile-photo'), user);
+    setText('profile-email', user.email || '-');
+    setText('profile-name', user.displayName || 'Not set');
+    setText('profile-created', formatDate(user.metadata.creationTime));
+    setText('profile-last-signin', formatDate(user.metadata.lastSignInTime));
 }
 
-async function loadSubscriptionStatus() {
-    console.log('Loading subscription status from Firebase Auth custom claims...');
-    
+async function loadUsage() {
     try {
-        if (!currentUser) {
-            throw new Error('No authenticated user');
-        }
-        
-        // Get subscription data from Firebase Auth custom claims
-        const tokenResult = await currentUser.getIdTokenResult(true); // Force refresh
-        const customClaims = tokenResult.claims;
-        
-        userSubscriptionData = {
-            plan: customClaims.plan || 'free',
-            subscriptionStatus: customClaims.subscriptionStatus || null,
-            subscriptionId: customClaims.subscriptionId || null,
-            upgradedAt: customClaims.upgradedAt || null,
-            canceledAt: customClaims.canceledAt || null
-        };
-        
-        console.log('Subscription data from custom claims:', userSubscriptionData);
-        updateSubscriptionUI(userSubscriptionData);
-        
-    } catch (error) {
-        console.error('Error loading subscription status:', error);
-        
-        // Show default free plan
-        userSubscriptionData = {
-            plan: 'free',
-            subscriptionStatus: null,
-            subscriptionId: null,
-            upgradedAt: null,
-            canceledAt: null
-        };
-        updateSubscriptionUI(userSubscriptionData);
-    }
-}
-
-function updateSubscriptionUI(data) {
-    const planStatus = document.getElementById('plan-status');
-    const subscriptionStatus = document.getElementById('subscription-status');
-    const upgradeDate = document.getElementById('upgrade-date');
-    const nextBilling = document.getElementById('next-billing');
-    const upgradeDateItem = document.getElementById('upgrade-date-item');
-    const nextBillingItem = document.getElementById('next-billing-item');
-    const freeFeatures = document.getElementById('free-features');
-    const proFeatures = document.getElementById('pro-features');
-    const cancelSubscriptionBtn = document.getElementById('cancel-subscription-btn');
-
-    if (cancelSubscriptionBtn) {
-        if (data.subscriptionStatus === 'canceled' || 
-            data.subscriptionStatus === 'cancel_at_period_end' || 
-            data.plan === 'free') {
-            cancelSubscriptionBtn.disabled = true;
-            cancelSubscriptionBtn.classList.add('disabled');
-            cancelSubscriptionBtn.setAttribute('title', 'Subscription already canceled or not active');
-        } else {
-            cancelSubscriptionBtn.disabled = false;
-            cancelSubscriptionBtn.classList.remove('disabled');
-            cancelSubscriptionBtn.removeAttribute('title');
-        }
-    }
-    
-    // Update plan status badge
-    if (planStatus) {
-        planStatus.textContent = data.plan === 'pro' ? 'Pro' : 'Free';
-        planStatus.className = 'status-badge ' + (data.plan === 'pro' ? 'status-pro' : 'status-free');
-    }
-    
-    // Update subscription status
-    if (subscriptionStatus) {
-        if (data.plan === 'free') {
-            subscriptionStatus.textContent = 'Free Plan';
-        } else if (data.subscriptionStatus === 'active') {
-            subscriptionStatus.textContent = 'Active';
-        } else if (data.subscriptionStatus === 'canceled') {
-            subscriptionStatus.textContent = 'Canceled';
-        } else {
-            subscriptionStatus.textContent = data.subscriptionStatus || 'Unknown';
-        }
-    }
-    
-    // Show/hide date information for pro users
-    if (data.plan === 'pro' && data.upgradedAt) {
-        if (upgradeDate) upgradeDate.textContent = formatDate(data.upgradedAt);
-        if (upgradeDateItem) upgradeDateItem.style.display = 'flex';
-        
-        // Show next billing (placeholder - in real app, would fetch from Stripe)
-        if (nextBilling) nextBilling.textContent = 'Contact support for billing info';
-        if (nextBillingItem) nextBillingItem.style.display = 'flex';
-    } else {
-        if (upgradeDateItem) upgradeDateItem.style.display = 'none';
-        if (nextBillingItem) nextBillingItem.style.display = 'none';
-    }
-    
-    // Show appropriate features section
-    if (data.plan === 'pro') {
-        if (freeFeatures) freeFeatures.classList.add('hidden');
-        if (proFeatures) proFeatures.classList.remove('hidden');
-    } else {
-        if (freeFeatures) freeFeatures.classList.remove('hidden');
-        if (proFeatures) proFeatures.classList.add('hidden');
-    }
-}
-
-async function updateUsageStats() {
-    try {
-        if (!functions) {
-            console.log('Firebase functions not available, using placeholder stats');
-            updateUsageStatsUI({
-                videosGenerated: userSubscriptionData?.plan === 'pro' ? '0 this month' : 'Pro feature',
-                totalVideosGenerated: '-',
-                accountCreated: currentUser?.metadata?.creationTime,
-                generatedVideos: []
-            });
-            return;
-        }
-        
-        const getUserUsage = functions.httpsCallable('getUserUsageStats');
-        const result = await getUserUsage();
-        console.log('Usage stats result:', result);
-        if (result.data) {
-            const stats = result.data;
-            updateUsageStatsUI({
-                videosGenerated: userSubscriptionData?.plan === 'pro' 
-                    ? `${stats.videosGenerated || 0} this month` 
-                    : 'Pro feature',
-                totalVideosGenerated: stats.totalSearches || 0,
-                accountCreated: stats.accountCreated,
-                generatedVideos: stats.generatedVideos || []
-            });
-        }
-        
+        const result = await firebase.functions().httpsCallable('getUserUsageStats')();
+        renderQuota(result.data);
+        renderRecentJobs(result.data.recentJobs || []);
     } catch (error) {
         console.error('Error loading usage statistics:', error);
-        // Use fallback stats
-        updateUsageStatsUI({
-            videosGenerated: userSubscriptionData?.plan === 'pro' ? '0 this month' : 'Pro feature',
-            totalVideosGenerated: '-',
-            accountCreated: currentUser?.metadata?.creationTime,
-            generatedVideos: []
-        });
+        setText('quota-loading', 'Could not load your video allowance.');
+        document.getElementById('generated-videos-list').innerHTML =
+            '<p class="muted">Could not load your videos. Please refresh the page.</p>';
     }
 }
 
-function updateUsageStatsUI(stats) {
-    const videosGenerated = document.getElementById('videos-generated');
-    const totalVideosGenerated = document.getElementById('total-videos-generated');
-    const generatedVideosSection = document.getElementById('generated-videos-section');
-    const generatedVideosList = document.getElementById('generated-videos-list');
-    
-    if (videosGenerated) {
-        videosGenerated.textContent = stats.videosGenerated;
+function renderQuota(stats) {
+    document.getElementById('quota-loading').classList.add('hidden');
+    document.getElementById('quota-content').classList.remove('hidden');
+
+    const remainingEl = document.getElementById('quota-remaining');
+    const fill = document.getElementById('usage-fill');
+    const resetsAt = stats.resetsAt ? new Date(stats.resetsAt) : null;
+
+    if (stats.unlimited) {
+        remainingEl.textContent = '∞';
+        setText('quota-label', `no daily limit (${stats.usedToday} generated today)`);
+        document.getElementById('usage-bar').classList.add('hidden');
+        setText('quota-reset', '');
+        return;
     }
-    
-    if (totalVideosGenerated) {
-        totalVideosGenerated.textContent = stats.totalVideosGenerated;
-    }
-    
-    // Handle generated videos list
-    if (generatedVideosSection && generatedVideosList) {
-        if (stats.generatedVideos && stats.generatedVideos.length > 0 && userSubscriptionData?.plan === 'pro') {
-            generatedVideosSection.classList.remove('hidden');
-            
-            // Create video items
-            let videosHtml = '';
-            stats.generatedVideos.forEach(video => {
-                const createdDate = new Date(video.createdAt).toLocaleDateString();
-                
-                videosHtml += `
-                    <div class="video-item">
-                        <div class="video-item-header">
-                            <div class="video-title">Video Compilation</div>
-                            <div class="video-date">Created on ${createdDate}</div>
-                        </div>
-                        <div class="video-stats">
-                            <div>Job ID: ${video.jobId}</div>
-                            <div>Segments: ${video.segmentCount} | Source Videos: ${video.totalVideos}</div>
-                        </div>
-                        <div class="video-actions">
-                            <a href="${video.finalVideoUrl}" target="_blank" class="btn-view-video">
-                                <span>🎬 Watch Video</span>
-                            </a>
-                        </div>
-                    </div>
-                `;
-            });
-            
-            generatedVideosList.innerHTML = videosHtml || '<p>No videos found</p>';
-        } else {
-            generatedVideosSection.classList.add('hidden');
-        }
-    }
+
+    const remaining = stats.remainingToday ?? 0;
+    remainingEl.textContent = `${remaining} / ${stats.dailyLimit}`;
+    remainingEl.classList.toggle('exhausted', remaining === 0);
+    setText('quota-label', 'videos left today');
+    fill.style.width = `${Math.min(100, (stats.usedToday / stats.dailyLimit) * 100)}%`;
+    setText('quota-reset', resetsAt
+        ? `Resets at midnight UTC (${resetsAt.toLocaleString(undefined, { hour: 'numeric', minute: '2-digit', weekday: 'short' })} your time)`
+        : 'Resets at midnight UTC');
 }
 
-async function initiateUpgrade() {
-    console.log('Initiating upgrade to Pro...');
-    
-    const upgradeBtn = document.getElementById('upgrade-btn');
-    
-    try {
-        // Show loading state
-        if (upgradeBtn) {
-            upgradeBtn.disabled = true;
-            upgradeBtn.innerHTML = '<div class="loading-spinner"></div> Processing...';
-        }
-        
-        if (!functions) {
-            throw new Error('Firebase functions not initialized');
-        }
-        
-        const createCheckout = functions.httpsCallable('createCheckoutSessionAuth');
-        const result = await createCheckout();
-        
-        if (result.data && result.data.sessionId) {
-            // Redirect to Stripe Checkout
-            if (stripe) {
-                await stripe.redirectToCheckout({
-                    sessionId: result.data.sessionId
-                });
-            } else {
-                throw new Error('Stripe not initialized');
-            }
-        } else {
-            throw new Error('Failed to create checkout session');
-        }
-        
-    } catch (error) {
-        console.error('Upgrade error:', error);
-        
-        // Reset button state
-        if (upgradeBtn) {
-            upgradeBtn.disabled = false;
-            upgradeBtn.innerHTML = '🚀 UPGRADE TO PRO';
-        }
-        
-        if (error.code === 'failed-precondition') {
-            showError('You are already a Pro subscriber!');
-        } else if (error.code === 'unauthenticated') {
-            showError('Please sign in to upgrade to Pro.');
-        } else {
-            showError('Failed to initiate upgrade. Please try again.');
-        }
+function renderRecentJobs(jobs) {
+    const list = document.getElementById('generated-videos-list');
+    if (jobs.length === 0) {
+        list.innerHTML = '<p class="muted">No videos yet. Search for a topic, select segments and generate your first compilation!</p>';
+        return;
     }
+
+    list.replaceChildren(...jobs.map(renderJobItem));
 }
 
-async function openStripeCustomerPortal() {
-    console.log('Opening Stripe Customer Portal...');
-    
-    const manageBtn = document.getElementById('manage-subscription-btn');
-    
-    try {
-        // Show loading state
-        if (manageBtn) {
-            manageBtn.disabled = true;
-            manageBtn.innerHTML = '<div class="loading-spinner"></div> Loading...';
-        }
-        
-        if (!functions) {
-            throw new Error('Firebase functions not initialized');
-        }
-        
-        const createPortalSession = functions.httpsCallable('createCustomerPortalSession');
-        const result = await createPortalSession();
-        
-        if (result.data && result.data.success && result.data.url) {
-            // Redirect to Stripe Customer Portal
-            window.location.href = result.data.url;
-        } else {
-            throw new Error('Failed to create customer portal session');
-        }
-        
-    } catch (error) {
-        console.error('Error opening customer portal:', error);
-        
-        // Reset button state
-        if (manageBtn) {
-            manageBtn.disabled = false;
-            manageBtn.innerHTML = 'Manage Billing';
-        }
-        
-        if (error.code === 'not-found') {
-            showError('No subscription found. Please contact support if you believe this is an error.');
-        } else if (error.code === 'unauthenticated') {
-            showError('Please sign in to access billing management.');
-        } else {
-            showError('Failed to open billing management. Please contact support.');
-        }
+function renderJobItem(job) {
+    const item = document.createElement('div');
+    item.className = 'video-item';
+
+    const header = document.createElement('div');
+    header.className = 'video-item-header';
+    const title = document.createElement('div');
+    title.className = 'video-item-title';
+    title.textContent = 'Video Compilation';
+    const pill = document.createElement('span');
+    pill.className = `status-pill ${statusClass(job.status)}`;
+    pill.textContent = job.status;
+    title.append(' ', pill);
+    const date = document.createElement('div');
+    date.className = 'video-date';
+    date.textContent = job.createdAt ? new Date(job.createdAt).toLocaleString() : '';
+    header.append(title, date);
+
+    const stats = document.createElement('div');
+    stats.className = 'video-stats';
+    const parts = [];
+    if (job.segmentCount != null) parts.push(`Segments: ${job.segmentCount}`);
+    if (job.totalVideos != null) parts.push(`Episodes: ${job.totalVideos}`);
+    if (job.outputDurationSeconds != null) parts.push(`Length: ${formatDuration(job.outputDurationSeconds)}`);
+    if (job.status !== 'Complete' && job.status !== 'Failed' && job.progress != null) parts.push(`Progress: ${job.progress}%`);
+    stats.textContent = parts.join(' | ');
+
+    const actions = document.createElement('div');
+    actions.className = 'video-actions';
+    if (job.finalVideoUrl) {
+        const download = document.createElement('a');
+        download.className = 'btn-view-video';
+        download.href = job.finalVideoUrl;
+        download.target = '_blank';
+        download.rel = 'noopener';
+        download.textContent = '🎬 Watch / Download';
+        actions.appendChild(download);
     }
+    const statusLink = document.createElement('a');
+    statusLink.className = 'btn-job-status';
+    statusLink.href = `status.html?jobId=${encodeURIComponent(job.jobId)}`;
+    statusLink.textContent = 'View details';
+    actions.appendChild(statusLink);
+
+    item.append(header, stats, actions);
+    return item;
 }
 
-function showCancelModal() {
-    const cancelModal = document.getElementById('cancel-modal');
-    if (cancelModal) {
-        cancelModal.classList.add('show');
-    }
-}
-
-function hideCancelModal() {
-    const cancelModal = document.getElementById('cancel-modal');
-    if (cancelModal) {
-        cancelModal.classList.remove('show');
-    }
-}
-
-async function confirmCancelSubscription() {
-    console.log('Confirming subscription cancellation...');
-    
-    const confirmBtn = document.getElementById('confirm-cancel');
-    const spinner = confirmBtn ? confirmBtn.querySelector('.loading-spinner') : null;
-    
-    try {
-        // Show loading state
-        if (confirmBtn) {
-            confirmBtn.disabled = true;
-            if (spinner) spinner.classList.remove('hidden');
-        }
-        
-        if (!functions) {
-            throw new Error('Firebase functions not initialized');
-        }
-        
-        const cancelSubscription = functions.httpsCallable('cancelSubscription');
-        const result = await cancelSubscription();
-        
-        if (result.data && result.data.success) {
-            hideCancelModal();
-            showSuccess('Subscription canceled successfully. You will continue to have Pro access until the end of your billing period.');
-            
-            // Reload subscription status
-            await loadSubscriptionStatus();
-        } else {
-            throw new Error(result.data?.message || 'Failed to cancel subscription');
-        }
-        
-    } catch (error) {
-        console.error('Cancel subscription error:', error);
-        
-        if (error.code === 'not-found') {
-            showError('No active subscription found to cancel.');
-        } else if (error.code === 'failed-precondition') {
-            showError('Subscription is already canceled.');
-        } else if (error.code === 'unauthenticated') {
-            showError('Please sign in to cancel your subscription.');
-        } else {
-            showError('Failed to cancel subscription. Please contact support.');
-        }
-    } finally {
-        // Reset button state
-        if (confirmBtn) {
-            confirmBtn.disabled = false;
-            if (spinner) spinner.classList.add('hidden');
-        }
-    }
-}
-
-// Listen for custom claims changes (when user upgrades/cancels)
-function setupClaimsWatcher() {
-    if (!currentUser) return;
-    
-    // Check for claims changes every 30 seconds
-    const claimsWatcher = setInterval(async () => {
-        try {
-            const tokenResult = await currentUser.getIdTokenResult(true);
-            const newClaims = tokenResult.claims;
-            
-            // Check if subscription status changed
-            if (userSubscriptionData && 
-                (newClaims.plan !== userSubscriptionData.plan || 
-                 newClaims.subscriptionStatus !== userSubscriptionData.subscriptionStatus)) {
-                
-                console.log('Subscription status changed, refreshing UI');
-                await loadSubscriptionStatus();
-                showSuccess('Your subscription status has been updated!');
-            }
-        } catch (error) {
-            console.error('Error checking for claims changes:', error);
-        }
-    }, 30000); // Check every 30 seconds
-    
-    // Clean up interval when user leaves the page
-    window.addEventListener('beforeunload', () => {
-        clearInterval(claimsWatcher);
-    });
+function statusClass(status) {
+    if (status === 'Complete') return 'complete';
+    if (status === 'Failed') return 'failed';
+    if (status === 'Queued' || status === 'Processing' || status === 'Uploading') return 'active';
+    return '';
 }
 
 // UI Helper Functions
-function hideLoading() {
-    const loadingSection = document.getElementById('loading-section');
-    if (loadingSection) {
-        loadingSection.classList.add('hidden');
-    }
+function setText(id, text) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = text;
 }
 
-function showAccountContent() {
-    const accountContent = document.getElementById('account-content');
-    if (accountContent) {
-        accountContent.classList.remove('hidden');
-    }
+function hideLoading() {
+    document.getElementById('loading-section')?.classList.add('hidden');
 }
 
 function showAuthRequired() {
     hideLoading();
-    const authRequired = document.getElementById('auth-required');
-    if (authRequired) {
-        authRequired.classList.remove('hidden');
-    }
-}
-
-function showAlert(message, type) {
-    const alertContainer = document.getElementById('alert-container');
-    if (!alertContainer) return;
-    
-    const alertDiv = document.createElement('div');
-    alertDiv.className = `alert alert-${type}`;
-    alertDiv.textContent = message;
-    
-    alertContainer.appendChild(alertDiv);
-    
-    // Auto-remove after 5 seconds
-    setTimeout(() => {
-        if (alertDiv.parentNode) {
-            alertDiv.parentNode.removeChild(alertDiv);
-        }
-    }, 5000);
-}
-
-function showSuccess(message) {
-    showAlert(message, 'success');
+    document.getElementById('account-content').classList.add('hidden');
+    document.getElementById('auth-required').classList.remove('hidden');
 }
 
 function showError(message) {
-    showAlert(message, 'error');
-}
+    const alertContainer = document.getElementById('alert-container');
+    const target = alertContainer && !document.getElementById('account-content').classList.contains('hidden')
+        ? alertContainer
+        : document.querySelector('main');
+    if (!target) return;
 
-function showWarning(message) {
-    showAlert(message, 'warning');
+    const alertDiv = document.createElement('div');
+    alertDiv.className = 'alert alert-error';
+    alertDiv.textContent = message;
+    target.prepend(alertDiv);
+    setTimeout(() => alertDiv.remove(), 5000);
 }
 
 function formatDate(dateString) {
     if (!dateString) return 'Unknown';
-    
-    try {
-        const date = new Date(dateString);
-        return date.toLocaleDateString('en-US', {
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric'
-        });
-    } catch (error) {
-        console.error('Date formatting error:', error);
-        return 'Invalid date';
-    }
+    const date = new Date(dateString);
+    if (Number.isNaN(date.getTime())) return 'Unknown';
+    return date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 }
 
-// Expose functions to global scope for debugging
-window.loadSubscriptionStatus = loadSubscriptionStatus;
-window.initiateUpgrade = initiateUpgrade;
-window.showCancelModal = showCancelModal;
-window.refreshUserClaims = async function() {
-    if (currentUser) {
-        await loadSubscriptionStatus(); // This will refresh custom claims
-        console.log('User claims refreshed from account page');
-    }
-};
-
-setupClaimsWatcher();
+function formatDuration(seconds) {
+    const total = Math.round(Number(seconds) || 0);
+    return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+}

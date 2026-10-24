@@ -7,7 +7,7 @@
   <title>Sign In - JRE Clipper</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
   <link type="text/css" rel="stylesheet" href="https://www.gstatic.com/firebasejs/ui/6.1.0/firebase-ui-auth.css" />
-  <link rel="stylesheet" href="main.css">
+  <link rel="stylesheet" href="main.css?v=20261024b">
   <style>
     @keyframes spin {
       0% { transform: rotate(0deg); }
@@ -16,12 +16,12 @@
   </style>
 
   <!-- Firebase SDK via CDN (Firebase Hosting Init with Emulator Support) -->
-  <script src="/__/firebase/11.9.1/firebase-app-compat.js"></script>
-  <script src="/__/firebase/11.9.1/firebase-auth-compat.js"></script>
-  <script src="/__/firebase/11.9.1/firebase-functions-compat.js"></script>
-  <script src="/__/firebase/init.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/ui/6.1.0/firebase-ui-auth.js"></script>
-  <script defer src="auth.js"></script>
+  <!-- All deferred: they execute in order before DOMContentLoaded. -->
+  <script defer src="/__/firebase/11.9.1/firebase-app-compat.js"></script>
+  <script defer src="/__/firebase/11.9.1/firebase-auth-compat.js"></script>
+  <script defer src="/__/firebase/init.js"></script>
+  <script defer src="https://www.gstatic.com/firebasejs/ui/6.1.0/firebase-ui-auth.js"></script>
+  <script defer src="auth.js?v=20261024"></script>
 </head>
 
 <body>
@@ -44,7 +44,7 @@
     <div class="signin-page">
       <div class="signin-header">
         <h1>Sign In to JRE Clipper</h1>
-        <p>Access your account to continue</p>
+        <p>Searching works without an account. Sign in (free) to generate compilation videos.</p>
       </div>
 
       <div class="signin-container">
@@ -55,7 +55,7 @@
           </div>
           <div id="firebaseui-auth-container"></div>
           <div class="signin-footer">
-            <p><small>Continue as guest on the <a href="index.html">main page</a> with limited features.</small></p>
+            <p><small>Or keep searching as a guest on the <a href="index.html">main page</a>.</small></p>
           </div>
         </div>
       </div>
@@ -64,24 +64,6 @@
 
   <!-- Footer Section -->
   <footer class="footer">
-    <!-- <div class="footer-content">
-      <div class="footer-section">
-        <h3>👨‍💻 Developer Contact</h3>
-        <ul class="contact-links">
-          <li>📧 <a href="mailto:vohoanvu96@gmail.com">vohoanvu96@gmail.com</a></li>
-          <li>🐙 <a href="https://github.com/vohoanvu" target="_blank">GitHub Profile</a></li>
-          <li>💼 <a href="https://www.linkedin.com/in/thevuture/" target="_blank">LinkedIn</a></li>
-        </ul>
-      </div>
-      <div class="footer-section">
-        <div class="pricing-highlight">
-          <h3>⚡ Upgrade Your Search</h3>
-          <p>Free users: 10 searches per day<br>
-            Unlimited searches with Pro!</p>
-          <a href="/pricing.html" class="pricing-btn">View Pricing</a>
-        </div>
-      </div>
-    </div> -->
 
     <div class="footer-bottom">
       <p>&copy; 2025 JRE Clipper. Built for educational purposes. Joe Rogan Experience content belongs to respective

@@ -1,7 +1,250 @@
 # Project Status: "What would Joe Rogan say?" - Web App
 
-**Date:** 2025-07-04
-**Overall Status:** `ENHANCED - Critical Video Processing Bug Fixes`
+**Date:** 2026-10-24
+**Overall Status:** `REDESIGN LIVE — abuse guards deployed, downloads + backfill running, search import blocked on Discovery Engine document quota`
+
+---
+
+## Handoff (2026-10-24, night) ▶️ start here
+
+### Active runners (detached on the home PC; survive the session)
+| Runner | PID | Window title | State at 21:55 | Expected finish |
+|---|---|---|---|---|
+| `run_bulk.ps1 download` | 20740 | `run_bulk download` | new episodes: 196 done, 34 pending + 2 error (being retried now) | ~3–4 h if YouTube cooperates (~5 min per episode) |
+| `run_bulk.ps1 backfill` | 24188 | `run_bulk backfill` | captions phase: 32 done, 141 `no_captions`, 5 error, 17 pending; then Whisper `transcribe` on ~146 episodes, then `chunk` | ~1–1.5 days (~9 min of Whisper per episode) |
+
+- Check: `ingestion\.venv\Scripts\python -m ingestion status` (from the repo root) and `F:\jre-all-episodes\ingestion\ingestion.log`.
+- Both windows have QuickEdit off, so clicking in them is harmless now. If a window is gone with work still pending, relaunch it with the command at the top of `ingestion/run_bulk.ps1`.
+- The old download window (PID 10516) was replaced at 21:52 between downloads. It had stalled twice: 18:57–19:15 (QuickEdit selection, confirmed) and 19:23–21:49 on #2536 (0% for 2.5 h, no log output; cause unknown, likely the same).
+
+### Where things stand
+- **Live:** everything from the 2026-10-23 redesign plus today's item 4 (per-IP search/answer rate limit, verified email for video generation, thumbnail start time, footer fix). All verified live; see the session entry below.
+- **Committed:** today's changes (`frontend-firebase/functions/index.js`, `public/*`, `ingestion/run_bulk.ps1`, this file) are deployed and committed on `clipper-redesign`; PR into `master` is open.
+- **Search index:** unchanged since 2026-10-23 (#2338, #2339 imported; 24,423 gap lines missing). New-episode dry run: 230 episodes, 84,274 docs, 0 duplicates.
+- **Quota:** `DocumentsPerProjectPerLocation` us still granted **200,000** (1,500,000 requested; Google Support promised an update by ~2026-10-27). Check: `gcloud beta quotas preferences list --project=gen-lang-client-demo`.
+- **Backfill episodes YouTube won't serve** (captions step `error`; none are in `gs://jre-all-episodes` either):
+  - Age-restricted, need `--cookies-from-browser` (owner's OK required, it uses their YouTube session): #1169 `ycPr5-27vSI`, #1579 `XEmDWhEUwrQ`, #1733 `AW9nwZN3A5Q`, `9pVgh7__CZg` (found 21:56); more may turn up as the captions step finishes, so list all backfill `captions` errors from `state.json`.
+  - Copyright-blocked, no source anywhere: #648 `UR2wxWxGhr4`, #1148 `yi0dq1AjVq8`. Leave them unindexed.
+  - The backfill runner will keep retrying these (8 × 30 min) before moving on to `transcribe`; that's ~4 h of wasted waiting but harmless.
+
+### Next session (in order)
+1. **Commit** today's work on `clipper-redesign` (leave `JREClipper.*/obj/` out).
+2. **Runners:** `status`; relaunch any that died. When download pending is 0, spot-check a few new MP4s in the bucket and generate one compilation from new-episode segments on the live site (Session 3 in the ingestion plan below).
+3. **Quota approved?** Then, in order, each dry-run first:
+   - `import --source-uri gs://jre-processed-clips-bucker/final-semantic-chunks/jre-segments-all.ndjson --apply` (finishes the 24k gap; idempotent).
+   - `import --new-only --apply` (84,274 docs), spot-check search for a few new episodes, `mark --new-only --apply`.
+   - Backfill `import`/`mark` once its chunk step is done.
+4. **Backfill leftovers:** ask the owner about cookies for the 3 age-restricted episodes; mark the 2 blocked ones as permanently skipped (e.g. a `skip` status so runners stop retrying).
+5. **Visual check still owed:** the "verify your email" panel on index.html and the notice on account.html (needs an unverified email/password account signed in on the live site; delete it afterwards).
+
+### Task backlog (future sessions)
+**Search and data**
+- Self-built vector search learning track (approved to explore): embed the ~870k segments locally with `bge-small-en-v1.5` (free, CPU, a few hours) into a local vector index (e.g. FAISS or sqlite-vec), then compare results with Vertex AI Search on the same queries. The archived 2025 utterance embeddings (`utterance-embedding-results/`, text-embedding-005, 768-d) are another input but are in ARCHIVE (read cost $0.05/GB).
+- A recurring catch-up routine for new episodes: `discover` → captions → chunk → import → mark → download, maybe on a schedule on the home PC.
+- Backfill MP4s: check which of the 195 backfill episodes are missing from `gs://jre-all-episodes` before `download --include-backfill`.
+- Search quality: evaluate a handful of queries before and after the backfill; consider surfacing episode dates/numbers in results.
+- Ingestion: a per-step download watchdog (yt-dlp sat at 0% for 2.5 h on #2536 with no error); e.g. a stall timeout that kills and retries.
+
+**Security, cost, abuse**
+- Firebase App Check on the callables (the owner registers a reCAPTCHA key in the Firebase console). Stronger than the per-instance IP limit, which allows up to 10× per IP across instances.
+- Cloud Billing export to BigQuery, so costs can be queried from the CLI (`bq` needs installing).
+- Budget alert on the billing account (Discovery Engine queries and LLM answers are the variable costs).
+
+**Engineering hygiene**
+- Merge `clipper-redesign` into `master`.
+- Owner: delete the webhook endpoint in the Stripe dashboard.
+- Upgrade `firebase-functions` (the deploy warns it is outdated; breaking changes, so do a full retest).
+- firebase-tools isn't installed globally: use `npx -y firebase-tools@14` with `FUNCTIONS_DISCOVERY_TIMEOUT=60` for functions deploys, then delete `%LOCALAPPDATA%\npm-cache\_npx\<hash>` (~150 MB each), or install it once with `npm i -g firebase-tools`.
+- The repo has no tests: add a small smoke script for the callables and run `av_sync_check.py` as a renderer regression check.
+- `deploy.sh` needs Docker Desktop; add a Cloud Build path (`gcloud builds submit`) as documented in CLAUDE.md §2.
+- Stop tracking `JREClipper.*/obj/` in git (`git rm -r --cached`).
+
+**Product and UX**
+- Show "video not available yet" per segment for episodes whose MP4 isn't in the bucket (createVideoJob already returns `missingVideoIds`).
+- AI answer cold start (~15–20 s on the first call): consider `minInstances: 1` for `answerQuery` (costs money) or a loading hint.
+- Rate-limit message says "searching too fast" for answers too; fine for now since both fire per search.
+- Optional: email or notification when a compilation finishes.
+
+## Session (2026-10-24, evening): items 1–4 of the previous handoff ✅
+
+- **Download runner froze for ~18 min at 18:57.** Someone clicked in its minimized console, and the window title showed "Select Windows PowerShell": QuickEdit selection blocks console output, so the Python process hung on a log write. Pressing Esc in the window resumed it (upload of #2535 restarted 19:15). `run_bulk.ps1` now turns QuickEdit off and sets the window title to `run_bulk <pipeline>`. The current download window predates that change, so don't click in it.
+- **Backfill runner launched (item 2):** new `run_bulk.ps1 backfill` pipeline (captions → Whisper `transcribe` → chunk, each retried after throttling). Started 19:14 as PID 24188. Most backfill episodes report `no_captions`, so expect ~9 min of Whisper per episode (~1–1.5 days total).
+- **New-episode import dry run (item 3):** 230 episodes, **84,274 documents**, `preflight.alreadyPresent` 0/10. Quota check (`gcloud beta quotas preferences list`): `DocumentsPerProjectPerLocation` us, preferred 1,500,000, **granted still 200,000**. So import `--apply` waits for Google. Headroom after approval: ~746k + 24k gap + 84k new + ~80k backfill ≈ 935k of 1.5M.
+- **Item 4: deployed and verified live (owner-approved).** `searchSegments`, `answerQuery`, `createVideoJob` and hosting (CSS `?v=20261024b`).
+  - Rate limit: 33 curl searches with a fake `X-Forwarded-For: 6.6.6.6` gave 30×200 then 429, and a request without the header was also 429. The log shows the machine's real IP, so the rightmost-entry parsing is right.
+  - `createVideoJob` with a temporary unverified email/password account returned `FAILED_PRECONDITION` with `email-unverified` (account deleted afterwards).
+  - Chrome: thumbnail click opens the embed at the first segment's start (1656 s on the first "bears" result); footer has no bullets and light text (Pico also colors the `ul`, so `.contact-links` got `color: inherit`).
+  - Not checked visually: the verify panel on index.html and the account-page notice, which need an unverified account signed in.
+  - The first `firebase deploy` failed with "User code failed to load … Timeout after 10000" (CLI cold start); `FUNCTIONS_DISCOVERY_TIMEOUT=60` fixed it.
+- Item 4 details:
+  - `recordSearchActivity`: already fixed and deployed on 2026-10-23 (counters + per-visitor marker docs, no arrays). Nothing to do.
+  - `searchSegments` / `answerQuery`: in-memory per-IP fixed-window limit, 30 and 10 per minute per instance. The IP is the rightmost `X-Forwarded-For` entry (Express's `req.ip` is the spoofable leftmost). After deploy, check a `rate limited` log line shows the real IP.
+  - `createVideoJob`: requires `email_verified` (`failed-precondition`, details `{reason: "email-unverified"}`). `main.js` checks before calling (reloading the user in case the link was clicked in another tab, then refreshing the ID token) and shows a verify panel with resend/retry. `auth.js` sends the verification email on email/password sign-up. `account.html` shows a notice + resend button for unverified users.
+  - Thumbnail click starts at the first matching segment (`data-start` on the facade).
+  - Footer bullets: Pico styles `li` directly, so `.contact-links li` now sets `list-style: none` and `color: inherit`.
+  - Cache-busters bumped to `?v=20261024` (main.css, main.js, auth.js, account.js).
+  - Deploy: `firebase deploy --only functions:searchSegments,functions:answerQuery,functions:createVideoJob`, then `firebase deploy --only hosting` (firebase-tools isn't installed globally; `npx firebase-tools@14` works with the stored login). Then verify in Chrome: thumbnail start time, footer, generate as a Google user still works, and an unverified email/password account gets the verify panel.
+
+## Handoff (2026-10-24, afternoon)
+
+### Where things stand
+- **Live and verified:** clipper renderer `v2` (A/V sync fix), search proxy, free 5/day video generation, legacy stack deleted, no user-managed SA keys. Code is on branch `clipper-redesign` (pushed; `5878c07`, `38901a9`, `cbaa26e`), **not merged to `master`**.
+- **Search index:** #2338 and #2339 are imported and marked. The 17% gap re-import got 744,927/769,350 lines in (#2334 is searchable now). 24,423 lines failed on the `documents_regional` quota.
+- **Quota increase pending.** Requested `documents_regional`, `us`, 200,000 → 1,500,000 (the store already holds ~746k: the limit was evidently enforced late). Google Support (Josephine, Quota Team) wrote on 2026-10-24 that evaluation is underway with an update within 2–3 days. Check Console → Quotas, or `gcloud`, before importing.
+- **New episodes #2338–#2569 (232):** captions 232/232, chunk 232/232, import 2, mark 2. Download: 195 done, 2 error, 35 pending as of 2026-10-24 18:58; the detached runner (`run_bulk.ps1 download`, PID 10516) should finish around midnight.
+  - Errors are YouTube throttling: #2379 `GqsA7DYn5BA` (blank error) and #2464 `va8-X78sxZk` ("Sign in to confirm you're not a bot"). The runner retries them after 30 min. If the bot check persists: `python -m ingestion download --ids <id> --cookies-from-browser <browser>`, with the owner's OK since that uses their YouTube session.
+- **Storage cost cut is in effect:** all 2,314 episode MP4s (847 GB) and the 57 GB of 2025 embeddings are ARCHIVE. Expected ~$1–1.50/month instead of ~$15.40.
+
+### Decisions made 2026-10-23/24
+- Production deploys, legacy deletion and SA key revocation (deploy steps 1–8) were approved and done.
+- The A/V drift was the renderer's AAC stream-copy concat, not the transcript data. Fixed with sample-exact PCM segments and a single AAC encode. Guard future changes with `JreClipRenderer/tools/av_sync_check.py`.
+- Verify UI changes on the live site with Claude in Chrome (no local emulators). Inspect GCP with the gcloud CLI, not the console. Remove test downloads/tools from disk after use.
+- Each new-episode import batch is dry-run and reviewed before `--apply`. Import and mark are never automated.
+- Storage: episode MP4s and old embeddings in ARCHIVE; rendered clips in STANDARD with an 8-day delete.
+- **Approved by the owner on 2026-10-24 for the next session:** items 1–4 under "Next session" below, including the code changes + deploy in item 3.
+
+### Next session / backlog
+Superseded by the 2026-10-24 (night) handoff at the top; items 1–4 were done in the evening session.
+
+---
+
+## Storage cost cut (2026-10-23)
+
+- September Cloud Storage was ₫405,266 (~$15.40); 99.8% was Standard Storage US Regional, 780 GiB-month: the episode MP4s in `jre-all-episodes` plus ~57 GB of 2025 embedding artifacts in `jre-processed-clips-bucker`. Bucket default classes only apply to new uploads, which is why the old objects were still STANDARD.
+- Applied:
+  - `jre-all-episodes` has a lifecycle rule STANDARD → ARCHIVE.
+  - `jre-processed-clips-bucker` has a lifecycle rule archiving `utterance-embedding-results/`, `segmented_transcripts/` and `utterances-for-embedding/`, next to the existing 8-day delete on `edited-clips/`. Its default class is now STANDARD, so rendered clips (short-lived downloads) no longer land in ARCHIVE. `cleanup-legacy-gcp.sh --clip-lifecycle` writes both rules.
+- Expected: ~$1.10/month instead of ~$15.40 once the rules have run (within ~24 h). ARCHIVE has a 365-day minimum per object and charges $0.05/GB to read; the renderer reads only small slices of each source video, so the read cost is cents. Check that the conversion happened with `gcloud storage objects list "gs://jre-all-episodes/**" --format="csv(storage_class)" | sort | uniq -c`.
+
+## Ingestion plan by session (started 2026-10-23) ▶️ resume here
+
+Long runs are detached (`ingestion/run_bulk.ps1`, launched with `Start-Process`), so they survive the end of a session. Every step resumes from `state.json`. Check them with `python -m ingestion status` and `F:\jre-all-episodes\ingestion\ingestion.log`. If a runner window is gone but work is still pending, relaunch it with the command at the top of `run_bulk.ps1`. The PC is set to never sleep on AC power.
+
+**Session 1 (2026-10-23): done**
+- [x] Pilot #2338 and #2339 imported (874/874, 20/20 sampled ids verified), searchable live, and marked in Firestore.
+- [x] Item 1: re-import of `jre-segments-all.ndjson` (769,350 lines, INCREMENTAL, upsert by line hash) started at 10:58 UTC. Result: see the entry below once verified.
+- [x] Item 3: launched `run_bulk.ps1 text` (captions → chunk for the ~175 remaining new episodes, ~3–4 h) and `run_bulk.ps1 download` (226 MP4s, ~2–3 days).
+- [x] Added `--new-only` to every step: backfill episodes sort first, so a plain run would start with them.
+- [x] Captions done for all 232 new episodes (by 22:18). #2476 `c-313sIpL_0` had failed repeatedly with HTTP 429. yt-dlp requested all four English tracks, and a throttled, unused translated `en` ASR track aborted the video even though `en-orig` had downloaded. `fetch_captions` now picks one track from the listing and downloads only that one.
+
+**Item 1 result (2026-10-23 11:13 UTC): blocked by the data store's document quota.**
+- 744,927 of 769,350 lines succeeded and 24,423 failed with `RESOURCE_EXHAUSTED: Quota exceeded … discoveryengine.googleapis.com/documents_regional` (failures are file lines 737,237+; error files are in `…/incremental/errors/`).
+- #2334 (Kash Patel) is now searchable, so most of the gap is filled.
+- The `us` data store is at its document cap (apparently ~750k; the serviceusage listing shows a 200k default that is clearly not what's enforced). This is almost certainly why ~17% was missing after the June 2025 import.
+- **Blocker for session 2 and the backfill:** ~100k new-episode docs and ~80k backfill docs will fail too until the quota is raised. The owner has to request it: Console → IAM & Admin → Quotas → `discoveryengine.googleapis.com/documents_regional`, location `us`, ask for ~1.5M. https://cloud.google.com/generative-ai-app-builder/quotas#request-a-quota-increase
+- After the increase: rerun the same `import --source-uri …jre-segments-all.ndjson --apply` (idempotent) to finish the 24k, then continue with session 2.
+
+**Session 2 (after the text runner finishes, e.g. the next day; needs the quota increase first)**
+1. `python -m ingestion status`: captions and chunk should be done for all 232 new episodes. Look in the log for `empty` / `no_captions` / `error` episodes, and check that segment-length stats look like the corpus (mean ~32 s).
+2. `python -m ingestion import --new-only` (dry run): check the episode/document counts and that `preflight.alreadyPresent` is 0. Then add `--apply`. It verifies 20 sampled ids itself.
+3. Spot-check a few new episodes in live search, then run `mark --new-only` (dry run), then `--apply`.
+4. Check the download runner (pending count going down; relaunch if its window is gone).
+
+**Session 3 (when downloads finish, ~2–3 days)**
+1. `status` shows download pending 0; spot-check a few objects in `gs://jre-all-episodes`.
+2. Generate a compilation from new-episode segments on the live site; optionally run `tools/av_sync_check.py` on a local render.
+3. Catch-up routine for episodes released since: `discover`, then the same text → import → mark → download steps.
+
+**Session 4: item 4, the backfill of 195 episodes with empty 2025 transcripts**
+1. `captions` for the backfill (YouTube may have captions now), then `transcribe` (Whisper on CPU, ~9 min per episode) for the ones without.
+2. `chunk`, `import`, `mark`: the batch already holds the Fight Companion `AJEsIBxxfdY`, Whisper-transcribed and chunked. Check which backfill MP4s are missing from the bucket before `download --include-backfill`.
+
+**Later:** item 5 (abuse/cost guards: verified email for the quota, App Check or a per-IP limit on search, the `recordSearchActivity` 1 MB growth), item 6 (Stripe webhook, merge `clipper-redesign`, `firebase-functions` upgrade), item 7 (thumbnail start time, self-built vector search).
+
+## Ingestion state check (2026-10-23, late) — nothing new is searchable yet
+
+Verified with `python -m ingestion status`, the log, GCS and live searches. The handoff notes above understate the progress.
+- **New episodes #2338–#2569 (232):**
+  - captions 57 done (#2338–#2394); chunk 2 done (#2338, #2339; 874 docs ready); import 0; mark 0.
+  - download: 6 done (#2338–#2343, in `gs://jre-all-episodes`); #2344 `WfmrEa0L08E` interrupted.
+  - The run was killed at 01:27 when the previous session ended (gcloud exit `0x40010004`). The 300 MB `F:\jre-all-episodes\WfmrEa0L08E.mp4` is still local and not in GCS.
+- **Backfill (195 episodes, #15–#2237):** episodes whose 2025 Apify transcript came back empty (`isEmptyTranscript`), so they were never indexed. Registered via `discover --backfill-empty`; captions done 2 (Whisper fallback `transcribe` exists for episodes without captions); chunk done 1; nothing imported. `download` skips these unless `--include-backfill`.
+- **Live index unchanged:** searches for #2338 (Beth Shapiro) and #2341 (Bernie Sanders) return no hits from those episodes, and #2334 (Kash Patel) is still missing. The 17% re-import (`import --source-uri …jre-segments-all.ndjson --apply`) has not been run.
+
+## Update (2026-10-23, evening): A/V sync drift fixed (renderer v2), legacy stack deleted, signed-in flow verified ✅
+
+- **A/V drift was the editing pipeline, not the transcript data.** Measured per segment (audio cross-correlated against the source, video located by frame-sequence matching) on a live 30-segment job: audio drifted from -1 ms to **-268 ms (audio early)** by the last segment; it is noticeable past ~45 ms, i.e. from about segment 3. Transcript timestamps only choose cut points and cannot desync A/V. Cause: stream-copy concat of separately encoded AAC segments (per-segment encoder priming + audio/video length mismatch at every seam). Reproduced locally (-168 ms on 30 segments from `F:` sources).
+- **Fix (`ClipRenderer.cs`, image `v2` `sha256:99cc2db8…`):** each segment has an exact frame count (`trim=end_frame`, not `-frames:v`, which truncated buffered audio by up to 20 ms) and exactly `round(n × 1601.6)` PCM samples (`apad,atrim`); `fps=…:start_time=0` pins the first frame; segments are `.mov` with PCM; concat uses explicit per-file `duration` and encodes AAC once (`-aac_coder fast`: 7 s vs 22 s for 15 min). Same live job after the fix: -1 ms on 29/30 segments (one +32 ms from 29.97 fps quantization, non-cumulative); xcorr 1.00 everywhere; render 74 s (was 80 s). Edge cases (end-of-episode clamp, start at 0, 0.6 s segment) are exact.
+- New regression check: `video-processor-CloudRun-Function/JreClipRenderer/tools/av_sync_check.py` (see CLAUDE.md §2).
+- The Dockerfile now uses `COPY *.cs ./` (Cloud Build's builder rejects `COPY *.cs .`). Built with Cloud Build because Docker Desktop was not running.
+- **Steps 5-8 done:**
+  - Deleted functions `handleStripeWebhook`, `createCheckoutSessionAuth`, `cancelSubscription`, `createCustomerPortalSession`, `requestManualVideoGeneration`, `streamJobStatus`.
+  - `cleanup-legacy-gcp.sh --apply --clip-lifecycle`: 10 Eventarc triggers (added `jre-video-clipping-trigger`, which pointed at the long-gone `segments-background-processor-dotnet`), topic `video-editing-job`, services `segment-editing-job-dotnet` and `jre-video-processor-py`, `getVertexAiToken` (now 404), SA `dotnetapp-demo@` with its 3 keys, and an 8-day delete lifecycle on `edited-clips/`.
+  - Deleted the one key of `jre-clipper-server@`. The project now has no user-managed SA keys. The old Mac key file `gen-lang-client-demo-438f6a60e6e4.json` no longer works (nothing in the repo uses it).
+  - `git rm` of the legacy processor files.
+  - **Still on the owner:** remove the webhook endpoint in the Stripe dashboard.
+- **Signed-in flow verified live:** generate (30 segments / 28 episodes) → status page polling → Complete → download → account page (admin "no daily limit", video list).
+  - Fixed: the sticky header had no background, so content scrolled over it.
+  - Fixed: phone-width overflow. The signed-in header pushed Sign Out off-screen and the search box was ~80 px wide.
+  - Hosting now sends `Cache-Control: no-cache` for HTML; the Firebase default `max-age=3600` kept stale HTML in browsers after deploys.
+- Not committed: `check_missing_videos.sh` and `jre_filtered_urls.txt` had unrelated local edits from before these sessions.
+
+## Update (2026-10-23, later): Deploy steps 1-4 done, new stack is live ✅
+
+- **Step 1 ✅** Cloud Run Job `jre-clip-renderer` deployed from the already-pushed image `sha256:02e527a4…` (all renderer sources predate that push, so no rebuild; Docker Desktop was not running).
+- **Step 2 ✅** Smoke job `videoJobs/smoke-20261023-093758` (2 × 20 s from `-0sKkbjQYqw` / `--SCDa1zsYI`): execution succeeded in 75 s wall-clock incl. cold start + GCS FUSE, doc reached `Complete`, signed URL downloads anonymously (HTTP 200, H.264/AAC 854x480, 40.09 s, 2.0 MB). The test doc and `edited-clips/smoke-20261023-093758/` were left in place.
+- **Step 3 ✅** `searchSegments`, `answerQuery`, `createVideoJob`, `getVideoJob` created; `getUserUsageStats`, `getVideoMetadata`, `recordSearchActivity` updated. `searchSegments` runs as `jre-search-reader@`; `createVideoJob` rejects anonymous callers.
+- **Step 4 ✅** Hosting deployed. No Cloudflare purge needed: HTML is `cf-cache-status: DYNAMIC` and JS/CSS use new `?v=` URLs. `pricing.html` now 404s.
+- **Live browser check (Claude in Chrome, signed out):** search (30 results), AI answer (first call ~15-20 s cold), click-to-load facades, SKIP TO, selection count, sign-in modal, `signin.html?next=`, account and status pages signed out. No console errors.
+  - Fixed and redeployed: Pico's `p`/`small`/`li` colors overrode the light text in the dark sign-in modal (new in the redesign), the sign-in box and the footer (both pre-existing), and Pico bullets showed next to the FirebaseUI buttons. `main.css` cache-buster is now `?v=20261023`.
+  - Not yet checked: the signed-in flow (generate → status → download → account) and mobile layout.
+- Still live and pending owner go-ahead: step 5 (delete Stripe/legacy functions incl. `streamJobStatus` and `getVertexAiToken`), 6 (`cleanup-legacy-gcp.sh`), 7 (revoke SA keys), 8 (`git rm` legacy files + commit).
+- UX note: clicking a video thumbnail starts at 0:00 (same as the old site); starting at the first matched segment may be nicer.
+
+## Handoff (2026-10-23): Clipper rebuilt as a Cloud Run Job, paywall removed, search proxied server-side ⏸️
+
+Resume point for the next session. Nothing below is deployed unless marked ✅ live.
+
+### Done
+- ✅ **live: security stopgap.** The public `getVertexAiToken` used to return a token for the Editor-role compute SA to anyone. It was redeployed with gcloud to run as the new SA `jre-search-reader@` (only `roles/discoveryengine.user`). Verified that search and answer still work and that the token now gets 403 on GCS, Firestore and Run.
+- **Clip renderer** `video-processor-CloudRun-Function/JreClipRenderer/` (.NET 10 Cloud Run Job, see CLAUDE.md §2).
+  - Tested natively and in its Alpine container against F:\ sources, plus a full cloud-path integration test: real Firestore claim, GCS upload, IAM-signed URL downloaded anonymously, and a duplicate execution acting as a no-op.
+  - On the same 5-segment job: 10.2 s vs 63.8 s for the old pipeline, 17.2 MB vs 26.8 MB, +1.7–2.6 dB PSNR, user order preserved. Cut accuracy is equal; the old cuts were not keyframe-snapped.
+  - Image pushed: `cloud-run-source-deploy/jre-clip-renderer@sha256:02e527a4…` (tags v1, latest).
+  - SA `jre-clip-renderer@` was created with least-privilege IAM. The owner's user also has Token Creator on it, for local signing tests.
+- **Frontend + Functions** (`frontend-firebase/`, not deployed):
+  - Stripe paywall removed. Video generation is free, requires sign-in, and is capped at 5 per day.
+  - Search is proxied via `searchSegments` / `answerQuery`.
+  - `createVideoJob` and `getVideoJob` replace the Python API.
+  - Status page rebuilt around polling.
+  - YouTube embeds are now click-to-load facades.
+  - Several XSS and race-condition fixes.
+  - `functions/.env` was created by the owner (YOUTUBE_API_KEY, ADMIN_EMAIL).
+- `cleanup-legacy-gcp.sh` (dry-run by default) lists all legacy GCP resources to delete after cutover.
+- **Ingestion pipeline** `ingestion/`: see the entry below.
+
+### Deploy order (each step needs the owner's go-ahead; the auto-mode classifier blocked agent-run prod deploys)
+1. `cd video-processor-CloudRun-Function/JreClipRenderer && ./deploy.sh`. The Cloud Run Job `jre-clip-renderer` does not exist yet.
+2. Smoke test: create a test `videoJobs` doc with `status: Queued`, then `gcloud run jobs execute jre-clip-renderer --region us-central1 --update-env-vars JOB_ID=<id>`, and check that the doc reaches `Complete` and the signed URL downloads.
+3. `cd frontend-firebase && firebase login`, then deploy the new functions first: `firebase deploy --only functions:searchSegments,functions:answerQuery,functions:createVideoJob,functions:getVideoJob,functions:getUserUsageStats,functions:getVideoMetadata,functions:recordSearchActivity`.
+4. `firebase deploy --only hosting`, then purge the Cloudflare cache.
+5. `firebase functions:delete handleStripeWebhook createCheckoutSessionAuth cancelSubscription createCustomerPortalSession requestManualVideoGeneration streamJobStatus --region us-central1 --force`, and remove the webhook in the Stripe dashboard.
+6. `./cleanup-legacy-gcp.sh` (review), then `--apply`. Optionally add `--clip-lifecycle`.
+7. Revoke the SA keys on `dotnetapp-demo@` (3) and `jre-clipper-server@` (1). One is stored in plaintext in the old Python service env; Apify may hold another.
+8. `git rm` the legacy processor files (`main*.py`, `requirements.txt`, `JreVideoProcessor/`, `build-and-push.sh`, `.dockerignore` in `video-processor-CloudRun-Function/`). Then commit; nothing from this session is committed yet.
+
+### Open decisions / follow-ups
+- **The live index is missing about 17%** (verified 2026-10-23). The data store has 636,095 docs, versus 769,350 lines in `jre-segments-all.ndjson`.
+  - 349 of 2,123 videos are entirely absent; e.g. #2334 Kash Patel's first segment returns 404, while #2337's returns 200. 42 more are partial.
+  - Fix: `python -m ingestion import --source-uri gs://jre-processed-clips-bucker/final-semantic-chunks/jre-segments-all.ndjson --apply` re-imports with the original settings. It is idempotent, because the doc id is `sha256(line)[:32]`. Not run yet.
+- **New-episode pilot is ready, not imported.**
+  - #2338 and #2339: 874 docs in `F:\jre-all-episodes\ingestion\ndjson\2026-10-22.ndjson`. Both MP4s are already in `gs://jre-all-episodes`.
+  - Next: `import --apply`, then `mark --apply`. Then run the bulk for the remaining ~230: captions + chunk ≈ 4 h; downloads ≈ 36 h / ~93 GB, limited by upload bandwidth. Both can run alongside each other.
+  - Captions for #2340–#2352 were already fetched locally, by accident; the bug is fixed and they will be reused.
+- Email/password sign-in has no verification, so throwaway accounts can each use the 5/day quota. Consider requiring `email_verified` or Google-only sign-in.
+- Search is anonymous with no per-IP limit, and Discovery Engine queries are paid. Consider App Check.
+- `recordSearchActivity` keeps unbounded arrays in one daily doc and will eventually hit the 1 MB Firestore document limit.
+- Optional learning track: a self-built vector search (own embeddings + a vector table) alongside the managed Vertex AI Search, for comparison.
+- Nothing has been visually checked in a browser yet (verified only with jsdom smoke tests and handler-level tests).
+
+## Update (2026-10-23): Free incremental ingestion pipeline (`ingestion/`), piloted on 2 episodes
+
+- New Python package `ingestion/` (`python -m ingestion <discover|captions|chunk|import|mark|download|status|calibrate>`), state and logs in `F:\jre-all-episodes\ingestion\`. No Apify and no paid APIs: yt-dlp (with Deno) for listings, captions and MP4s, fastembed `BAAI/bge-small-en-v1.5` on CPU for chunk boundaries.
+- `discover` found 232 new episodes (#2338-#2569, about 620 h). #2469 and #2564 are only on the channel uploads tab, not in the playlist.
+- Chunking is an exact port of the C# code. It reproduces existing `jre-segments-all.ndjson` lines byte-for-byte when given the old transcripts. The effective settings were min 30 s, overlap 2, and the 0.82 threshold almost never fired. The new model's threshold is 0.80, calibrated on 40 old episodes to the same no-break rate (0.82% vs 0.83%).
+- Data store import config: GCS `dataSchema: custom` + `autoGenerateIds`. Document id = `sha256(line)[:32]`, so re-imports are idempotent. `import` and `mark` are dry-run unless `--apply`.
+- Found: 349 of the 2,123 indexed videos (about 126k segments, e.g. #2334) are entirely missing from the live data store, and 42 more are partial (636,095 docs vs 769,350 NDJSON lines). `python -m ingestion import --source-uri gs://jre-processed-clips-bucker/final-semantic-chunks/jre-segments-all.ndjson --apply` would backfill them without duplicates.
+- Pilot: #2338 and #2339 went through captions, chunks and NDJSON, and their MP4s were uploaded to `gs://jre-all-episodes`. Nothing was imported into the data store and Firestore was not written. Waiting for owner review. A `--limit 0` bug (now fixed) also fetched captions only for #2340-#2352; those are local files, not chunked.
 
 ---
 
