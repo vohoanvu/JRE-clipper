@@ -15,7 +15,7 @@ The repo is several independently deployed parts with no shared build. All live 
 - Firebase Functions source: `gs://gcf-v2-sources-408323719521-us-central1/<fn>/function-source.zip`
 - Hosting: fetch the files from the live site.
 
-GitHub `origin/master` at `16d544a` (2025-08-17) matched production.
+GitHub `origin/master` matches production as of 2026-10-25 (the `clipper-redesign` branch was merged in PR #1).
 
 ## Project rules (from `.github/instructions/projectrules.instructions.md`)
 

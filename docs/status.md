@@ -1,17 +1,17 @@
 # Project Status: "What would Joe Rogan say?" - Web App
 
-**Date:** 2026-10-24
+**Date:** 2026-10-25
 **Overall Status:** `REDESIGN LIVE — abuse guards deployed, downloads + backfill running, search import blocked on Discovery Engine document quota`
 
 ---
 
-## Handoff (2026-10-24, night) ▶️ start here
+## Handoff (2026-10-25, 00:00 wrap-up) ▶️ start here
 
 ### Active runners (detached on the home PC; survive the session)
-| Runner | PID | Window title | State at 21:55 | Expected finish |
+| Runner | PID | Window title | State at 23:58 | Expected finish |
 |---|---|---|---|---|
-| `run_bulk.ps1 download` | 20740 | `run_bulk download` | new episodes: 196 done, 34 pending + 2 error (being retried now) | ~3–4 h if YouTube cooperates (~5 min per episode) |
-| `run_bulk.ps1 backfill` | 22216 (relaunched 22:50) | `run_bulk backfill` | captions phase: 32 done, 141 `no_captions`, 5 error, 17 pending; then Whisper `transcribe` on ~146 episodes, then `chunk` | ~1–1.5 days (~9 min of Whisper per episode) |
+| `run_bulk.ps1 download` | 20740 | `run_bulk download` | new episodes: 214 done, 18 pending | a few hours (it slowed to ~10 min per episode) |
+| `run_bulk.ps1 backfill` | 22216 (relaunched 22:50) | `run_bulk backfill` | captions finished (43 done, 143 `no_captions`, 9 `unavailable`); Whisper `transcribe` on the ~143 (9 done so far), then `chunk` | ~1–1.5 days (~9 min of Whisper per episode) |
 
 - Check: `ingestion\.venv\Scripts\python -m ingestion status` (from the repo root) and `F:\jre-all-episodes\ingestion\ingestion.log`.
 - Both windows have QuickEdit off, so clicking in them is harmless now. If a window is gone with work still pending, relaunch it with the command at the top of `ingestion/run_bulk.ps1`.
@@ -19,33 +19,33 @@
 
 ### Where things stand
 - **Live:** everything from the 2026-10-23 redesign plus today's item 4 (per-IP search/answer rate limit, verified email for video generation, thumbnail start time, footer fix). All verified live; see the session entry below.
-- **Committed:** today's changes (`frontend-firebase/functions/index.js`, `public/*`, `ingestion/run_bulk.ps1`, this file) are deployed and committed on `clipper-redesign`; PR into `master` is open.
+- **Git:** `clipper-redesign` merged into `master` (PR #1, `a6ed97d`) and deleted; ingestion fixes in `ebecc0c`. Everything is committed and pushed.
 - **Search index:** unchanged since 2026-10-23 (#2338, #2339 imported; 24,423 gap lines missing). New-episode dry run: 230 episodes, 84,274 docs, 0 duplicates.
 - **Quota:** `DocumentsPerProjectPerLocation` us still granted **200,000** (1,500,000 requested; Google Support promised an update by ~2026-10-27). Check: `gcloud beta quotas preferences list --project=gen-lang-client-demo`.
-- **Backfill episodes YouTube won't serve** (captions step `error`; none are in `gs://jre-all-episodes` either):
-  - Age-restricted, need `--cookies-from-browser` (owner's OK required, it uses their YouTube session): #1169 `ycPr5-27vSI`, #1579 `XEmDWhEUwrQ`, #1733 `AW9nwZN3A5Q`, `9pVgh7__CZg` (found 21:56); more may turn up as the captions step finishes, so list all backfill `captions` errors from `state.json`.
-  - Copyright-blocked, no source anywhere: #648 `UR2wxWxGhr4`, #1148 `yi0dq1AjVq8`. Leave them unindexed.
-  - **Fixed 22:50:** these errors used to count as throttling (age errors matched the "Sign in to confirm" bot marker), so the runner backed off, stopped after 3 and retried 8 × 30 min. Now `yt.unavailable_reason` records them as status `unavailable` (`reason: age_restricted|blocked`), with no backoff, and they no longer count as pending. The 10 existing errors were reclassified (5 age-restricted: `XEmDWhEUwrQ AW9nwZN3A5Q roYHf3MTsno ycPr5-27vSI 9pVgh7__CZg`; 5 blocked: `yi0dq1AjVq8 7frzhxAReSE fF9YZYyYhl4 UR2wxWxGhr4 3Do-i4OFz1M`), and the backfill runner was relaunched as **PID 22216** (captions: 6 left). Retry an `unavailable` one only by naming it: `captions --ids <id> --cookies-from-browser <browser|cookies.txt>` (then `transcribe --ids` with the same flag if it has no captions).
-  - **Age-restricted ones done 23:30–23:46** with a Chrome cookies.txt export from the owner (Chrome cookies can't be read directly on Windows: DPAPI error, yt-dlp#10927). `--cookies-from-browser` now also takes a cookies.txt path. Captions: #1169, #1579, #1759, #1872. Whisper: #1733 `AW9nwZN3A5Q`. The cookie file was deleted afterwards. All 5 await the runner's `chunk` step.
+- **Backfill episodes YouTube won't serve (resolved 2026-10-24 night):**
+  - These errors used to count as throttling (age errors matched the "Sign in to confirm" bot marker): backoff, stop after 3, then 8 × 30 min retries. Now `yt.unavailable_reason` records them as status `unavailable` (`reason: age_restricted|blocked`) with no backoff, and they don't count as pending. Retry one only by naming it: `captions --ids <id> --cookies-from-browser <browser|cookies.txt>`, then `transcribe --ids` with the same flag if it has no captions.
+  - Age-restricted (5), fetched 23:30–23:46 with a Chrome cookies.txt export from the owner. Chrome cookies can't be read directly on Windows (DPAPI error, yt-dlp#10927), so `--cookies-from-browser` now also takes a cookies.txt path; the file was deleted afterwards. Captions: #1169, #1579, #1759, #1872. Whisper: #1733 `AW9nwZN3A5Q`. All 5 await the runner's `chunk` step.
   - **Permanently unavailable (copyright-blocked), 9:** #648 `UR2wxWxGhr4`, #1148 `yi0dq1AjVq8`, #1753 `3Do-i4OFz1M`, #1974 `fF9YZYyYhl4`, #1987 `7frzhxAReSE`, #2003 `Go0OmztyEqo`, #2024 `4o1rnl8w6Rg`, #2075 `ocePykx_OQI`, #2081 `c2Cx6dD909E`. Leave unindexed.
 
 ### Next session (in order)
-1. **Commit** today's work on `clipper-redesign` (leave `JREClipper.*/obj/` out).
-2. **Runners:** `status`; relaunch any that died. When download pending is 0, spot-check a few new MP4s in the bucket and generate one compilation from new-episode segments on the live site (Session 3 in the ingestion plan below).
-3. **Quota approved?** Then, in order, each dry-run first:
+1. **Runners:** `status`; relaunch any that died. When download pending is 0, spot-check a few new MP4s in the bucket and generate one compilation from new-episode segments on the live site.
+2. **Quota approved?** (`gcloud beta quotas preferences list --project=gen-lang-client-demo`; still 200,000 at 23:58.) Then, in order, each dry-run first:
    - `import --source-uri gs://jre-processed-clips-bucker/final-semantic-chunks/jre-segments-all.ndjson --apply` (finishes the 24k gap; idempotent).
    - `import --new-only --apply` (84,274 docs), spot-check search for a few new episodes, `mark --new-only --apply`.
    - Backfill `import`/`mark` once its chunk step is done.
-4. ~~**Backfill leftovers**~~ done 2026-10-24 night: age-restricted episodes fetched with cookies, blocked ones marked `unavailable` (see above). Commit the `ingestion/` changes (`unavailable` status, cookies.txt support).
-5. **Visual check still owed:** the "verify your email" panel on index.html and the notice on account.html (needs an unverified email/password account signed in on the live site; delete it afterwards).
+3. **Owner-chosen tasks for the next session** (2026-10-25):
+   - **"Video not available yet" indicator:** mark segments whose episode MP4 isn't in `gs://jre-all-episodes`, so users don't select them. `createVideoJob` already returns `missingVideoIds`; the search page needs to know before Generate (e.g. a cached bucket listing or a `jre-episodes` flag from `download`).
+   - **Download stall watchdog:** yt-dlp sat at 0% for 2.5 h on #2536 with no error. Add a no-progress timeout in `download` (progress hook timestamp + a watchdog thread, or a subprocess with a timeout) that aborts and retries.
+   - **Scheduled new-episode routine:** `discover` → captions → chunk → download on a schedule on the home PC (Task Scheduler + `run_bulk.ps1`), with import/mark staying manual (reviewed dry runs).
+   - **Backfill MP4 check:** list which of the 195 backfill episodes (minus the 9 `unavailable`) are missing from `gs://jre-all-episodes` before `download --include-backfill`.
+4. **Owner to-dos:** delete the test account `vutest@gmail.com` (Firebase Console → Authentication); delete the Stripe webhook endpoint.
+5. Done this session: ~~commit~~, ~~merge to master~~, ~~backfill leftovers~~, ~~visual check of the verify-email screens~~ (details below).
+   - Visual check (2026-10-25, owner-created unverified account `vutest@gmail.com`): account.html shows the yellow notice + "Resend the email" above the 5/5 quota; on index.html, Generate shows the "Please verify your email" panel (I've verified / Resend / Dismiss), and "I've verified, try again" keeps it shown while unverified. No console errors. Resend not clicked (it would email that address).
 
 ### Task backlog (future sessions)
 **Search and data**
 - Self-built vector search learning track (approved to explore): embed the ~870k segments locally with `bge-small-en-v1.5` (free, CPU, a few hours) into a local vector index (e.g. FAISS or sqlite-vec), then compare results with Vertex AI Search on the same queries. The archived 2025 utterance embeddings (`utterance-embedding-results/`, text-embedding-005, 768-d) are another input but are in ARCHIVE (read cost $0.05/GB).
-- A recurring catch-up routine for new episodes: `discover` → captions → chunk → import → mark → download, maybe on a schedule on the home PC.
-- Backfill MP4s: check which of the 195 backfill episodes are missing from `gs://jre-all-episodes` before `download --include-backfill`.
 - Search quality: evaluate a handful of queries before and after the backfill; consider surfacing episode dates/numbers in results.
-- Ingestion: a per-step download watchdog (yt-dlp sat at 0% for 2.5 h on #2536 with no error); e.g. a stall timeout that kills and retries.
 
 **Security, cost, abuse**
 - Firebase App Check on the callables (the owner registers a reCAPTCHA key in the Firebase console). Stronger than the per-instance IP limit, which allows up to 10× per IP across instances.
@@ -53,8 +53,6 @@
 - Budget alert on the billing account (Discovery Engine queries and LLM answers are the variable costs).
 
 **Engineering hygiene**
-- Merge `clipper-redesign` into `master`.
-- Owner: delete the webhook endpoint in the Stripe dashboard.
 - Upgrade `firebase-functions` (the deploy warns it is outdated; breaking changes, so do a full retest).
 - firebase-tools isn't installed globally: use `npx -y firebase-tools@14` with `FUNCTIONS_DISCOVERY_TIMEOUT=60` for functions deploys, then delete `%LOCALAPPDATA%\npm-cache\_npx\<hash>` (~150 MB each), or install it once with `npm i -g firebase-tools`.
 - The repo has no tests: add a small smoke script for the callables and run `av_sync_check.py` as a renderer regression check.
@@ -62,7 +60,6 @@
 - Stop tracking `JREClipper.*/obj/` in git (`git rm -r --cached`).
 
 **Product and UX**
-- Show "video not available yet" per segment for episodes whose MP4 isn't in the bucket (createVideoJob already returns `missingVideoIds`).
 - AI answer cold start (~15–20 s on the first call): consider `minInstances: 1` for `answerQuery` (costs money) or a loading hint.
 - Rate-limit message says "searching too fast" for answers too; fine for now since both fire per search.
 - Optional: email or notification when a compilation finishes.
