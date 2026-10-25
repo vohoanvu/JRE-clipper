@@ -698,6 +698,33 @@ h1 {
   background: #5a32a3;
 }
 
+/* Episode without a source MP4: segments can be watched but not selected */
+.video-unavailable-badge {
+  display: inline-block;
+  background: #fff3cd;
+  color: #856404;
+  border: 1px solid #ffe08a;
+  padding: 0.4rem 0.8rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.video-unavailable-note {
+  font-size: 0.85rem;
+  color: #856404;
+  margin: 0 0 1rem 0;
+}
+
+.video-unavailable .segment-checkbox,
+.video-unavailable .segment-checkbox-label {
+  cursor: not-allowed;
+}
+
+.video-unavailable .segment-checkbox-label {
+  color: #999;
+}
+
 /* ===== NEW SEARCH INTERFACE LAYOUT ===== */
 .main-search-container {
   margin-bottom: 2rem;

@@ -6,16 +6,20 @@ parallel composite uploads disabled, local copy deleted only after the
 uploaded object's size and MD5 match. Resumable: objects already in the
 bucket are skipped, a finished local mp4 is uploaded without re-downloading,
 and interrupted downloads continue from yt-dlp's .part files.
+
+yt-dlp runs in a child process with a stall watchdog: on 2026-10-24 a download
+sat at 0% for 2.5 h with no error, which a thread can't be interrupted out of.
 """
 from __future__ import annotations
 
 import logging
+import multiprocessing as mp
 import shutil
 import subprocess
 import time
 
 from . import config, gcp, yt
-from .state import State, now_iso
+from .state import State, now_iso, setup_logging
 
 log = logging.getLogger(__name__)
 
@@ -32,10 +36,14 @@ def probe_duration(path) -> float | None:
         return None
 
 
-def _progress_hook():
-    last = {"pct": -25}
+def _progress_hook(heartbeat=None):
+    last = {"pct": -25, "bytes": -1}
 
     def hook(d):
+        # Heartbeat only on real progress: a stalled connection keeps calling hooks with the same byte count.
+        if heartbeat is not None and d.get("downloaded_bytes", 0) != last["bytes"]:
+            last["bytes"] = d.get("downloaded_bytes", 0)
+            heartbeat.value = time.time()
         if d.get("status") == "downloading":
             total = d.get("total_bytes") or d.get("total_bytes_estimate")
             if total:
@@ -52,8 +60,53 @@ def _progress_hook():
 
 
 def download_mp4(vid: str, rate_limit: str | None, cookies: str | None) -> dict:
+    """yt-dlp in a child process; killed if it makes no progress for DOWNLOAD_STALL_SECONDS.
+    The .part files survive the kill, so the next attempt resumes."""
+    ctx = mp.get_context("spawn")
+    heartbeat = ctx.Value("d", time.time(), lock=False)
+    parent_end, child_end = ctx.Pipe(duplex=False)
+    proc = ctx.Process(target=_download_child, args=(vid, rate_limit, cookies, heartbeat, child_end), daemon=True)
+    proc.start()
+    child_end.close()
+    try:
+        while not parent_end.poll(5):
+            if not proc.is_alive():
+                raise RuntimeError(f"yt-dlp process for {vid} exited with code {proc.exitcode} without a result")
+            idle = time.time() - heartbeat.value
+            if idle > config.DOWNLOAD_STALL_SECONDS:
+                log.error("download %s stalled: no progress for %.0f s, killing yt-dlp", vid, idle)
+                proc.kill()
+                raise RuntimeError(f"download stalled: no progress for {idle:.0f} s")
+        try:
+            kind, payload = parent_end.recv()
+        except EOFError:
+            raise RuntimeError(f"yt-dlp process for {vid} exited without a result") from None
+    finally:
+        proc.join(10)
+        if proc.is_alive():
+            proc.kill()
+        parent_end.close()
+    if kind == "error":
+        raise RuntimeError(payload)  # message text is enough for unavailable_reason / looks_like_block
+    return payload
+
+
+def _download_child(vid, rate_limit, cookies, heartbeat, conn) -> None:
+    setup_logging()
+    try:
+        conn.send(("ok", _ytdlp_download(vid, rate_limit, cookies, heartbeat)))
+    except BaseException as e:  # noqa: BLE001
+        conn.send(("error", str(e)))
+    finally:
+        conn.close()
+
+
+def _ytdlp_download(vid: str, rate_limit: str | None, cookies: str | None, heartbeat) -> dict:
     import yt_dlp
     from yt_dlp.utils import parse_bytes
+
+    def postprocessor_hook(d):
+        heartbeat.value = time.time()  # merging/fixups report no download progress
 
     opts = {
         **yt.base_opts(cookies),
@@ -64,7 +117,8 @@ def download_mp4(vid: str, rate_limit: str | None, cookies: str | None) -> dict:
         "continuedl": True,
         "fragment_retries": 10,
         "concurrent_fragment_downloads": 1,
-        "progress_hooks": [_progress_hook()],
+        "progress_hooks": [_progress_hook(heartbeat)],
+        "postprocessor_hooks": [postprocessor_hook],
     }
     if rate_limit:
         opts["ratelimit"] = parse_bytes(rate_limit)

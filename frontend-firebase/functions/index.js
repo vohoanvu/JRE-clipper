@@ -408,7 +408,7 @@ export const getVideoMetadata = onCall({
         throw new HttpsError("invalid-argument", "Provide between 1 and 50 valid YouTube video IDs.");
     }
 
-    const videos = await fetchYouTubeMetadata(videoIds);
+    const [videos, availableIds] = await Promise.all([fetchYouTubeMetadata(videoIds), availableVideoIds()]);
 
     if (legacySegments) {
         const videoGroups = {};
@@ -420,7 +420,12 @@ export const getVideoMetadata = onCall({
         return { success: true, videoGroups, totalVideos: videoIds.length, totalSegments: legacySegments.length };
     }
 
-    return { success: true, videos };
+    // available[id] is false when the episode has no source MP4 yet, so the page can
+    // keep its segments out of a compilation. Omitted when the bucket listing failed.
+    const available = availableIds
+        ? Object.fromEntries(videoIds.map((id) => [id, availableIds.has(id)]))
+        : undefined;
+    return { success: true, videos, available };
 });
 
 // ===== Video jobs =====
@@ -496,6 +501,33 @@ async function resolveSourceObjects(videoIds) {
         return [videoId, exact || legacy || null];
     }));
     return Object.fromEntries(entries);
+}
+
+// Ids of every video with a source MP4 ({id}.mp4 or legacy {id}_….mp4), from a
+// full bucket listing (~2.4k objects, 3 list calls) cached per instance.
+// Returns null if the listing fails; callers then treat everything as available.
+const AVAILABLE_TTL_MS = 15 * 60 * 1000;
+const SOURCE_NAME_RE = /^([A-Za-z0-9_-]{11})(?:_.*)?\.mp4$/;
+let availableCache = null; // { promise, expiresAt }
+
+function availableVideoIds() {
+    if (availableCache && availableCache.expiresAt > Date.now()) return availableCache.promise;
+    const promise = (async () => {
+        const { getStorage } = await import("firebase-admin/storage");
+        const [files] = await getStorage().bucket(SOURCE_BUCKET).getFiles({ fields: "items(name),nextPageToken" });
+        const ids = new Set();
+        for (const file of files) {
+            const match = SOURCE_NAME_RE.exec(file.name);
+            if (match) ids.add(match[1]);
+        }
+        return ids;
+    })().catch((error) => {
+        logger.error("availableVideoIds: bucket listing failed", { message: error.message });
+        if (availableCache?.promise === promise) availableCache = null;
+        return null;
+    });
+    availableCache = { promise, expiresAt: Date.now() + AVAILABLE_TTL_MS };
+    return promise;
 }
 
 export const createVideoJob = onCall({
