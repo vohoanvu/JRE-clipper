@@ -88,7 +88,10 @@ Ingestion endpoints use **hard-coded paths relative to the working directory** (
 
 Replaces the Apify/Vertex steps of section 3 for new episodes. Run from the repo root: `ingestion\.venv\Scripts\python -m ingestion <step>`. Data, `state.json` and `ingestion.log` live in `F:\jre-all-episodes\ingestion\` (override with `JRE_DATA_ROOT`).
 - Steps: `discover` (playlist + channel uploads via yt-dlp, diffed against `jre-episodes`), `captions` (YouTube captions as json3 → `transcriptions\transcript-{id}.json`, lines grouped into ~5 s entries like the old Apify files), `chunk` (fastembed `bge-small-en-v1.5` on CPU + an exact port of the C# chunker), `import` and `mark` (both dry-run unless `--apply`), `download` (480p → `gs://jre-all-episodes`, verify, delete local), `calibrate`, `status`.
-- Backfill episodes (empty 2025 transcripts) sort first, so pass `--new-only` to work on new episodes only. Long runs go through `ingestion/run_bulk.ps1 text|download`, launched detached with `Start-Process` (see the script header), because background shells die with the session.
+- Backfill episodes (empty 2025 transcripts) sort first, so pass `--new-only` to work on new episodes only. Long runs go through `ingestion/run_bulk.ps1 text|download|backfill|backfill-download|new`, launched detached with `Start-Process` (see the script header), because background shells die with the session.
+- Task Scheduler task "JRE ingestion new episodes" (`ingestion/register_task.ps1`) runs `run_bulk.ps1 new` daily at 06:00: discover → captions → Whisper fallback → chunk → download. Import and mark stay manual.
+- `download` runs yt-dlp in a child process and kills it after `DOWNLOAD_STALL_SECONDS` without progress; `.part` files let the next pass resume.
+- The search page greys out episodes with no MP4 in `gs://jre-all-episodes` ("Video not available yet"): `getVideoMetadata` returns `available` from a cached bucket listing.
 - The corpus was actually built with a 30 s minimum chunk, not the 20/5 in `appsettings.json` or the 60/10 C# fallback. The 0.82 threshold almost never fired. The local model uses 0.80, calibrated to the same no-break rate.
 - The data store import used GCS `dataSchema: custom` + `autoGenerateIds`. Document id = `sha256(ndjson line)[:32]`.
 - Needs Deno on PATH (yt-dlp's YouTube JS challenges) and a gcloud CLI login (ADC is not used).

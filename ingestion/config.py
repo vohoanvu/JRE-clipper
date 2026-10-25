@@ -82,6 +82,9 @@ CAPTION_LANGS = ["en-orig", "en", "en-US", "en-GB"]
 CAPTION_SLEEP_RANGE = (20.0, 45.0)      # seconds between videos in the captions step
 DOWNLOAD_SLEEP_RANGE = (60.0, 150.0)    # seconds between videos in the download step
 MAX_CONSECUTIVE_FAILURES = 3            # stop a run instead of hammering YouTube
+# Kill a yt-dlp download that makes no progress this long (2026-10-24: #2536 sat at 0% for 2.5 h).
+# Generous because extraction, yt-dlp's own retries and the ffmpeg merge report no byte progress.
+DOWNLOAD_STALL_SECONDS = 15 * 60
 
 
 def ensure_dirs() -> None:

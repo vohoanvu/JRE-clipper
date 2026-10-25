@@ -367,7 +367,7 @@ async function loadVideoPlayers(seq, results) {
     if (!data || !data.success) {
       throw new Error('Invalid response from video metadata service');
     }
-    renderVideoPlayers(groups, data.videos || {});
+    renderVideoPlayers(groups, data.videos || {}, data.available || {});
   } catch (error) {
     if (seq !== searchSeq) return;
     console.error('Error fetching video metadata:', error);
@@ -385,7 +385,8 @@ async function loadVideoPlayers(seq, results) {
   }
 }
 
-function renderVideoPlayers(groups, videos) {
+// available[videoId] === false: no source MP4 yet, so the segments can be watched but not selected.
+function renderVideoPlayers(groups, videos, available) {
   const cards = [];
 
   groups.forEach((segments, videoId) => {
@@ -401,22 +402,27 @@ function renderVideoPlayers(groups, videos) {
       videoMetadata.viewCount ? parseInt(videoMetadata.viewCount, 10).toLocaleString() + ' views' : '',
       videoMetadata.publishedAt ? new Date(videoMetadata.publishedAt).toLocaleDateString() : ''
     ].join(' • ');
+    const selectable = available[videoId] !== false;
 
     cards.push(`
-      <div class="video-container">
+      <div class="video-container${selectable ? '' : ' video-unavailable'}">
         <div class="video-header">
           <div class="video-title">${escapeHtml(title)}</div>
           <div class="video-controls">
-            <button class="select-video-btn" data-action="toggle-video">
-              📋 Select All (${segments.length})
-            </button>
+            ${selectable ? `
+              <button class="select-video-btn" data-action="toggle-video">
+                📋 Select All (${segments.length})
+              </button>` : `
+              <span class="video-unavailable-badge">⏳ Video not available yet</span>`}
           </div>
         </div>
         <div style="font-size: 0.9rem; color: #666; margin-bottom: 1rem;">${escapeHtml(details)}</div>
+        ${selectable ? '' : `
+          <p class="video-unavailable-note">This episode isn't in our video library yet, so its segments can't go into a compilation. You can still watch them here.</p>`}
         ${playerFacadeHtml(videoId, title, segments[0].startTimeSeconds)}
         <div class="segments-list">
           <div class="segments-header">Relevant Segments (${segments.length}):</div>
-          ${segments.map(segment => segmentHtml(segment, title)).join('')}
+          ${segments.map(segment => segmentHtml(segment, title, selectable)).join('')}
         </div>
       </div>
     `);
@@ -451,7 +457,7 @@ function renderVideoPlayers(groups, videos) {
   updateGenerateVideoButton();
 }
 
-function segmentHtml(segment, title) {
+function segmentHtml(segment, title, selectable) {
   const videoId = escapeHtml(segment.videoId);
   const start = segment.startTimeSeconds;
   const end = segment.endTimeSeconds;
@@ -465,8 +471,9 @@ function segmentHtml(segment, title) {
                data-video-id="${videoId}"
                data-start="${start}"
                data-end="${end}"
-               data-title="${escapeHtml(title)}">
-        <label for="${checkboxId}" class="segment-checkbox-label">Select</label>
+               data-title="${escapeHtml(title)}"
+               ${selectable ? '' : 'disabled'}>
+        <label for="${checkboxId}" class="segment-checkbox-label">${selectable ? 'Select' : 'Watch only'}</label>
       </div>
       <div class="segment-content">
         <div class="segment-timestamp-text">The search topic was mentioned at: ${formatTimeHMS(start)}</div>
@@ -588,7 +595,7 @@ function updateSelectedSegments() {
 }
 
 function setAllCheckboxes(checked) {
-  videoPlayersContainer.querySelectorAll('.segment-checkbox').forEach(checkbox => {
+  videoPlayersContainer.querySelectorAll('.segment-checkbox:not(:disabled)').forEach(checkbox => {
     checkbox.checked = checked;
   });
   updateSelectedSegments();
@@ -596,7 +603,7 @@ function setAllCheckboxes(checked) {
 
 function toggleVideoSelection(container) {
   if (!container) return;
-  const boxes = container.querySelectorAll('.segment-checkbox');
+  const boxes = container.querySelectorAll('.segment-checkbox:not(:disabled)');
   const shouldCheck = !Array.from(boxes).some(box => box.checked);
   boxes.forEach(box => { box.checked = shouldCheck; });
   updateSelectedSegments();

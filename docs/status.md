@@ -1,11 +1,52 @@
 # Project Status: "What would Joe Rogan say?" - Web App
 
 **Date:** 2026-10-25
-**Overall Status:** `REDESIGN LIVE — abuse guards deployed, downloads + backfill running, search import blocked on Discovery Engine document quota`
+**Overall Status:** `REDESIGN LIVE — new-episode downloads done, daily ingestion task scheduled, backfill Whisper finishing, search import blocked on Discovery Engine document quota`
 
 ---
 
-## Handoff (2026-10-25, 00:00 wrap-up) ▶️ start here
+## Session (2026-10-25, evening): the four owner-chosen tasks ✅ ▶️ start here
+
+### Update 23:15
+- **Backfill text is done:** the retries of #234 and #241 succeeded (19:37, 19:43), Whisper is done, and chunk finished at 20:24. 186 backfill episodes are chunked; the other 9 are copyright-blocked. Ready for the dry-run import once the quota is raised.
+- **The backfill download started on its own at 20:24** (PID 7524, window `run_bulk backfill-download`). 14 done by 23:12, about 12 min each, so the ~172 left take ~35 h. Expect it to finish around **2026-10-27 10:00**. No errors or stalls so far.
+- **The scheduled run** finished #2570 (download verified 18:55). Next run: 2026-10-26 06:00.
+
+### State at 19:00
+- **Downloads of the 232 new episodes are done** (last one finished 02:02); spot-checked 5 in the bucket. 0 new episodes are missing an MP4.
+- **Backfill runner** (PID 22216) is still on Whisper: 145 of 195 transcribed, ~5 left, then `chunk`. #234 `DicFHors_QI` and #241 `x3e-qoH1_3g` failed at 03:00 on "Sign in to confirm you're not a bot". The runner retries them every 30 min (up to 8 times) before it moves on to `chunk`. If they keep failing, use `--cookies-from-browser <cookies.txt>`, with the owner's OK.
+- **Quota:** still 200,000 granted (1,500,000 requested). Nothing new is searchable until it's raised.
+- Deleted the unused Whisper `small.en` model (−484 MB). The pipeline uses `base.en`.
+
+### 1. "Video not available yet" indicator: deployed and verified live
+- `getVideoMetadata` now also returns `available: {videoId: bool}`, from a full listing of `gs://jre-all-episodes` cached for 15 min per instance (3 list calls). It runs as the compute SA, so no IAM change was needed. If the listing fails, it omits `available` and the page treats everything as available.
+- `main.js`: cards for episodes without an MP4 get a "⏳ Video not available yet" badge and an explanatory note. They have no per-video Select All, and their checkboxes are disabled ("Watch only"). The page-wide Select All skips them. Cache-busters are now `?v=20261025`.
+- Verified in Chrome: a "Terry Virts" search (all 30 results from #1577, which has no MP4) shows the badge, 30/30 boxes are disabled, and Select All leaves 0 selected. A "bears" search has 30/30 selectable. No console errors.
+- Searchable episodes without an MP4 today: 19 (5 public: #627 `4LO0Uf1sqI8`, #777 `L_WaIhnUyQM`, #1577 `xOelOfg88MY`, #2158 `pCGCu_v77Do`, #2333 `EDBFFgs6Ifs`, plus 14 now-private videos). The 195 backfill episodes will show the badge too once imported, until their MP4s are uploaded.
+
+### 2. Download stall watchdog
+- `download` now runs yt-dlp in a child process (spawn). The progress and postprocessor hooks update a shared heartbeat. With no byte progress for `DOWNLOAD_STALL_SECONDS` (15 min, in `config.py`), the parent kills the child and records an error. The `.part` files survive, so the next pass resumes.
+- Tested on a 19 s public video: the normal path returned in 11 s; with the limit set to 3 s, the child was killed and the step raised "download stalled". #2570 then downloaded through it for real.
+- Not covered: a hung `gcloud storage cp` upload (no timeout).
+
+### 3. Scheduled new-episode routine
+- New `run_bulk.ps1 new` pipeline: `discover` → `captions --new-only` → `transcribe --new-only` (Whisper only if YouTube has no captions) → `chunk --new-only` → `download`. Import and mark stay manual.
+- `ingestion\register_task.ps1` registers the Task Scheduler task **"JRE ingestion new episodes"**: daily at 06:00, current user, only while logged on, IgnoreNew if the previous run is still going, 23 h limit. Next run: 2026-10-26 06:00. Remove it with `Unregister-ScheduledTask -TaskName 'JRE ingestion new episodes' -Confirm:$false`.
+- The first run was started by hand at 18:43. It found **#2570 `rn6iW7XDEHc`** (new), with captions done (1,632 entries), chunk done (372 segments, mean 32.6 s), and the download uploading at 18:49.
+- `discover` selects episodes above the highest **tracked** number (#2339, since the 230 aren't marked yet), so it re-lists #2340+ every run. That's harmless (idempotent) and costs ~3 min.
+- `discover` also reports 2 old numbered episodes that were never ingested: #2243 `7_giGqDqT4Y` (Julian Lennon) and #2279 `gF0CrAx_sBM` (Ky Dickens). They are not in state. Ingesting them needs `discover --min-episode 2242` or a manual add.
+
+### 4. Backfill MP4 check
+- **All 195 backfill episodes are missing from `gs://jre-all-episodes`.** 9 are copyright-blocked, so **186 are downloadable** (~60 GB; ARCHIVE costs ~$0.07/month). Some may need cookies (age-restricted; `download` marks those `unavailable`, reason `age_restricted`).
+- New pipeline `run_bulk.ps1 backfill-download` (`download --include-backfill`, backfill only). Owner-approved. A hidden launcher (PID 22840) waits for the backfill runner (PID 22216) to exit and then starts it, so only one YouTube-heavy runner works on the backfill at a time. Expect ~1.5 days.
+
+### Next session (in order)
+1. **Runners:** `status`. Backfill: chunk done? backfill-download running (window `run_bulk backfill-download`)? Scheduled task: check the 06:00 run in the log (`ingestion.discover` lines) and that #2570's download finished.
+2. **Quota approved?** Then the same import order as below (24k gap, then `import --new-only` with now 231 episodes, spot-check, `mark --new-only`, then the backfill import/mark).
+3. Decide on #2243 / #2279 (never-ingested old episodes) and on downloading the 5 public searchable episodes without an MP4 (they'd need adding to state first; `download --ids` only takes ids in state).
+4. Owner to-dos (unchanged): delete the test account `vutest@gmail.com`; delete the Stripe webhook endpoint.
+
+## Handoff (2026-10-25, 00:00 wrap-up)
 
 ### Active runners (detached on the home PC; survive the session)
 | Runner | PID | Window title | State at 23:58 | Expected finish |
