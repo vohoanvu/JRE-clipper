@@ -55,9 +55,17 @@ def headers() -> dict:
 
 
 def request(method: str, url: str, retries: int = 6, **kw) -> requests.Response:
-    """REST call with backoff on 429/5xx."""
+    """REST call with backoff on 429/5xx, and one token refresh on 401."""
+    global _token
+    refreshed = False
     for attempt in range(retries):
         r = requests.request(method, url, headers=headers(), timeout=60, **kw)
+        if r.status_code == 401 and not refreshed:
+            # gcloud hands back its cached token, which may expire before our 45 min reuse window ends
+            log.warning("%s %s -> 401, refreshing the access token", method, url.split("?")[0][-80:])
+            _token = None
+            refreshed = True
+            continue
         if r.status_code in (429, 500, 502, 503, 504):
             wait = min(60, 5 * 2 ** attempt)
             log.warning("%s %s -> %d, retrying in %ds", method, url.split("?")[0][-80:], r.status_code, wait)

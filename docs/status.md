@@ -1,11 +1,69 @@
 # Project Status: "What would Joe Rogan say?" - Web App
 
-**Date:** 2026-10-25
-**Overall Status:** `REDESIGN LIVE — new-episode downloads done, daily ingestion task scheduled, backfill Whisper finishing, search import blocked on Discovery Engine document quota`
+**Date:** 2026-10-26
+**Overall Status:** `REDESIGN LIVE — quota raised to 1M; gap + 231 new + 186 backfill episodes imported and marked; backfill download running (36/195); daily ingestion task scheduled`
 
 ---
 
-## Session (2026-10-25, evening): the four owner-chosen tasks ✅ ▶️ start here
+## Update (2026-10-26, 16:00–17:46): imports (owner-approved: gap, new, backfill) ▶️ start here
+
+### Next session
+1. **Backfill download:** check `status` (expected done around 2026-10-28). When pending is 0 (except the 9 `unavailable`), spot-check a few backfill MP4s and confirm their badge is gone in search.
+2. **Daily task:** the next `discover` selects above #2570. Any new episode goes captions → chunk → download automatically. Then import/mark by hand (dry run first).
+3. Decide (unchanged): #2243 / #2279 never ingested, and the 5 public searchable episodes without an MP4. Leftover old media in `F:\jre-all-episodes`.
+4. Owner to-dos (unchanged): delete the test account `vutest@gmail.com`; delete the Stripe webhook endpoint.
+
+### Log
+- **The quota is confirmed:** Google Support case #76803124 (2026-10-26) partially approved `DocumentsPerProjectPerLocation` us at **1,000,000**.
+- **Gap import done:** `import --source-uri …/jre-segments-all.ndjson --apply` gave 769,350/769,350 successes, with no errors (15:28–15:33). The original corpus is now complete in the index.
+- **New-episode import done:** `import --new-only --apply` gave 84,646/84,646 successes, with 20/20 sampled ids verified (15:47). Search spot-check through the live `searchSegments` (curl, since Chrome was disconnected): "Jensen Huang Nvidia GPUs" returns #2422, "MrBeast YouTube videos" #2527, "Carlo Rovelli quantum gravity" #2554 and "Daniel Kokotajlo AI 2027" #2551, each at the top.
+- **`mark --new-only --apply`** (about 12 s per episode): the first run stopped at 16:17 after #2474 (137/233) with an HTTP **401** from Firestore. `gcp.access_token()` reuses a token for 45 min from when it fetched it, but `gcloud auth print-access-token` can hand back a token it minted earlier, which then expires mid-run. Fix: `gcp.request()` now drops the cached token on a 401 and retries once. Resumed at 16:20 for the remaining 96 (the dry run matched). **Done at 16:40: mark done=233.** The next `discover` will select only episodes above #2570.
+- **Backfill import done** (after the owner re-approved it; the first attempt had been blocked by Claude Code's permission check): 186 episodes (#15–#2237), 69,535/69,535 succeeded, with 20/20 sampled ids verified (17:17), batch `incremental/2026-10-26-2.ndjson`. The new 401 refresh fired once during the operation poll (17:12) and recovered. Search spot-check: "Cory Sandhagen fight" gives MMA Show #104 first, and "W. Kamau Bell comedy race" gives #554 first. #766 Gad Saad is not in the top 5, behind his #985, #1816 and #2148.
+- **Backfill mark done** (17:46): 186 tracker docs patched (`isTranscripted`/`isVectorized` true, `isEmptyTranscript` false). The 9 still pending in `status` are the copyright-blocked episodes, unindexed on purpose.
+- **Everything ingested is now imported and marked.** The index holds ~925k docs (quota 1,000,000, so ~75k headroom, roughly 200 more episodes at ~370 docs each). Raising the quota further would need a new request (or a Sales Rep).
+- Backfill episodes still missing an MP4 (159 at 17:46) show "⏳ Video not available yet" in search until the backfill download uploads them.
+
+## Update (2026-10-26, 15:18)
+- **Backfill download resumed** at 15:17 (`run_bulk.ps1 backfill-download`, window `run_bulk backfill-download`): 175 pending, it started with #109 `vVcrR0wryYw`. At ~12 min per episode, expect it to finish around **2026-10-28 00:30** if it runs nonstop. Stop it safely as described below.
+- **The scheduled task ran at 08:53, not 06:00** (it only runs while you're logged on; it caught up after logon). Result 0. Discover found 231 new episodes, the same ones as before, and nothing else to do.
+- **Quota partially approved:** `DocumentsPerProjectPerLocation` us is now granted **1,000,000** (1,500,000 requested). The estimated total after all imports is ~935k (746k + 24k gap + 84k new + ~80k backfill), so everything fits, with ~65k to spare. The imports (dry run first, then review) haven't been run yet.
+  - The owner says the increase hasn't been accepted yet. But `gcloud beta quotas info list --service=discoveryengine.googleapis.com` already shows an effective `DocumentsPerProjectPerLocation` of 1,000,000 for `us`. Confirm which is right before the first `--apply`.
+- **Import dry runs (15:20), nothing uploaded:**
+  - Gap: `import --source-uri …/jre-segments-all.ndjson` gives the same body as the 2026-10-23 run (custom, INCREMENTAL, autoGenerateIds), so the 744,927 lines already imported are upserts.
+  - `import --new-only`: 231 episodes (#2340–#2570), **84,646 docs** (84,274 + 372 for #2570), preflight 0/10 already present, no stale docs.
+  - Plain `import`: 417 episodes = 231 new + **186 backfill (69,535 docs)**, 154,181 docs in total, preflight 0/10, no stale docs.
+  - Total after everything: ~746k + 24.4k + 84.6k + 69.5k ≈ **925k**. That fits under 1,000,000 but not under 200,000.
+
+## Handoff (2026-10-26, 00:05 wrap-up)
+
+### Runners: all stopped, nothing running
+- **The backfill download was stopped on purpose at 23:59** (owner's request: no overnight runs). It was killed during the 61 s pause after #105 `Wr63PnZatuE` was uploaded and verified (314,668,864 bytes in the bucket). There was no download or upload in flight, the state lock is clear, and no ingestion processes are left.
+- **Backfill download progress:** 20 done, 175 pending (of the 175, 9 are copyright-blocked and will be marked `unavailable`). At ~12 min per episode, the remaining ~166 take ~33 h of runtime.
+- **Resume** (from the repo root; it picks up at the next pending episode):
+  `Start-Process powershell -WindowStyle Minimized -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','ingestion\run_bulk.ps1','backfill-download'`
+  To stop it again safely, wait for an `ingestion.yt: sleeping N s (between downloads)` line in `ingestion.log`, then `taskkill /T /F /PID <run_bulk PID>`. Killing it mid-download is also safe (the `.part` files resume), and so is killing it mid-upload (the next pass uploads again, because the object only exists once the upload completes).
+- **The daily task "JRE ingestion new episodes" is still enabled** and will run at **2026-10-26 06:00** (the owner chose to keep it as is). It is short: ~3 min of discover, plus ~15 min per new episode. To skip it: `Disable-ScheduledTask -TaskName 'JRE ingestion new episodes'`.
+
+### Where things stand
+- **Live:** the "Video not available yet" indicator (`getVideoMetadata` + hosting `?v=20261025`), verified in Chrome.
+- **Git:** PR #2 merged (`79b4040`); `master` == `origin/master` == production; the feature branch is deleted.
+- **Ready to import once the quota is raised:** 231 new episodes (#2340–#2570, incl. #2570 found by the first scheduled run) and 186 backfill episodes. Plus the 24,423-line gap of the original corpus.
+- **Quota:** `DocumentsPerProjectPerLocation` us still granted 200,000 (1,500,000 requested; Google promised an update by ~2026-10-27).
+
+### Next session (in order)
+1. **Quota approved?** (`gcloud beta quotas preferences list --project=gen-lang-client-demo`) If yes, run each of these as a dry run first, then `--apply`:
+   - `import --source-uri gs://jre-processed-clips-bucker/final-semantic-chunks/jre-segments-all.ndjson`
+   - `import --new-only`, spot-check search, then `mark --new-only`
+   - `import` / `mark` for the backfill (plain runs now only have backfill episodes left besides the new ones; check the dry-run counts)
+2. **Resume the backfill download** with the command above, during the day.
+3. **Check the 06:00 scheduled run** in `ingestion.log` (`ingestion.discover` lines; any new episode should go captions → chunk → download).
+4. Decide:
+   - #2243 `7_giGqDqT4Y` and #2279 `gF0CrAx_sBM` are old numbered episodes that were never ingested.
+   - 5 public searchable episodes have no MP4: #627, #777, #1577, #2158, #2333. They'd need adding to state first.
+   - Old leftover media in `F:\jre-all-episodes` (11 files, ~4 GB, dated 2024-07 to 2025-05, from the original download scripts; not touched). Two of them are partial streams of #777 (`L_WaIhnUyQM.f243.webm`) and #1577 (`xOelOfg88MY.f251.webm`).
+5. Owner to-dos (unchanged): delete the test account `vutest@gmail.com`; delete the Stripe webhook endpoint.
+
+## Session (2026-10-25, evening): the four owner-chosen tasks ✅
 
 ### Update 23:15
 - **Backfill text is done:** the retries of #234 and #241 succeeded (19:37, 19:43), Whisper is done, and chunk finished at 20:24. 186 backfill episodes are chunked; the other 9 are copyright-blocked. Ready for the dry-run import once the quota is raised.
