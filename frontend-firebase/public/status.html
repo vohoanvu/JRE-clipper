@@ -631,14 +631,15 @@
 
         $('regenerate-button').hidden = hasLink || !Array.isArray(data.segments) || data.segments.length === 0;
 
+        // getVideoJob signs a fresh link on every call; "expired" only happens if this page sat open for 12 h.
+        const expiryNote = $('expiry-note');
         if (expired) {
-          $('expiry-note').textContent = `This download link expired on ${expiresAt.toLocaleString()}. Generate the video again to get a new link.`;
+          expiryNote.textContent = 'This download link has expired. Reload the page to get a new one.';
         } else if (!data.finalVideoUrl) {
-          $('expiry-note').textContent = 'The video finished, but no download link is available.';
-        } else if (expiresAt) {
-          $('expiry-note').textContent = `The download link is valid until ${expiresAt.toLocaleString()}.`;
+          expiryNote.textContent = 'This video is no longer available (videos made before Oct 27, 2026 were only kept for 8 days). You can generate it again.';
         } else {
-          $('expiry-note').textContent = '';
+          expiryNote.replaceChildren('Your video is kept, and you can watch it any time on ',
+            Object.assign(document.createElement('a'), { href: 'videos.html', textContent: 'My videos' }), '.');
         }
       }
 

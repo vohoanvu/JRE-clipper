@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>My Videos - JRE Clipper</title>
+  <link rel="preconnect" href="https://us-central1-gen-lang-client-demo.cloudfunctions.net" crossorigin>
+  <link rel="preconnect" href="https://storage.googleapis.com">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
+  <link rel="stylesheet" href="main.css?v=20261027">
+
+  <!-- Firebase SDK via CDN (Firebase Hosting Init). Deferred: they run in order before videos.js. -->
+  <script defer src="/__/firebase/11.9.1/firebase-app-compat.js"></script>
+  <script defer src="/__/firebase/11.9.1/firebase-auth-compat.js"></script>
+  <script defer src="/__/firebase/11.9.1/firebase-functions-compat.js"></script>
+  <script defer src="/__/firebase/init.js"></script>
+  <script defer src="videos.js?v=20261027"></script>
+
+  <style>
+    .videos-page {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 2rem;
+    }
+
+    .videos-page-header {
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+
+    .back-link {
+      display: inline-block;
+      color: #0066cc;
+      text-decoration: none;
+      margin-bottom: 2rem;
+      font-size: 1.1rem;
+    }
+
+    .back-link:hover {
+      text-decoration: underline;
+    }
+
+    .my-videos-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 1.5rem;
+    }
+
+    @media (max-width: 600px) {
+      .videos-page {
+        padding: 1rem;
+      }
+
+      .my-videos-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .my-video-card {
+      background: white;
+      border: 1px solid #e0e0e0;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .my-video-media {
+      aspect-ratio: 16 / 9;
+      background: #111;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #ddd;
+      text-align: center;
+      padding: 0;
+    }
+
+    .my-video-media video {
+      width: 100%;
+      height: 100%;
+      display: block;
+      background: #000;
+    }
+
+    .my-video-placeholder {
+      padding: 1rem 1.5rem;
+      font-size: 0.95rem;
+    }
+
+    .my-video-placeholder a {
+      color: #8cc8ff;
+    }
+
+    .my-video-body {
+      padding: 1rem 1.25rem 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      flex: 1;
+    }
+
+    .my-video-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.75rem;
+      font-weight: 600;
+      color: #2c3e50;
+    }
+
+    .my-video-meta {
+      font-size: 0.85rem;
+      color: #666;
+    }
+
+    .my-video-episodes {
+      font-size: 0.85rem;
+      color: #444;
+    }
+
+    .my-video-episodes summary {
+      cursor: pointer;
+      color: #0066cc;
+    }
+
+    .my-video-episodes ul {
+      margin: 0.5rem 0 0 1rem;
+      padding: 0;
+    }
+
+    .my-video-episodes li {
+      margin-bottom: 0.25rem;
+      list-style: disc;
+    }
+
+    .my-video-actions {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      margin-top: auto;
+      padding-top: 0.5rem;
+    }
+
+    .my-video-actions a {
+      color: white;
+      padding: 0.4rem 0.9rem;
+      border-radius: 4px;
+      font-size: 0.85rem;
+      text-decoration: none;
+      background: #2196f3;
+    }
+
+    .my-video-actions a.download {
+      background: #4caf50;
+    }
+
+    .status-pill {
+      padding: 0.15rem 0.6rem;
+      border-radius: 20px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      background: #e9ecef;
+      color: #495057;
+      white-space: nowrap;
+    }
+
+    .status-pill.complete {
+      background: #d4edda;
+      color: #155724;
+    }
+
+    .status-pill.failed {
+      background: #f8d7da;
+      color: #721c24;
+    }
+
+    .status-pill.active {
+      background: #cce5ff;
+      color: #004085;
+    }
+
+    .status-pill.expired {
+      background: #fff3cd;
+      color: #856404;
+    }
+
+    .load-more-row {
+      text-align: center;
+      margin-top: 2rem;
+    }
+
+    .load-more-row button {
+      width: auto;
+      display: inline-block;
+    }
+
+    .muted {
+      color: #6c757d;
+      font-size: 0.9rem;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    .signin-cta {
+      display: inline-block;
+      text-decoration: none;
+      background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+      color: white;
+      padding: 1rem 2rem;
+      border-radius: 8px;
+      font-weight: 600;
+    }
+  </style>
+</head>
+
+<body>
+  <header class="header">
+    <div class="container">
+      <div class="header-content">
+        <div class="logo">
+          <a href="index.html" style="text-decoration: none; color: inherit;">
+            <h2>🎙️ JRE Clipper</h2>
+          </a>
+        </div>
+        <div class="auth-section">
+          <div id="user-info" class="user-info" style="display: none;">
+            <img id="user-photo" src="" alt="User Photo" class="user-photo" referrerpolicy="no-referrer">
+            <span id="user-email" class="user-email"></span>
+            <a href="account.html" class="account-btn" title="Account">⚙️</a>
+            <button id="sign-out" class="sign-out-btn">Sign Out</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="videos-page">
+    <a href="index.html" class="back-link">← Back to search</a>
+
+    <div class="videos-page-header">
+      <h1>My Videos</h1>
+      <p>Every compilation you've generated, newest first.</p>
+    </div>
+
+    <div id="loading-section" style="text-align: center; padding: 3rem;">
+      <p aria-busy="true">Loading your videos...</p>
+    </div>
+
+    <div id="auth-required" class="hidden" style="text-align: center; padding: 3rem;">
+      <h2>🔐 Sign In Required</h2>
+      <p>Please sign in to see your videos.</p>
+      <a href="signin.html?next=%2Fvideos.html" class="signin-cta">Sign In</a>
+    </div>
+
+    <p id="videos-error" class="hidden" style="color: #b00020; text-align: center;"></p>
+
+    <div id="videos-empty" class="hidden" style="text-align: center; padding: 2rem;">
+      <p>No videos yet. <a href="index.html">Search for a topic</a>, select segments and generate your first compilation!</p>
+    </div>
+
+    <div id="videos-grid" class="my-videos-grid"></div>
+
+    <div id="load-more-row" class="load-more-row hidden">
+      <button id="load-more" class="secondary">Load more</button>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-content">
+      <div class="footer-section">
+        <h3>👨‍💻 Developer Contact</h3>
+        <ul class="contact-links">
+          <li>📧 <a href="mailto:vohoanvu96@gmail.com">vohoanvu96@gmail.com</a></li>
+          <li>🐙 <a href="https://github.com/vohoanvu" target="_blank" rel="noopener">GitHub Profile</a></li>
+          <li>💼 <a href="https://www.linkedin.com/in/thevuture/" target="_blank" rel="noopener">LinkedIn</a></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="footer-bottom">
+      <p>&copy; 2025 JRE Clipper. Built for educational purposes. Joe Rogan Experience content belongs to respective owners.</p>
+    </div>
+  </footer>
+</body>
+
+</html>

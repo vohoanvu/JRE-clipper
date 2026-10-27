@@ -683,8 +683,38 @@ function serializeJob(jobId, job, { includeSegments }) {
     return result;
 }
 
+// Finished videos are kept indefinitely (until 2026-10-27 a lifecycle rule deleted them after
+// 8 days), but the URL the renderer stores expires after 7 days. Functions that hand out video
+// links run as jre-clip-reader@ (Firestore read, read on edited-clips/, signBlob as itself) and
+// sign a fresh short-lived URL on every request.
+const CLIP_READER_SERVICE_ACCOUNT = "jre-clip-reader@gen-lang-client-demo.iam.gserviceaccount.com";
+const OUTPUT_BUCKET = "jre-processed-clips-bucker";
+const PLAYBACK_URL_TTL_MS = 12 * 60 * 60 * 1000;
+
+// { url, expiresAt } for a finished job's MP4, or null when the file no longer exists.
+async function playbackUrl(jobId) {
+    const { getStorage } = await import("firebase-admin/storage");
+    const file = getStorage().bucket(OUTPUT_BUCKET).file(`edited-clips/${jobId}/final_video.mp4`);
+    const [exists] = await file.exists();
+    if (!exists) return null;
+    const expires = Date.now() + PLAYBACK_URL_TTL_MS;
+    const [url] = await file.getSignedUrl({ version: 'v4', action: 'read', expires });
+    return { url, expiresAt: new Date(expires).toISOString() };
+}
+
+// Signing failures degrade to "no link" instead of failing the whole response.
+async function playbackUrlOrNull(jobId) {
+    try {
+        return await playbackUrl(jobId);
+    } catch (error) {
+        logger.error("playbackUrl failed", { jobId, message: error.message });
+        return null;
+    }
+}
+
 // Polled by status.html. Only returns the caller's own job.
 export const getVideoJob = onCall({
+    serviceAccount: CLIP_READER_SERVICE_ACCOUNT,
     memory: "256MiB",
     timeoutSeconds: 15,
     maxInstances: 10,
@@ -700,7 +730,80 @@ export const getVideoJob = onCall({
     if (!job || (job.userId !== auth.uid && !isAdmin(auth))) {
         throw new HttpsError("not-found", "Job not found.");
     }
-    return serializeJob(snapshot.id, job, { includeSegments: TERMINAL_STATUSES.has(job.status) });
+    const result = serializeJob(snapshot.id, job, { includeSegments: TERMINAL_STATUSES.has(job.status) });
+    if (job.status === 'Complete') {
+        const playback = await playbackUrlOrNull(snapshot.id);
+        result.finalVideoUrl = playback?.url || null;
+        result.finalVideoExpiresAt = playback?.expiresAt || null;
+    }
+    return result;
+});
+
+// My videos page: the caller's jobs, newest first, with a fresh playable URL for each finished one.
+// Pages with `cursor` = the last jobId of the previous page. Needs the composite index
+// videoJobs (userId ASC, createdAt DESC) in jre-clipper-db.
+const MY_VIDEOS_PAGE_SIZE = 12;
+
+export const listMyVideos = onCall({
+    serviceAccount: CLIP_READER_SERVICE_ACCOUNT,
+    memory: "256MiB",
+    timeoutSeconds: 30,
+    maxInstances: 5,
+    minInstances: 0,
+}, async (request) => {
+    const auth = requireAuth(request, "Please sign in to see your videos.");
+    let query = jobsCollection()
+        .where('userId', '==', auth.uid)
+        .orderBy('createdAt', 'desc')
+        .select('status', 'createdAt', 'completedAt', 'segmentCount', 'totalVideos', 'progress', 'error',
+            'segments', 'outputDurationSeconds', 'outputSizeBytes')
+        .limit(MY_VIDEOS_PAGE_SIZE + 1);
+
+    const cursor = request.data?.cursor;
+    if (cursor != null) {
+        if (typeof cursor !== 'string' || !JOB_ID_RE.test(cursor)) {
+            throw new HttpsError("invalid-argument", "Invalid page cursor.");
+        }
+        const cursorSnapshot = await jobsCollection().doc(cursor).get();
+        if (!cursorSnapshot.exists || cursorSnapshot.get('userId') !== auth.uid) {
+            throw new HttpsError("invalid-argument", "Invalid page cursor.");
+        }
+        query = query.startAfter(cursorSnapshot);
+    }
+
+    const snapshot = await query.get();
+    const docs = snapshot.docs.slice(0, MY_VIDEOS_PAGE_SIZE);
+    const videos = await Promise.all(docs.map(async (doc) => {
+        const job = doc.data();
+        const episodes = [];
+        const seen = new Set();
+        for (const segment of Array.isArray(job.segments) ? job.segments : []) {
+            if (seen.has(segment.videoId)) continue;
+            seen.add(segment.videoId);
+            episodes.push({ videoId: segment.videoId, title: segment.videoTitle || '' });
+        }
+        const playback = job.status === 'Complete' ? await playbackUrlOrNull(doc.id) : null;
+        return {
+            jobId: doc.id,
+            status: job.status || 'Unknown',
+            createdAt: toIso(job.createdAt),
+            completedAt: toIso(job.completedAt),
+            segmentCount: job.segmentCount ?? null,
+            totalVideos: job.totalVideos ?? null,
+            progress: typeof job.progress === 'number' ? job.progress : null,
+            error: job.status === 'Failed' ? job.error || null : null,
+            outputDurationSeconds: job.outputDurationSeconds ?? null,
+            outputSizeBytes: job.outputSizeBytes ?? null,
+            episodes,
+            videoUrl: playback?.url || null,
+            videoUrlExpiresAt: playback?.expiresAt || null,
+        };
+    }));
+
+    return {
+        videos,
+        nextCursor: snapshot.docs.length > MY_VIDEOS_PAGE_SIZE ? docs[docs.length - 1].id : null,
+    };
 });
 
 // Account page: today's quota plus the last 7 days of jobs (download links are

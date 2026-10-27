@@ -31,7 +31,8 @@ gcloud artifacts repositories add-iam-policy-binding cloud-run-source-deploy --l
 # Deploying a function or the job "as" its runtime service account requires actAs on that account.
 # firebase-tools also pre-checks actAs on the App Engine default account before any functions deploy.
 for runtime in "${PN}-compute@developer.gserviceaccount.com" "jre-search-reader@${P}.iam.gserviceaccount.com" \
-               "jre-clip-renderer@${P}.iam.gserviceaccount.com" "${P}@appspot.gserviceaccount.com"; do
+               "jre-clip-renderer@${P}.iam.gserviceaccount.com" "jre-clip-reader@${P}.iam.gserviceaccount.com" \
+               "${P}@appspot.gserviceaccount.com"; do
   gcloud iam service-accounts add-iam-policy-binding "$runtime" --project="$P" \
     --member="serviceAccount:$SA" --role=roles/iam.serviceAccountUser --format=none
 done

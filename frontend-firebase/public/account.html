@@ -7,7 +7,7 @@
   <title>Account - JRE Clipper</title>
   <link rel="preconnect" href="https://us-central1-gen-lang-client-demo.cloudfunctions.net" crossorigin>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
-  <link rel="stylesheet" href="main.css?v=20261025">
+  <link rel="stylesheet" href="main.css?v=20261027">
 
   <!-- Firebase SDK via CDN (Firebase Hosting Init). Deferred: they run in order before account.js. -->
   <script defer src="/__/firebase/11.9.1/firebase-app-compat.js"></script>
@@ -284,6 +284,7 @@
           <div id="user-info" class="user-info" style="display: none;">
             <img id="user-photo" src="" alt="User Photo" class="user-photo" referrerpolicy="no-referrer">
             <span id="user-email" class="user-email"></span>
+            <a href="videos.html" class="account-btn" title="My videos">🎬 My videos</a>
             <button id="sign-out" class="sign-out-btn">Sign Out</button>
           </div>
         </div>
@@ -358,7 +359,7 @@
           </div>
           <p class="muted" style="margin-top: 1.5rem;">
             Video generation is free for signed-in users. Each video can include up to 30 segments
-            (20 minutes total). Download links stay valid for 7 days.
+            (20 minutes total). Your videos stay playable on <a href="videos.html">My videos</a>.
           </p>
         </div>
       </div>
@@ -369,6 +370,7 @@
         <div id="generated-videos-list" class="generated-videos-list">
           <p class="muted">Loading...</p>
         </div>
+        <p style="margin-top: 1rem;"><a href="videos.html">See all your videos →</a></p>
       </div>
     </div>
   </main>

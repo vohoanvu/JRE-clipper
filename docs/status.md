@@ -5,6 +5,14 @@
 
 ---
 
+## Update (2026-10-27): "My videos" page (code done; GCP setup awaiting owner approval; not deployed)
+- **Owner decisions:** keep finished videos forever; build a new `videos.html` page (linked from the headers on index and account).
+- `listMyVideos` (new callable, sign-in required) returns the caller's jobs newest first, 12 per page (`cursor` = last jobId). Each finished job gets a fresh 12-hour V4 signed URL, or `null` if the MP4 is gone. Clips made before 2026-10-27 were deleted after 8 days and show as "Expired".
+- `getVideoJob` also re-signs on every call, so the status page works for any age. Its expiry text now points to My videos.
+- Both functions run as the new SA `jre-clip-reader@`: `datastore.viewer`, plus `storage.objectViewer` on `jre-processed-clips-bucker` limited to `edited-clips/` by an IAM condition, plus `serviceAccountTokenCreator` on itself (signBlob).
+- Setup in `frontend-firebase/setup-clip-reader.sh` (SA + grants, composite index `videoJobs (userId ASC, createdAt DESC)` in `jre-clipper-db`, lifecycle without the 8-day `edited-clips/` delete rule). `.github/setup-gcp-deployer.sh` now also grants the deployer actAs on `jre-clip-reader@`.
+- **Order:** run both setup scripts and wait for the index to be READY, *then* push. Pushing first would make the functions deploy fail (actAs on a missing SA), and the hosting deploy would ship a page calling a missing function.
+
 ## Update (2026-10-27): CI/CD on master (GitHub Actions, keyless)
 - There are three workflows in `.github/workflows/`: `deploy-hosting`, `deploy-functions` and `deploy-renderer`. Each runs only when a push to `master` changes its own paths, and each can also be started by hand (`workflow_dispatch`).
   - The functions workflow rebuilds `functions/.env` from the repo secrets `YOUTUBE_API_KEY` and `ADMIN_EMAIL`. It deploys without `--force`, so a deploy that would delete a function fails instead.
