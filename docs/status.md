@@ -11,7 +11,8 @@
   - The renderer workflow runs `deploy.sh`, now marked executable in git.
 - **Auth is Workload Identity Federation, with no keys.** The setup is `.github/setup-gcp-deployer.sh` (idempotent; run on 2026-10-27).
   - Pool `github`, provider `jre-clipper`. It accepts only repo ID 1001185213, owner ID 36556515, ref `refs/heads/master`.
-  - The deploy SA is `github-deployer@`, with Hosting admin, Cloud Functions developer, Cloud Run developer, two serviceusage roles, Artifact Registry writer on `cloud-run-source-deploy`, and actAs on the compute, `jre-search-reader` and `jre-clip-renderer` SAs.
+  - The deploy SA is `github-deployer@`. Project roles: Hosting admin, Cloud Functions developer, Cloud Run developer, two serviceusage roles, Firebase Extensions viewer. Artifact Registry writer on `cloud-run-source-deploy` and reader on `gcf-artifacts`. actAs on the compute, `jre-search-reader`, `jre-clip-renderer` and `@appspot` SAs. firebase-tools pre-checks the `@appspot` actAs, the Extensions listing and the cleanup policy before any functions deploy.
+  - **First runs (merge of PR #5):** hosting ✅ and renderer ✅ first try. Functions failed twice on missing permissions (`@appspot` actAs, then the Extensions listing) and passed on the third run (11:35, all 7 functions updated). Live `searchSegments` and `getVideoMetadata` checked with curl afterwards.
   - The repo variables are `GCP_WIF_PROVIDER` and `GCP_DEPLOY_SA`.
 - **Still to remove:** the old Firebase-generated SA `github-action-1001185213@` still has a never-expiring user-managed key from 2025-06-20. It's stored as the repo secret `FIREBASE_SERVICE_ACCOUNT_GEN_LANG_CLIENT_DEMO`. Delete both once the new workflows pass, with the owner's OK.
 

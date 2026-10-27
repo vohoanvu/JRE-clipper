@@ -18,9 +18,13 @@ gcloud iam service-accounts describe "$SA" --project="$P" >/dev/null 2>&1 ||
 
 # Hosting, Functions (v2 runs on Cloud Run), the renderer Cloud Run Job, and the API checks firebase-tools does.
 for role in roles/firebasehosting.admin roles/cloudfunctions.developer roles/run.developer \
-            roles/serviceusage.serviceUsageConsumer roles/serviceusage.apiKeysViewer; do
+            roles/serviceusage.serviceUsageConsumer roles/serviceusage.apiKeysViewer \
+            roles/firebaseextensions.viewer; do
   gcloud projects add-iam-policy-binding "$P" --member="serviceAccount:$SA" --role="$role" --condition=None --format=none
 done
+# firebase-tools reads the cleanup policy of the functions image repo before a functions deploy.
+gcloud artifacts repositories add-iam-policy-binding gcf-artifacts --location=us-central1 --project="$P" \
+  --member="serviceAccount:$SA" --role=roles/artifactregistry.reader --format=none
 # Push renderer images (only to this repo).
 gcloud artifacts repositories add-iam-policy-binding cloud-run-source-deploy --location=us-central1 --project="$P" \
   --member="serviceAccount:$SA" --role=roles/artifactregistry.writer --format=none
