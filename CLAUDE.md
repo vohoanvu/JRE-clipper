@@ -117,7 +117,9 @@ cd video-processor-CloudRun-Function/JreClipRenderer && ./deploy.sh
 dotnet build -c Release                  # from JreClipRenderer/
 ```
 
-`firebase deploy` needs `firebase login`; ADC is not configured on the Windows machine. In Git Bash, `MSYS_NO_PATHCONV=1` breaks the `gcloud` launcher. Use `MSYS2_ARG_CONV_EXCL` for the single flag that carries a POSIX path, as `deploy.sh` does.
+**CI/CD:** a push to `master` deploys automatically through `.github/workflows/deploy-{hosting,functions,renderer}.yml`. Each workflow runs only when its own paths change and can also be started by hand. Auth is keyless Workload Identity Federation, limited to this repo on `refs/heads/master`, impersonating the deploy-only SA `github-deployer@`. The roles and pool are set up by `.github/setup-gcp-deployer.sh` (idempotent). If a deploy fails on a missing permission, add the role there and re-run it. Functions get `YOUTUBE_API_KEY` / `ADMIN_EMAIL` from repo secrets. The manual commands below still work for local deploys.
+
+`firebase deploy` needs `firebase login`; ADC is not configured on the Windows machine. firebase-tools isn't installed globally; `npx -y firebase-tools@14` works with the stored login. In Git Bash, `MSYS_NO_PATHCONV=1` breaks the `gcloud` launcher. Use `MSYS2_ARG_CONV_EXCL` for the single flag that carries a POSIX path, as `deploy.sh` does.
 
 ## Repo gotchas
 
@@ -126,4 +128,4 @@ dotnet build -c Release                  # from JreClipRenderer/
 - Discovery Engine IDs and the renderer job URL are hard-coded in `frontend-firebase/functions/index.js`.
 - Artifact Registry repo `gcf-artifacts` is auto-cleaned, so existing Firebase function revisions can't be redeployed with `gcloud run services update`; redeploy from source instead.
 - Hosting serves HTML with `Cache-Control: no-cache` (`firebase.json`) so a deploy reaches returning visitors immediately; JS/CSS rely on the `?v=` bump instead.
-- Security history: until 2026-10-22 the public `getVertexAiToken` handed anonymous callers a token for the Editor-role compute SA; it was deleted on 2026-10-23. Also deleted then: SA `dotnetapp-demo@` (with its 3 keys) and the one key of `jre-clipper-server@` (the SA itself remains, keyless). The project has no user-managed SA keys.
+- Security history: until 2026-10-22 the public `getVertexAiToken` handed anonymous callers a token for the Editor-role compute SA; it was deleted on 2026-10-23. Also deleted then: SA `dotnetapp-demo@` (with its 3 keys) and the one key of `jre-clipper-server@` (the SA itself remains, keyless). That sweep missed `github-action-1001185213@`, which Firebase's GitHub setup created in June 2025 with a never-expiring key stored as a repo secret. On 2026-10-27 its key and the secret were deleted and the SA was disabled. The project has no user-managed SA keys; keep it that way (CI uses Workload Identity Federation).
