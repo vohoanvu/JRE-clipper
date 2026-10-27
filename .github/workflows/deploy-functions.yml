@@ -1,0 +1,49 @@
+# Deploys the Firebase Functions when they change on master. firebase-tools skips functions whose source is unchanged.
+name: Deploy functions
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - frontend-firebase/functions/**
+      - frontend-firebase/firebase.json
+      - .github/workflows/deploy-functions.yml
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-functions
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write # keyless sign-in to Google Cloud (Workload Identity Federation)
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend-firebase
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend-firebase/functions/package-lock.json
+      - run: npm ci
+        working-directory: frontend-firebase/functions
+      # functions/.env is gitignored; recreate it from repo secrets.
+      - run: printf 'YOUTUBE_API_KEY=%s\nADMIN_EMAIL=%s\n' "$YOUTUBE_API_KEY" "$ADMIN_EMAIL" > functions/.env
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+      # No --force: a deploy that would delete a function fails instead, so deletions stay deliberate.
+      - run: npx -y firebase-tools@14 deploy --only functions --project gen-lang-client-demo --non-interactive
+        env:
+          FUNCTIONS_DISCOVERY_TIMEOUT: 60
