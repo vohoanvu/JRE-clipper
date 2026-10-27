@@ -11,6 +11,7 @@ const MAX_SEGMENT_SECONDS = 600;
 const MAX_TOTAL_SECONDS = 1200;
 const DAILY_VIDEO_LIMIT = 5;
 const LIMITS_HINT = `Free for signed-in users: up to ${DAILY_VIDEO_LIMIT} videos per day, max ${MAX_SEGMENTS} segments and ${MAX_TOTAL_SECONDS / 60} minutes per video.`;
+const DEFAULT_SORT = 'newest';
 
 // ===== STATE =====
 let functionsClient = null;
@@ -81,6 +82,7 @@ function setupEventListeners() {
   videoPlayersContainer.addEventListener('click', handleResultsClick);
   videoPlayersContainer.addEventListener('change', (event) => {
     if (event.target.classList.contains('segment-checkbox')) updateSelectedSegments();
+    if (event.target.id === 'resultsSort') sortVideoCards(event.target.value);
   });
 }
 
@@ -388,8 +390,10 @@ async function loadVideoPlayers(seq, results) {
 // available[videoId] === false: no source MP4 yet, so the segments can be watched but not selected.
 function renderVideoPlayers(groups, videos, available) {
   const cards = [];
+  let rank = 0; // position in the search ranking, for the "Most relevant" sort
 
   groups.forEach((segments, videoId) => {
+    rank++;
     const videoMetadata = videos[videoId];
     if (!videoMetadata) {
       console.warn(`No metadata available for video ${videoId}`);
@@ -403,9 +407,11 @@ function renderVideoPlayers(groups, videos, available) {
       videoMetadata.publishedAt ? new Date(videoMetadata.publishedAt).toLocaleDateString() : ''
     ].join(' • ');
     const selectable = available[videoId] !== false;
+    const published = Date.parse(videoMetadata.publishedAt || '');
 
     cards.push(`
-      <div class="video-container${selectable ? '' : ' video-unavailable'}">
+      <div class="video-container${selectable ? '' : ' video-unavailable'}"
+           data-rank="${rank}" data-published="${Number.isFinite(published) ? published : ''}">
         <div class="video-header">
           <div class="video-title">${escapeHtml(title)}</div>
           <div class="video-controls">
@@ -451,10 +457,40 @@ function renderVideoPlayers(groups, videos, available) {
       <p id="selection-hint" class="generation-limits">${escapeHtml(LIMITS_HINT)}</p>
       <div id="generation-status" class="generation-status"></div>
     </div>
+    <div class="results-toolbar">
+      <label for="resultsSort">Sort episodes by</label>
+      <select id="resultsSort">
+        <option value="newest">Newest first</option>
+        <option value="oldest">Oldest first</option>
+        <option value="relevance">Most relevant</option>
+      </select>
+    </div>
     <div class="videos-grid">${cards.join('')}</div>
   `;
 
-  updateGenerateVideoButton();
+  const sortSelect = document.getElementById('resultsSort');
+  sortSelect.value = DEFAULT_SORT;
+  sortVideoCards(sortSelect.value);
+}
+
+// Reorders the rendered cards in place, so checkbox state survives. The compilation
+// follows the on-screen order (updateSelectedSegments walks the DOM), so it is rebuilt.
+// Episodes without a publish date go last in either date order.
+function sortVideoCards(order) {
+  const grid = videoPlayersContainer.querySelector('.videos-grid');
+  if (!grid) return;
+
+  const published = card => card.dataset.published ? Number(card.dataset.published) : null;
+  const byRank = (a, b) => Number(a.dataset.rank) - Number(b.dataset.rank);
+  const cards = Array.from(grid.children).sort((a, b) => {
+    if (order === 'relevance') return byRank(a, b);
+    const pa = published(a), pb = published(b);
+    if (pa === null || pb === null) return (pa === null) - (pb === null) || byRank(a, b);
+    return (order === 'oldest' ? pa - pb : pb - pa) || byRank(a, b);
+  });
+  cards.forEach(card => grid.appendChild(card));
+
+  updateSelectedSegments();
 }
 
 function segmentHtml(segment, title, selectable) {
