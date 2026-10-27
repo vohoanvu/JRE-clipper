@@ -1,11 +1,42 @@
 # Project Status: "What would Joe Rogan say?" - Web App
 
-**Date:** 2026-10-26
-**Overall Status:** `REDESIGN LIVE — quota raised to 1M; gap + 231 new + 186 backfill episodes imported and marked; backfill download running (36/195); daily ingestion task scheduled`
+**Date:** 2026-10-27
+**Overall Status:** `REDESIGN LIVE — quota raised to 1M; gap + 231 new + 186 backfill episodes imported and marked; backfill download RUNNING again since 16:46 (148/195 done, ~6 h left); daily ingestion task scheduled`
 
 ---
 
-## Update (2026-10-26, 16:00–17:46): imports (owner-approved: gap, new, backfill) ▶️ start here
+## Update (2026-10-27): sort search results by date (DEPLOYED; owner verifying on the live site)
+- Deployed with `npx -y firebase-tools@14 deploy --only hosting`. whatwouldjoerogansay.com serves `?v=20261027`, and the live `main.js` contains `sortVideoCards`. The npx cache was removed afterwards.
+- `index.html` results now have a "Sort episodes by" control: Newest first (default), Oldest first, Most relevant (the old search-ranking order). It is client-side only, using the YouTube `publishedAt` that `getVideoMetadata` already returns. Episodes without a date go last.
+- Cards are reordered in place, so checkbox selections survive a re-sort. The compilation order follows the on-screen order, so by default a compilation now runs newest episode first. If a player is open, moving its card reloads the iframe.
+- The summary list above the players keeps the relevance order.
+- Cache-busters bumped to `?v=20261027`. To ship: `firebase deploy --only hosting` from `frontend-firebase/`, then check it on the live site.
+
+## Update (2026-10-27, 16:47): backfill download resumed
+- Relaunched `run_bulk.ps1 backfill-download` detached at 16:46 (run_bulk PID 13616, window `run_bulk backfill-download`). Before launching: no ingestion processes, no `state.lock`.
+- The pass covers 46 episodes: the 44 pending plus the 2 errors. It started with #780 `zwcAyE5lQd8`, which had failed earlier. Its video stream finished from the `.part` file, and the audio was downloading at 16:47.
+- Expect it to finish around 23:00 if it runs nonstop. After that, do steps 2–4 of the 11:10 handoff below.
+
+## Handoff (2026-10-27, 11:10): backfill download PAUSED by the owner ▶️ start here
+
+### Runner: stopped on purpose, nothing running
+- The owner asked to stop it to free the PC for other work. It was stopped at 11:07:38, during the 148 s pause after #943 `nNJ5p6sAn6I` was uploaded and verified (889,871,466 bytes in the bucket, 11:07:33). The whole process tree (PID 17300) was killed. No download or upload was in flight, `state.lock` is clear, and no ingestion processes are left.
+- **Backfill download progress:** 148 done, 44 pending, 2 error, 1 unavailable (of 195). 8 of the 44 pending are the other copyright-blocked episodes, which get marked `unavailable` instantly. That leaves **~38 real downloads, ~6 h** at the ~9 min per episode seen on 2026-10-26.
+- **The 2 errors are transient.** The runner retries them at the end of the pass:
+  - #839 `-elDJUd6Tqw` (Tom Papa) failed at 06:28 with HTTP 429 and then "Sign in to confirm you're not a bot". If it keeps failing, run `download --ids -elDJUd6Tqw --include-backfill --cookies-from-browser <cookies.txt>`, with the owner's OK.
+  - #780 `zwcAyE5lQd8` (Sturgill Simpson) failed at 02:56 with "949 bytes read … Giving up after 10 retries". Its `F:\jre-all-episodes\zwcAyE5lQd8.f243.webm.part` (203 MB) resumes on the next pass.
+- **Resume** (from the repo root; it picks up at the next pending episode):
+  `Start-Process powershell -WindowStyle Minimized -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','ingestion\run_bulk.ps1','backfill-download'`
+  To stop it safely, wait for an `ingestion.yt: sleeping N s (between downloads)` line in `ingestion.log`, then `taskkill /T /F /PID <run_bulk PID>`.
+- **The daily task "JRE ingestion new episodes"** is still enabled (06:00, or at logon if missed). It's short and independent: it only downloads new episodes, not the backfill.
+
+### When the owner is back (in order)
+1. **Resume the backfill download** with the command above.
+2. When pending is 0 (apart from the 9 `unavailable`), check that #839 and #780 succeeded. Spot-check a few backfill MP4s in the bucket and confirm that their "Video not available yet" badge is gone in search.
+3. Check the daily task's runs in `ingestion.log` (`ingestion.discover`). Any new episode above #2570 needs `import --new-only` (dry run, review, `--apply`), then `mark --new-only --apply`.
+4. Open decisions and owner to-dos: see "Next session" in the 2026-10-26 entry below.
+
+## Update (2026-10-26, 16:00–17:46): imports (owner-approved: gap, new, backfill)
 
 ### Next session
 1. **Backfill download:** check `status` (expected done around 2026-10-28). When pending is 0 (except the 9 `unavailable`), spot-check a few backfill MP4s and confirm their badge is gone in search.
