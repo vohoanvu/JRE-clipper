@@ -5,6 +5,16 @@
 
 ---
 
+## Update (2026-10-27): CI/CD on master (GitHub Actions, keyless)
+- There are three workflows in `.github/workflows/`: `deploy-hosting`, `deploy-functions` and `deploy-renderer`. Each runs only when a push to `master` changes its own paths, and each can also be started by hand (`workflow_dispatch`).
+  - The functions workflow rebuilds `functions/.env` from the repo secrets `YOUTUBE_API_KEY` and `ADMIN_EMAIL`. It deploys without `--force`, so a deploy that would delete a function fails instead.
+  - The renderer workflow runs `deploy.sh`, now marked executable in git.
+- **Auth is Workload Identity Federation, with no keys.** The setup is `.github/setup-gcp-deployer.sh` (idempotent; run on 2026-10-27).
+  - Pool `github`, provider `jre-clipper`. It accepts only repo ID 1001185213, owner ID 36556515, ref `refs/heads/master`.
+  - The deploy SA is `github-deployer@`, with Hosting admin, Cloud Functions developer, Cloud Run developer, two serviceusage roles, Artifact Registry writer on `cloud-run-source-deploy`, and actAs on the compute, `jre-search-reader` and `jre-clip-renderer` SAs.
+  - The repo variables are `GCP_WIF_PROVIDER` and `GCP_DEPLOY_SA`.
+- **Still to remove:** the old Firebase-generated SA `github-action-1001185213@` still has a never-expiring user-managed key from 2025-06-20. It's stored as the repo secret `FIREBASE_SERVICE_ACCOUNT_GEN_LANG_CLIENT_DEMO`. Delete both once the new workflows pass, with the owner's OK.
+
 ## Update (2026-10-27): sort search results by date (DEPLOYED; owner verifying on the live site)
 - Deployed with `npx -y firebase-tools@14 deploy --only hosting`. whatwouldjoerogansay.com serves `?v=20261027`, and the live `main.js` contains `sortVideoCards`. The npx cache was removed afterwards.
 - `index.html` results now have a "Sort episodes by" control: Newest first (default), Oldest first, Most relevant (the old search-ranking order). It is client-side only, using the YouTube `publishedAt` that `getVideoMetadata` already returns. Episodes without a date go last.

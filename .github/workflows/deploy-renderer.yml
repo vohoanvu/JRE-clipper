@@ -1,0 +1,35 @@
+# Builds and deploys the clip renderer Cloud Run Job when it changes on master, using its deploy.sh.
+name: Deploy clip renderer
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - video-processor-CloudRun-Function/JreClipRenderer/**
+      - "!video-processor-CloudRun-Function/JreClipRenderer/tools/**"
+      - .github/workflows/deploy-renderer.yml
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-renderer
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write # keyless sign-in to Google Cloud (Workload Identity Federation)
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+      # Image tag = short commit SHA (deploy.sh default).
+      - run: ./deploy.sh
+        working-directory: video-processor-CloudRun-Function/JreClipRenderer
