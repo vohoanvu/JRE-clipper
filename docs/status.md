@@ -5,6 +5,23 @@
 
 ---
 
+## Update (2026-10-28, 00:10): backfill download FINISHED
+- The runner finished at 22:28 on 2026-10-27 (last item: `rrJhQpvlkLA` uploaded). No processes are left and `state.lock` is clear.
+- **Backfill download: 181 done, 14 unavailable** (of 195). The earlier errors #780 and #839 both succeeded on the retry pass.
+- Spot-check: 5 random backfill MP4s are in `gs://jre-all-episodes`, and live `getVideoMetadata` returns `available: true` for all of them (badge gone).
+- **The 14 unavailable:**
+  - 9 copyright-blocked: #648, #1148, #1753, #1974, #1987, #2003, #2024, #2075, #2081. No transcript, not indexed, nothing to do.
+  - **5 age-restricted, transcribed and indexed, but no MP4.** They show "Video not available yet" in search:
+    - #1169 `ycPr5-27vSI` Elon Musk
+    - #1579 `XEmDWhEUwrQ` Suzanne Santo & Honey County
+    - #1733 `AW9nwZN3A5Q` Snoop Dogg
+    - #1759 `9pVgh7__CZg` Oliver Stone
+    - #1872 `roYHf3MTsno` Tony Hinchcliffe
+  - Fix (needs the owner's choice of an age-verified YouTube account):
+    `download --ids ycPr5-27vSI XEmDWhEUwrQ AW9nwZN3A5Q 9pVgh7__CZg roYHf3MTsno --include-backfill --cookies-from-browser <firefox|cookies.txt>`
+    Chrome cookies can't be read on Windows (app-bound encryption).
+- Untracked leftovers in `F:\jre-all-episodes`: `L_WaIhnUyQM.f243.webm` (2024-08) and `xOelOfg88MY.f251.webm` (2025-04). Both are part of the open "old media on F:" decision; not touched.
+
 ## Update (2026-10-27): "My videos" page (LIVE; owner to verify on the live site)
 - **Setup and deploy, done with the owner's OK:** both setup scripts ran, the index was READY after ~2 min, and `7c53cd1` was pushed. Hosting ✅. Functions: 7 updated, but **creating** `listMyVideos` failed with "Unable to set the invoker" because the deployer lacks `run.services.setIamPolicy` by design. Fix: added `allUsers` → `roles/run.invoker` on Cloud Run service `listmyvideos` by hand (the same policy as every other callable), then re-ran the workflow ✅. `listMyVideos` answers anonymous callers with UNAUTHENTICATED, as expected. The signed-URL path hasn't been exercised yet, so the owner checks it on the live site.
 - Owner decision: keep the deployer narrow and do this one-time step for each new function (documented in CLAUDE.md).
