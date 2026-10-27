@@ -5,7 +5,9 @@
 
 ---
 
-## Update (2026-10-27): "My videos" page (code done; GCP setup awaiting owner approval; not deployed)
+## Update (2026-10-27): "My videos" page (LIVE; owner to verify on the live site)
+- **Setup and deploy, done with the owner's OK:** both setup scripts ran, the index was READY after ~2 min, and `7c53cd1` was pushed. Hosting ✅. Functions: 7 updated, but **creating** `listMyVideos` failed with "Unable to set the invoker" because the deployer lacks `run.services.setIamPolicy` by design. Fix: added `allUsers` → `roles/run.invoker` on Cloud Run service `listmyvideos` by hand (the same policy as every other callable), then re-ran the workflow ✅. `listMyVideos` answers anonymous callers with UNAUTHENTICATED, as expected. The signed-URL path hasn't been exercised yet, so the owner checks it on the live site.
+- Owner decision: keep the deployer narrow and do this one-time step for each new function (documented in CLAUDE.md).
 - **Owner decisions:** keep finished videos forever; build a new `videos.html` page (linked from the headers on index and account).
 - `listMyVideos` (new callable, sign-in required) returns the caller's jobs newest first, 12 per page (`cursor` = last jobId). Each finished job gets a fresh 12-hour V4 signed URL, or `null` if the MP4 is gone. Clips made before 2026-10-27 were deleted after 8 days and show as "Expired".
 - `getVideoJob` also re-signs on every call, so the status page works for any age. Its expiry text now points to My videos.
