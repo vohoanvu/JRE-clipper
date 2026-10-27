@@ -5,6 +5,11 @@
 
 ---
 
+## Update (2026-10-28, 00:55): the 5 age-restricted episodes downloaded
+- Owner exported `cookies.txt` from an age-verified YouTube account (Chrome extension "Get cookies.txt LOCALLY", incognito, per the yt-dlp wiki). Then ran `download --ids ycPr5-27vSI,XEmDWhEUwrQ,AW9nwZN3A5Q,9pVgh7__CZg,roYHf3MTsno --include-backfill --cookies-from-browser <file>` (00:15–00:53, all 5 done).
+- All 5 MP4s are in `gs://jre-all-episodes`, and live `getVideoMetadata` returns `available: true` for each. The cookies file was deleted afterwards.
+- **Backfill download is now 186 done, 9 unavailable.** The 9 are the copyright-blocked ones, which are unindexed. Every indexed episode has its video.
+
 ## Update (2026-10-28, 00:10): backfill download FINISHED
 - The runner finished at 22:28 on 2026-10-27 (last item: `rrJhQpvlkLA` uploaded). No processes are left and `state.lock` is clear.
 - **Backfill download: 181 done, 14 unavailable** (of 195). The earlier errors #780 and #839 both succeeded on the retry pass.
