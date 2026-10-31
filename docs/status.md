@@ -5,7 +5,18 @@
 
 ---
 
-## Update (2026-10-31): analytics, legal pages, de-personified AI answer, snippets and citations (CODE READY, NOT DEPLOYED)
+## Update (2026-10-31, later): DEPLOYED and verified on the live site
+- `e86b8d4` is deployed. `trackevents` got the one-time invoker binding. TTL is enabled on `expireAt` for `analyticsEvents`, `searchActivity` and `visitors`. The 50 old `searchActivity` and `visitors` docs without `expireAt` were deleted.
+- Checked in Chrome (owner's browser, tagged `?internal=1`):
+  - Headline and example chips; "Bears" chip → `?q=Bears`, 30 moments with excerpts.
+  - AI summary is neutral with 8 sources; clicking a source plays that moment in its card.
+  - Copy citation works; typed search and Back restore the previous results.
+  - Legal pages and footer.
+  - `analyticsEvents` received page_view, search, answer_shown, moment_play and citation_copy, all `internal=true`.
+- Found and fixed (`705415c`): the summary showed raw `**bold**` and `* ` bullets. They are now rendered, with everything escaped first.
+- Not checked: phone layout (the window wouldn't resize) and the link-preview card.
+
+## Update (2026-10-31): analytics, legal pages, de-personified AI answer, snippets and citations
 Context: a monetization audit on 2026-10-31 found 3 Firebase Auth accounts, all the owner's, and no outside users, and a paywall that was only ever in Stripe test mode. The owner chose the plan: make the site measurable, safe and findable first; stop serving downloadable JRE files later in favor of an embed player; rebrand to PodReceipts in 2027 (whatwouldjoerogansay.com expires 2027-06-28). This entry covers steps 1, 3 and 4 of that plan.
 - **Analytics (step 1).**
   - `public/analytics.js` is loaded on index, status, videos, account and signin. It keeps a persistent random visitor id plus a 30-minute-idle session id in localStorage (no cookies), and sends batched events to the new callable `trackEvents`, which writes `analyticsEvents/{auto}`.
