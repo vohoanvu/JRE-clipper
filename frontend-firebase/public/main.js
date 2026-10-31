@@ -395,8 +395,31 @@ function displayAnswer(answerText, sourceIds, search) {
       <p class="answer-disclaimer">AI-generated summary of the transcripts. It can be wrong, so check the moments it cites.</p>
     </div>
   `;
-  // Model output is rendered as text, never as HTML.
-  answerSection.querySelector('.answer-content').textContent = answerText;
+  answerSection.querySelector('.answer-content').innerHTML = renderAnswerMarkdown(answerText);
+}
+
+// The model writes a little markdown (**bold**, "* " bullets). Everything is HTML-escaped first,
+// so only these two constructs ever become markup.
+function renderAnswerMarkdown(text) {
+  const inline = line => escapeHtml(line).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  const html = [];
+  let list = [];
+  const flushList = () => {
+    if (list.length) html.push(`<ul>${list.map(item => `<li>${item}</li>`).join('')}</ul>`);
+    list = [];
+  };
+  for (const raw of String(text).split('\n')) {
+    const line = raw.trim();
+    const bullet = /^[*-]\s+(.*)$/.exec(line);
+    if (bullet) {
+      list.push(inline(bullet[1]));
+      continue;
+    }
+    flushList();
+    if (line) html.push(`<p>${inline(line)}</p>`);
+  }
+  flushList();
+  return html.join('');
 }
 
 // ===== VIDEO PLAYER FUNCTIONALITY =====
