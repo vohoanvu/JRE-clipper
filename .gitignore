@@ -87,3 +87,5 @@ node_modules/
 # Incremental ingestion (ingestion/): local virtualenv
 ingestion/.venv/
 __pycache__/
+
+.claude
