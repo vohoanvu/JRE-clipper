@@ -168,10 +168,12 @@ function redirectToHome() {
     authStateListener = null;
   }
   
-  // Use replace to prevent back button loop
-  Promise.resolve(verificationEmailPromise)
-    .catch(error => console.error('Could not send the verification email:', error))
-    .finally(() => window.location.replace(redirectUrl));
+  // Use replace to prevent back button loop. Waits briefly so signin_complete gets sent.
+  Promise.all([
+    Promise.resolve(verificationEmailPromise)
+      .catch(error => console.error('Could not send the verification email:', error)),
+    window.jreAnalytics?.flushSoon()
+  ]).finally(() => window.location.replace(redirectUrl));
 }
 
 function initializeSignInWidget() {
@@ -206,8 +208,8 @@ function initializeSignInWidget() {
     ],
     signInSuccessUrl: window.location.origin + getRedirectPath(),
     credentialHelper: firebaseui.auth.CredentialHelper.NONE,
-    tosUrl: `/404.html`,
-    privacyPolicyUrl: `/404.html`,
+    tosUrl: '/terms.html',
+    privacyPolicyUrl: '/privacy.html',
     callbacks: {
       signInSuccessWithAuthResult: function(authResult, redirectUrl) {
         console.log('FirebaseUI sign-in success callback triggered');
@@ -218,6 +220,11 @@ function initializeSignInWidget() {
           isNewUser: authResult.additionalUserInfo ? authResult.additionalUserInfo.isNewUser : false
         });
         
+        window.jreAnalytics?.track('signin_complete', {
+          method: authResult.additionalUserInfo?.providerId || 'unknown',
+          isNewUser: authResult.additionalUserInfo?.isNewUser === true
+        });
+
         // Video generation requires a verified email; Google accounts already are.
         const user = authResult.user;
         if (authResult.additionalUserInfo?.isNewUser && !user.emailVerified

@@ -169,70 +169,6 @@ h1 {
   cursor: pointer;
 }
 
-/* Search instruction styles */
-.search-instruction-container {
-  margin-bottom: 1rem;
-  transition: all 0.3s ease;
-}
-
-.search-instruction-container.hidden {
-  display: none;
-}
-
-.instruction-input {
-  width: 100%;
-  padding: 0.75rem;
-  border-radius: 6px;
-  font-size: 0.9rem;
-  font-family: inherit;
-  resize: vertical;
-  min-height: 80px;
-  transition: border-color 0.2s, background-color 0.2s;
-}
-
-.instruction-input:focus {
-  outline: none;
-  box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
-}
-
-.instruction-label {
-  display: block;
-  font-weight: 600;
-  margin-bottom: 0.5rem;
-  font-size: 0.9rem;
-}
-
-.instruction-help {
-  font-size: 0.8rem;
-  color: #666;
-  margin-top: 0.25rem;
-  font-style: italic;
-}
-
-.instruction-toggle-btn {
-  background: #6c757d;
-  color: white;
-  border: none;
-  padding: 0.5rem 1rem;
-  border-radius: 4px;
-  font-size: 0.85rem;
-  cursor: pointer;
-  transition: background-color 0.2s;
-  white-space: nowrap;
-}
-
-.instruction-toggle-btn:hover {
-  background: #545b62;
-}
-
-.instruction-toggle-btn.active {
-  background: #007bff;
-}
-
-.instruction-toggle-btn.active:hover {
-  background: #0056b3;
-}
-
 .search-controls {
   display: flex;
   gap: 1rem;
@@ -250,11 +186,6 @@ h1 {
   .search-controls > div:first-child {
     display: flex;
     gap: 0.5rem;
-  }
-
-  .instruction-toggle-btn {
-    font-size: 0.8rem;
-    padding: 0.4rem 0.8rem;
   }
 }
 
@@ -764,37 +695,6 @@ h1 {
   align-items: stretch;
 }
 
-.instruction-toggle-btn {
-  background: var(--secondary) !important;
-  color: white !important;
-  border: none !important;
-  padding: 0.5rem !important;
-  border-radius: 6px !important;
-  font-size: 0.8rem !important;
-  cursor: pointer !important;
-  transition: all 0.2s ease !important;
-  white-space: nowrap !important;
-  width: 54px !important;
-  height: 54px !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  flex-shrink: 0 !important;
-}
-
-.instruction-toggle-btn:hover {
-  background: #5a6268 !important;
-  transform: translateY(-1px);
-}
-
-.instruction-toggle-btn.active {
-  background: var(--primary) !important;
-}
-
-.instruction-toggle-btn.active:hover {
-  background: var(--primary-focus) !important;
-}
-
 .primary-search-btn {
   background: var(--primary) !important;
   color: white !important;
@@ -1195,4 +1095,176 @@ h1 {
   .search-buttons .primary-search-btn {
     flex: 1;
   }
+}
+
+/* ===== EXAMPLE QUERIES, MOMENT SNIPPETS, CITATIONS ===== */
+.example-queries {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+  color: #666;
+}
+
+.example-chip {
+  width: auto;
+  margin: 0;
+  padding: 0.3rem 0.8rem;
+  border-radius: 999px;
+  border: 1px solid #cfd8e3;
+  background: #f5f8fb;
+  color: #2c3e50;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.example-chip:hover,
+.example-chip:focus-visible {
+  border-color: var(--primary);
+  background: #e8f4fd;
+}
+
+.results-summary-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.results-summary-header h3 {
+  margin: 0;
+}
+
+/* Text-style button, also used for links that sit next to these buttons. */
+.link-btn {
+  display: inline;
+  width: auto;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #0066cc;
+  font-size: 0.85rem;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.link-btn:hover,
+.link-btn:focus-visible {
+  text-decoration: underline;
+}
+
+.segment-timestamp-text {
+  font-weight: 600;
+  color: #2c3e50;
+}
+
+.segment-snippet {
+  margin: 0.35rem 0;
+  padding: 0 0 0 0.75rem;
+  border-left: 3px solid #cfd8e3;
+  font-size: 0.9rem;
+  font-style: italic;
+  color: #444;
+}
+
+.segment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+@media (max-width: 768px) {
+  .segment-snippet {
+    text-align: left;
+  }
+
+  .segment-actions {
+    justify-content: center;
+  }
+}
+
+.answer-sources {
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #dee2e6;
+  font-size: 0.9rem;
+}
+
+.answer-sources-title {
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 0.25rem;
+}
+
+.answer-sources ol {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.answer-sources li {
+  margin-bottom: 0.2rem;
+}
+
+.answer-source {
+  width: auto;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #0066cc;
+  font-size: 0.9rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.answer-source:hover,
+.answer-source:focus-visible {
+  text-decoration: underline;
+}
+
+.answer-disclaimer {
+  margin: 0.75rem 0 0;
+  font-size: 0.8rem;
+  color: #6c757d;
+}
+
+/* ===== FOOTER LEGAL LINKS AND LEGAL PAGES ===== */
+.footer-legal-links {
+  margin-bottom: 0.25rem;
+}
+
+.footer-legal-links a {
+  color: #bdc3c7;
+  text-decoration: underline;
+}
+
+.footer-legal-links a:hover {
+  color: #ecf0f1;
+}
+
+.legal-page {
+  max-width: 760px;
+  padding-top: 2rem;
+  padding-bottom: 3rem;
+}
+
+.legal-page h1 {
+  margin-bottom: 0.25rem;
+}
+
+.legal-page .legal-updated {
+  color: #6c757d;
+  font-size: 0.9rem;
+}
+
+.legal-page h2 {
+  margin-top: 2rem;
+  font-size: 1.25rem;
+}
+
+.legal-page li {
+  margin-bottom: 0.35rem;
 }

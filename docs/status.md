@@ -5,6 +5,33 @@
 
 ---
 
+## Update (2026-10-31): analytics, legal pages, de-personified AI answer, snippets and citations (CODE READY, NOT DEPLOYED)
+Context: a monetization audit on 2026-10-31 found 3 Firebase Auth accounts, all the owner's, and no outside users, and a paywall that was only ever in Stripe test mode. The owner chose the plan: make the site measurable, safe and findable first; stop serving downloadable JRE files later in favor of an embed player; rebrand to PodReceipts in 2027 (whatwouldjoerogansay.com expires 2027-06-28). This entry covers steps 1, 3 and 4 of that plan.
+- **Analytics (step 1).**
+  - `public/analytics.js` is loaded on index, status, videos, account and signin. It keeps a persistent random visitor id plus a 30-minute-idle session id in localStorage (no cookies), and sends batched events to the new callable `trackEvents`, which writes `analyticsEvents/{auto}`.
+  - The 13 allowed event names are listed in `ANALYTICS_EVENTS` in `functions/index.js`.
+  - `internal` is true for the admin account or for a browser that opened any page with `?internal=1`. `recordSearchActivity` now also stores `internal`, and its `sessionId` is the persistent visitor id.
+  - Report: `python frontend-firebase/tools/analytics_report.py [--days N] [--include-internal]` prints visitors, sources, searches, zero-result queries, activation (≥2 moments opened or a citation/link copied, among searchers), and the compilation funnel. It was tested on synthetic events, and on the live collection, which is still empty.
+- **Legal and safety (step 3).**
+  - New `terms.html`, `privacy.html` and `copyright.html`; the operator is VU Solutions LLC (Da Nang). FirebaseUI's ToS/Privacy links no longer point at `/404.html`.
+  - New footer on all pages: "Unofficial … not affiliated …", legal links, © 2026 VU Solutions LLC.
+  - The AI answer is now a neutral third-person summary that never speaks as Rogan and never invents quotes, with a "Sources" list linking to the cited moments. Custom Instructions were removed from the UI and are ignored by the server.
+  - Log docs (`searchActivity`, `dailySearchStats/*/visitors`, `analyticsEvents`) now carry `expireAt` = +24 months, as `privacy.html` promises.
+- **Findable and shareable (step 4).**
+  - `searchSegments` returns `id` and a ~30-word `snippet` centered on query words (never the full chunk). Each moment shows the excerpt, "Copy citation" (quote + episode + timestamp + youtu.be link) and "Open on YouTube".
+  - Searches write `?q=` to the URL (Back/Forward work), and there is a "Copy link to these results" button.
+  - New headline/subhead and example-query chips. Meta description, canonical, and Open Graph/Twitter tags with `og-image.png` (1200×630).
+- Also fixed: the sign-in modal said "Download link valid for 7 days" (videos are kept forever since 10-27).
+- **Deploy and setup (needs the owner's OK; pushing to master deploys both hosting and functions):**
+  1. Push. The functions workflow will fail once on the new `trackEvents` ("Unable to set the invoker"). Run `gcloud run services add-iam-policy-binding trackevents --region=us-central1 --member=allUsers --role=roles/run.invoker`, then re-run the workflow.
+  2. Enable TTL: `gcloud firestore fields ttls update expireAt --collection-group=<analyticsEvents|searchActivity|visitors> --enable-ttl --database=jre-clipper-db`.
+  3. Open https://whatwouldjoerogansay.com/?internal=1 once in every browser the owner uses.
+  4. Verify on the live site: chips, snippets, citation copy, `?q=` and Back, AI summary sources, legal pages, link preview, and that `analyticsEvents` receives events.
+- **Owner to-dos:**
+  - Have a lawyer glance over the three legal pages (governing law is set to Vietnam).
+  - Optionally register a DMCA designated agent with the US Copyright Office (about $6) for safe harbor.
+  - The 44 pre-existing `searchActivity` docs have no `expireAt`: backfill or delete them.
+
 ## Update (2026-10-28, 00:55): the 5 age-restricted episodes downloaded
 - Owner exported `cookies.txt` from an age-verified YouTube account (Chrome extension "Get cookies.txt LOCALLY", incognito, per the yt-dlp wiki). Then ran `download --ids ycPr5-27vSI,XEmDWhEUwrQ,AW9nwZN3A5Q,9pVgh7__CZg,roYHf3MTsno --include-backfill --cookies-from-browser <file>` (00:15–00:53, all 5 done).
 - All 5 MP4s are in `gs://jre-all-episodes`, and live `getVideoMetadata` returns `available: true` for each. The cookies file was deleted afterwards.

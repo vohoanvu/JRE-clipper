@@ -137,7 +137,11 @@ function renderVideoCard(video) {
     actions.className = 'my-video-actions';
     if (video.videoUrl) {
         // The object is stored with Content-Disposition: attachment, so this link downloads.
-        actions.appendChild(link('⬇ Download', video.videoUrl, 'download'));
+        const download = link('⬇ Download', video.videoUrl, 'download');
+        download.addEventListener('click', () => {
+            window.jreAnalytics?.track('video_download', { jobId: video.jobId, page: 'videos' });
+        });
+        actions.appendChild(download);
     }
     actions.appendChild(link('Details', `status.html?jobId=${encodeURIComponent(video.jobId)}`));
     body.appendChild(actions);

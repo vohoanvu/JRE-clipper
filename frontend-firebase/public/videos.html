@@ -8,14 +8,15 @@
   <link rel="preconnect" href="https://us-central1-gen-lang-client-demo.cloudfunctions.net" crossorigin>
   <link rel="preconnect" href="https://storage.googleapis.com">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
-  <link rel="stylesheet" href="main.css?v=20261027">
+  <link rel="stylesheet" href="main.css?v=20261031">
 
   <!-- Firebase SDK via CDN (Firebase Hosting Init). Deferred: they run in order before videos.js. -->
   <script defer src="/__/firebase/11.9.1/firebase-app-compat.js"></script>
   <script defer src="/__/firebase/11.9.1/firebase-auth-compat.js"></script>
   <script defer src="/__/firebase/11.9.1/firebase-functions-compat.js"></script>
   <script defer src="/__/firebase/init.js"></script>
-  <script defer src="videos.js?v=20261027"></script>
+  <script defer src="analytics.js?v=20261031"></script>
+  <script defer src="videos.js?v=20261031"></script>
 
   <style>
     .videos-page {
@@ -284,7 +285,11 @@
     </div>
 
     <div class="footer-bottom">
-      <p>&copy; 2025 JRE Clipper. Built for educational purposes. Joe Rogan Experience content belongs to respective owners.</p>
+      <p class="footer-legal-links"><a href="terms.html">Terms</a> · <a href="privacy.html">Privacy</a> ·
+        <a href="copyright.html">Copyright &amp; takedowns</a></p>
+      <p>Unofficial fan-made search tool, not affiliated with or endorsed by Joe Rogan, The Joe Rogan Experience or
+        Spotify. Episodes play in YouTube's official player; all content belongs to its owners. &copy; 2026 VU
+        Solutions LLC.</p>
     </div>
   </footer>
 </body>

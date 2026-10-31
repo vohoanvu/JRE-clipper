@@ -13,27 +13,31 @@ const DAILY_VIDEO_LIMIT = 5;
 const LIMITS_HINT = `Free for signed-in users: up to ${DAILY_VIDEO_LIMIT} videos per day, max ${MAX_SEGMENTS} segments and ${MAX_TOTAL_SECONDS / 60} minutes per video.`;
 const DEFAULT_SORT = 'newest';
 
+const UTM_PARAMS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term'];
+
 // ===== STATE =====
 let functionsClient = null;
 let lastSearch = null;        // { query, results, session, queryId }
 let searchSeq = 0;            // bumped per search so stale async responses are ignored
 let searchInFlight = false;
-const anonymousSessionId = 'session_' + Math.random().toString(36).substring(2) + Date.now().toString(36);
-let userSessionId = anonymousSessionId; // Firebase UID when signed in
 let selectedSegments = [];
 let activePlayerId = null;    // only one live YouTube iframe at a time; others are thumbnails
+const defaultTitle = document.title;
 
 // DOM element references (set after DOM loads)
-let searchInput, searchButton, instructionInput, instructionToggleBtn, instructionContainer;
+let searchInput, searchButton, exampleQueries;
 let searchResultsContainer, answerSection, videoPlayersContainer;
+
+// analytics.js loads first; if it failed, events are simply dropped.
+function track(name, props) {
+  window.jreAnalytics?.track(name, props);
+}
 
 // ===== DOM INITIALIZATION =====
 document.addEventListener('DOMContentLoaded', function () {
   searchInput = document.getElementById('searchInput');
   searchButton = document.getElementById('searchButton');
-  instructionInput = document.getElementById('instructionInput');
-  instructionToggleBtn = document.getElementById('instructionToggleBtn');
-  instructionContainer = document.getElementById('instruction-container');
+  exampleQueries = document.getElementById('example-queries');
   searchResultsContainer = document.getElementById('search-results');
   answerSection = document.getElementById('answer-section');
   videoPlayersContainer = document.getElementById('video-players-container');
@@ -56,20 +60,34 @@ function initializeApp() {
   searchButton.disabled = false;
   searchInput.placeholder = SEARCH_PLACEHOLDER;
 
-  // status.html links back with ?q=<last query>
-  const initialQuery = new URLSearchParams(window.location.search).get('q');
-  if (initialQuery && initialQuery.trim()) {
-    searchInput.value = initialQuery.trim();
-    performSearch(searchInput.value);
+  // Shared links, status.html's back link and the browser's back/forward carry ?q=<query>.
+  searchFromUrl('url');
+}
+
+function searchFromUrl(source) {
+  const query = (new URLSearchParams(window.location.search).get('q') || '').trim();
+  if (query) {
+    searchInput.value = query;
+    performSearch(query, source);
+  } else if (source === 'history') {
+    resetResults();
+    searchInput.value = '';
+    document.title = defaultTitle;
   }
 }
 
 function setupEventListeners() {
-  searchButton.addEventListener('click', () => performSearch(searchInput.value));
+  searchButton.addEventListener('click', () => performSearch(searchInput.value, 'typed'));
   searchInput.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter') performSearch(searchInput.value);
+    if (event.key === 'Enter') performSearch(searchInput.value, 'typed');
   });
-  instructionToggleBtn.addEventListener('click', toggleInstructionField);
+  exampleQueries?.addEventListener('click', (event) => {
+    const example = event.target.closest('[data-query]');
+    if (!example) return;
+    searchInput.value = example.dataset.query;
+    performSearch(example.dataset.query, 'example');
+  });
+  window.addEventListener('popstate', () => searchFromUrl('history'));
 
   const signOutBtn = document.getElementById('sign-out');
   if (signOutBtn) {
@@ -78,8 +96,10 @@ function setupEventListeners() {
     });
   }
 
-  // One delegated listener pair for everything rendered into the results area.
+  // One delegated click listener per results area.
   videoPlayersContainer.addEventListener('click', handleResultsClick);
+  answerSection.addEventListener('click', handleResultsClick);
+  searchResultsContainer.addEventListener('click', handleResultsClick);
   videoPlayersContainer.addEventListener('change', (event) => {
     if (event.target.classList.contains('segment-checkbox')) updateSelectedSegments();
     if (event.target.id === 'resultsSort') sortVideoCards(event.target.value);
@@ -88,14 +108,28 @@ function setupEventListeners() {
 
 function handleResultsClick(event) {
   const target = event.target.closest('[data-action]');
-  if (!target || !videoPlayersContainer.contains(target)) return;
+  if (!target || !event.currentTarget.contains(target)) return;
 
   switch (target.dataset.action) {
     case 'play':
+      track('moment_play', { videoId: target.dataset.videoId, start: Number(target.dataset.start), via: 'thumbnail' });
       activatePlayer(target.dataset.videoId, Number(target.dataset.start));
       break;
     case 'seek':
+      track('moment_play', {
+        videoId: target.dataset.videoId, start: Number(target.dataset.start), via: target.dataset.via || 'seek'
+      });
       seekToTime(target.dataset.videoId, Number(target.dataset.start), target);
+      break;
+    case 'youtube':
+      // A plain link; only recorded here.
+      track('youtube_open', { videoId: target.dataset.videoId, start: Number(target.dataset.start) });
+      break;
+    case 'copy-citation':
+      copyCitation(target);
+      break;
+    case 'copy-search-link':
+      copySearchLink(target);
       break;
     case 'toggle-video':
       toggleVideoSelection(target.closest('.video-container'));
@@ -150,50 +184,49 @@ function initializeAuth() {
         }
       }
       if (userEmail) userEmail.textContent = user.email || user.displayName || '';
-
-      userSessionId = user.uid;
     } else {
       if (authButtonsContainer) authButtonsContainer.style.display = 'block';
       if (userInfoContainer) userInfoContainer.style.display = 'none';
-      userSessionId = anonymousSessionId;
     }
 
     updateGenerateVideoButton();
   });
 }
 
-// ===== INSTRUCTION TOGGLE FUNCTIONALITY =====
-function toggleInstructionField() {
-  const isHidden = instructionContainer.classList.contains('hidden');
-
-  if (isHidden) {
-    instructionContainer.classList.remove('hidden');
-    instructionToggleBtn.classList.add('active');
-    instructionToggleBtn.textContent = '✕';
-    instructionToggleBtn.title = 'Hide Instructions';
-  } else {
-    instructionContainer.classList.add('hidden');
-    instructionToggleBtn.classList.remove('active');
-    instructionToggleBtn.textContent = '⚙️';
-    instructionToggleBtn.title = 'Custom Instructions';
-  }
-}
-
 // ===== SEARCH FUNCTIONALITY =====
-async function performSearch(rawQuery) {
-  const query = (rawQuery || '').trim();
-  if (!query || searchInFlight) return;
-
-  searchInFlight = true;
-  const seq = ++searchSeq;
-
-  searchInput.placeholder = 'Searching...';
-  searchButton.setAttribute('aria-busy', 'true');
+function resetResults() {
   searchResultsContainer.innerHTML = '';
   answerSection.innerHTML = '';
   videoPlayersContainer.innerHTML = '';
   selectedSegments = [];
   activePlayerId = null;
+}
+
+// Puts the query in the address bar so results can be shared, bookmarked and navigated with Back.
+// UTM tags are dropped so a shared link doesn't carry the sharer's campaign.
+function syncUrl(query, source) {
+  if (source === 'url' || source === 'history') return;
+  const url = new URL(window.location.href);
+  if (url.searchParams.get('q') === query) return;
+  url.searchParams.set('q', query);
+  UTM_PARAMS.concat('internal').forEach(key => url.searchParams.delete(key));
+  history.pushState(null, '', url.pathname + url.search);
+}
+
+// source: typed | example | url | history (back/forward)
+async function performSearch(rawQuery, source = 'typed') {
+  const query = (rawQuery || '').trim();
+  if (!query || searchInFlight) return;
+
+  searchInFlight = true;
+  const seq = ++searchSeq;
+  const startedAt = performance.now();
+
+  searchInput.placeholder = 'Searching...';
+  searchButton.setAttribute('aria-busy', 'true');
+  resetResults();
+  syncUrl(query, source);
+  document.title = `${query} - what Joe Rogan said | JRE Clipper`;
 
   recordSearchActivity(query);
 
@@ -210,6 +243,13 @@ async function performSearch(rawQuery) {
       session: data?.session || null,
       queryId: data?.queryId || null
     };
+    track('search', {
+      query,
+      source,
+      results: lastSearch.results.length,
+      episodes: new Set(lastSearch.results.map(item => item.videoId)).size,
+      ms: Math.round(performance.now() - startedAt)
+    });
 
     if (lastSearch.results.length > 0) {
       // Answer and player metadata load in parallel; both ignore stale responses.
@@ -222,6 +262,7 @@ async function performSearch(rawQuery) {
   } catch (error) {
     if (seq !== searchSeq) return;
     console.error('Search failed:', error);
+    track('search', { query, source, error: errorCode(error) || 'unknown' });
     searchResultsContainer.innerHTML = `<p style="color: red;">Search failed: ${escapeHtml(error.message || 'Unknown error')}</p>`;
   } finally {
     searchInFlight = false;
@@ -232,7 +273,7 @@ async function performSearch(rawQuery) {
 
 function displaySearchSummary(results) {
   if (results.length === 0) {
-    searchResultsContainer.innerHTML = '<p>No results found.</p>';
+    searchResultsContainer.innerHTML = '<p>No results found. Try different words, or a broader topic.</p>';
     return;
   }
 
@@ -245,15 +286,19 @@ function displaySearchSummary(results) {
     videoGroups.get(item.videoId).count++;
   });
 
-  let html = `<h3>Found ${results.length} relevant segments from ${videoGroups.size} JRE episodes</h3>`;
+  let html = `
+    <div class="results-summary-header">
+      <h3>Found ${results.length} moments in ${videoGroups.size} episodes</h3>
+      <button type="button" class="link-btn" data-action="copy-search-link">🔗 Copy link to these results</button>
+    </div>`;
   html += '<div style="background: #f5f5f5; padding: 1rem; border-radius: 4px; margin: 1rem 0;">';
   videoGroups.forEach(group => {
     html += `<div style="margin-bottom: 0.5rem; color: #2c3e50;">
-      <strong>${escapeHtml(group.title)}</strong> - ${group.count} segment${group.count > 1 ? 's' : ''}
+      <strong>${escapeHtml(group.title)}</strong> - ${group.count} moment${group.count > 1 ? 's' : ''}
     </div>`;
   });
   html += '</div>';
-  html += '<p style="color: #666; font-style: italic;">Watch the episode segments below...</p>';
+  html += '<p style="color: #666; font-style: italic;">Watch the moments below...</p>';
 
   searchResultsContainer.innerHTML = html;
 }
@@ -261,18 +306,21 @@ function displaySearchSummary(results) {
 function recordSearchActivity(query) {
   callFunction('recordSearchActivity', {
     searchQuery: query,
-    sessionId: userSessionId,
+    sessionId: window.jreAnalytics?.visitorId || null,
+    internal: window.jreAnalytics?.internal === true,
     userAgent: navigator.userAgent,
   }).catch(error => console.error('Failed to record search activity:', error));
 }
 
-// ===== AI ANSWER GENERATION =====
+// ===== AI SUMMARY =====
+function answerHeaderHtml(query) {
+  return `<div class="answer-header">📝 What was said about "${escapeHtml(query)}"</div>`;
+}
+
 async function generateAnswer(seq, search) {
   answerSection.innerHTML = `
     <div class="answer-section">
-      <div class="answer-header">
-        🎙️ What Joe Rogan Would Say...
-      </div>
+      ${answerHeaderHtml(search.query)}
       <div class="answer-loading">
         <div class="gemini-loading">
           <div class="dot"></div>
@@ -280,68 +328,71 @@ async function generateAnswer(seq, search) {
           <div class="dot"></div>
           <div class="dot"></div>
         </div>
-        <span>AI Joe Rogan is thinking<span class="dots"></span></span>
+        <span>Summarizing the matching moments<span class="dots"></span></span>
       </div>
     </div>
   `;
 
-  // The default Joe Rogan preamble is applied server-side; a custom
-  // instruction is appended to it there.
-  const instruction = instructionInput.value.trim();
-
   try {
     const data = await callFunction('answerQuery', {
       query: search.query,
-      instruction,
       session: search.session,
       queryId: search.queryId
     }, { timeout: 95000 });
     if (seq !== searchSeq) return;
-    displayAnswer(data?.answerText, instruction, search.query);
+    displayAnswer(data?.answerText, Array.isArray(data?.sourceIds) ? data.sourceIds : [], search);
   } catch (error) {
     if (seq !== searchSeq) return;
     console.error('Answer generation failed:', error);
+    track('answer_shown', { ok: false });
     answerSection.innerHTML = `
       <div class="answer-section">
-        <div class="answer-header">
-          🎙️ What Joe Rogan Would Say...
-        </div>
+        ${answerHeaderHtml(search.query)}
         <div class="answer-error">
-          Failed to generate answer: ${escapeHtml(error.message || 'Unknown error')}
+          Could not summarize these moments: ${escapeHtml(error.message || 'Unknown error')}
         </div>
       </div>
     `;
   }
 }
 
-function displayAnswer(answerText, instruction, query) {
+// sourceIds are search result ids; each becomes a link that plays that moment.
+function displayAnswer(answerText, sourceIds, search) {
   if (!answerText) {
+    track('answer_shown', { ok: false });
     answerSection.innerHTML = `
       <div class="answer-section">
-        <div class="answer-header">
-          🎙️ What Joe Rogan Would Say...
-        </div>
+        ${answerHeaderHtml(search.query)}
         <div class="answer-error">
-          No answer generated. Try a different search query.
+          No summary for this search. The moments below are still the best matches.
         </div>
       </div>
     `;
     return;
   }
 
-  const headerText = instruction
-    ? `🎯 AI Response About "${query}" (Custom Instruction)`
-    : `🎙️ What Joe Rogan Would Say About "${query}"`;
+  const byId = new Map(search.results.filter(item => item.id).map(item => [item.id, item]));
+  const sources = sourceIds.map(id => byId.get(id)).filter(Boolean);
+  track('answer_shown', { ok: true, sources: sources.length });
 
   answerSection.innerHTML = `
     <div class="answer-section">
-      <div class="answer-header">${escapeHtml(headerText)}</div>
-      ${instruction ? `
-        <div style="background: #e8f4fd; border: 1px solid #007bff; border-radius: 4px; padding: 0.75rem; margin-bottom: 1rem; font-size: 0.85rem;">
-          <strong>🎯 Using Custom Instruction:</strong> ${escapeHtml(instruction.substring(0, 100))}${instruction.length > 100 ? '...' : ''}
-        </div>
-      ` : ''}
+      ${answerHeaderHtml(search.query)}
       <div class="answer-content"></div>
+      ${sources.length ? `
+        <div class="answer-sources">
+          <div class="answer-sources-title">Sources</div>
+          <ol>
+            ${sources.map(source => `
+              <li>
+                <button type="button" class="answer-source" data-action="seek" data-via="answer"
+                        data-video-id="${escapeHtml(source.videoId)}" data-start="${Number(source.startTime)}">
+                  ${escapeHtml(source.videoTitle || 'Episode')} · ${formatTimeHMS(source.startTime)}
+                </button>
+              </li>`).join('')}
+          </ol>
+        </div>` : ''}
+      <p class="answer-disclaimer">AI-generated summary of the transcripts. It can be wrong, so check the moments it cites.</p>
     </div>
   `;
   // Model output is rendered as text, never as HTML.
@@ -359,7 +410,8 @@ async function loadVideoPlayers(seq, results) {
       videoId: item.videoId,
       startTimeSeconds: item.startTime,
       endTimeSeconds: item.endTime,
-      videoTitle: item.videoTitle
+      videoTitle: item.videoTitle,
+      snippet: typeof item.snippet === 'string' ? item.snippet : ''
     });
   });
 
@@ -512,13 +564,76 @@ function segmentHtml(segment, title, selectable) {
         <label for="${checkboxId}" class="segment-checkbox-label">${selectable ? 'Select' : 'Watch only'}</label>
       </div>
       <div class="segment-content">
-        <div class="segment-timestamp-text">The search topic was mentioned at: ${formatTimeHMS(start)}</div>
+        <div class="segment-timestamp-text">At ${formatTimeHMS(start)}</div>
+        ${segment.snippet ? `<blockquote class="segment-snippet">“${escapeHtml(segment.snippet)}”</blockquote>` : ''}
+        <div class="segment-actions">
+          <button type="button" class="link-btn" data-action="copy-citation" data-video-id="${videoId}"
+                  data-start="${start}" data-title="${escapeHtml(title)}" data-snippet="${escapeHtml(segment.snippet)}">
+            📋 Copy citation
+          </button>
+          <a class="link-btn" href="${escapeHtml(youtubeWatchUrl(segment.videoId, start))}" target="_blank" rel="noopener"
+             data-action="youtube" data-video-id="${videoId}" data-start="${start}">
+            ↗ Open on YouTube
+          </a>
+        </div>
       </div>
       <button class="skip-btn" data-action="seek" data-video-id="${videoId}" data-start="${start}">
         SKIP TO
       </button>
     </div>
   `;
+}
+
+function youtubeWatchUrl(videoId, startSeconds) {
+  return `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&t=${Math.floor(startSeconds)}s`;
+}
+
+// e.g. “… black bears attack people as predators …” (Joe Rogan Experience #1883 - Ryan Graves, 1:42:02) https://youtu.be/…?t=6122
+function citationText({ videoId, start, title, snippet }) {
+  const quote = snippet ? `“${snippet}” ` : '';
+  return `${quote}(${title}, ${formatTimeHMS(start)}) https://youtu.be/${videoId}?t=${Math.floor(start)}`;
+}
+
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch (error) {
+    // Clipboard API unavailable (insecure context, old browser): fall back to a hidden textarea.
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    const copied = document.execCommand('copy');
+    textarea.remove();
+    return copied;
+  }
+}
+
+function flashButton(button, message) {
+  const original = button.dataset.label || button.textContent.trim();
+  button.dataset.label = original;
+  button.textContent = message;
+  setTimeout(() => { button.textContent = original; }, 2000);
+}
+
+async function copyCitation(button) {
+  const { videoId, title, snippet } = button.dataset;
+  const start = Number(button.dataset.start);
+  const copied = await copyText(citationText({ videoId, start, title, snippet }));
+  flashButton(button, copied ? '✅ Copied' : 'Copy failed');
+  if (copied) track('citation_copy', { videoId, start });
+}
+
+async function copySearchLink(button) {
+  if (!lastSearch) return;
+  const url = `${window.location.origin}/?q=${encodeURIComponent(lastSearch.query)}`;
+  const copied = await copyText(url);
+  flashButton(button, copied ? '✅ Link copied' : 'Copy failed');
+  if (copied) track('search_link_copy', { query: lastSearch.query });
 }
 
 // Click-to-load facade: a thumbnail instead of a YouTube iframe. Each iframe
@@ -587,13 +702,17 @@ function activatePlayer(videoId, startSeconds) {
   return iframe;
 }
 
+// An AI-summary source can be clicked before its card has rendered; open it on YouTube instead.
 function seekToTime(videoId, startTime, button) {
-  const iframe = activatePlayer(videoId, startTime);
-  if (!iframe) return;
+  const iframe = document.getElementById(`player-${videoId}`) ? activatePlayer(videoId, startTime) : null;
+  if (!iframe) {
+    window.open(youtubeWatchUrl(videoId, startTime), '_blank', 'noopener');
+    return;
+  }
 
   iframe.scrollIntoView({ behavior: 'smooth', block: 'center' });
 
-  if (button) {
+  if (button?.classList.contains('skip-btn')) {
     button.textContent = 'LOADING...';
     button.disabled = true;
     setTimeout(() => {
@@ -710,7 +829,9 @@ function hideGenerationStatus() {
 async function initiateVideoGeneration() {
   if (selectedSegments.length === 0) return;
 
-  if (!firebase.auth().currentUser) {
+  const signedIn = !!firebase.auth().currentUser;
+  track('compile_click', { segments: selectedSegments.length, signedIn });
+  if (!signedIn) {
     showSignInModal();
     return;
   }
@@ -755,6 +876,11 @@ async function initiateVideoGeneration() {
       // Storage can be unavailable (private mode); the back link just won't prefill.
     }
 
+    track('job_created', {
+      segments: data.segmentCount ?? selectedSegments.length,
+      seconds: Math.round(selectedSegments.reduce((sum, s) => sum + (s.endTimeSeconds - s.startTimeSeconds), 0))
+    });
+    await window.jreAnalytics?.flushSoon();
     window.location.href = `status.html?jobId=${encodeURIComponent(data.jobId)}`;
   } catch (error) {
     console.error('Video generation failed:', error);
@@ -843,6 +969,7 @@ async function resendVerificationEmail(button) {
 // Signing in with a popup keeps the user's current selection on the page.
 function showSignInModal() {
   document.querySelectorAll('.auth-modal').forEach(modal => modal.remove());
+  track('signin_prompt', { context: 'compile' });
 
   const nextUrl = '/index.html' + (lastSearch?.query ? `?q=${encodeURIComponent(lastSearch.query)}` : '');
   const modal = document.createElement('div');
@@ -858,7 +985,7 @@ function showSignInModal() {
         <ul>
           <li>✅ Up to ${DAILY_VIDEO_LIMIT} compilation videos per day</li>
           <li>✅ Up to ${MAX_SEGMENTS} segments / ${MAX_TOTAL_SECONDS / 60} minutes per video</li>
-          <li>✅ Download link valid for 7 days</li>
+          <li>✅ Your videos stay available under My videos</li>
         </ul>
         <p class="modal-error" hidden></p>
       </div>
@@ -900,6 +1027,7 @@ async function signInWithGoogle(modal, closeModal) {
     const provider = new firebase.auth.GoogleAuthProvider();
     provider.setCustomParameters({ prompt: 'select_account' });
     await firebase.auth().signInWithPopup(provider);
+    track('signin_complete', { method: 'google_popup' });
     closeModal();
     initiateVideoGeneration();
   } catch (error) {

@@ -165,11 +165,13 @@ const DE_SERVING_CONFIG_URL = `https://us-discoveryengine.googleapis.com/v1alpha
 const DE_SESSION_RE = /^projects\/408323719521\/locations\/us\/collections\/default_collection\/engines\/jreclipper_1750261043616\/sessions\/[A-Za-z0-9_-]{1,64}$/;
 const DE_QUERY_ID_RE = /^projects\/408323719521\/locations\/us\/questions\/[A-Za-z0-9_-]{1,64}$/;
 const MAX_QUERY_LENGTH = 300;
-const MAX_INSTRUCTION_LENGTH = 500;
 const SEARCH_PAGE_SIZE = 30;
+const SNIPPET_WORDS = 30;
+const MAX_ANSWER_SOURCES = 8;
 
-const DEFAULT_JOE_STYLE = "Response in Joe Rogan style, make the response funny using Joe sense of humor, use emoji if necessary.";
-const DEFAULT_JOE_PERSONA = " You are an expert at the Joe Rogan Experience podcast and its content. You are very knowledgeable about JRE content and more importantly all of the guests that have appeared on the JRE show. Use Joe Rogan style of communication. Use the tone of professional comedians that are close to the Comedy circle of Joe Rogan. Occasionally at the end of every answer, make a joke about encouraging the users to take more psychedelic drugs and practice Martial Arts to learn more about the given topic.";
+// The answer is shown next to real clips under Joe Rogan's name, so it must summarize what
+// was said, never speak as him or invent quotes (an "AI Joe" persona was used until 2026-10-31).
+const ANSWER_PREAMBLE = "You summarize what was actually said on The Joe Rogan Experience podcast, using only the transcript excerpts in the search results. Write in a neutral third-person voice; never write as Joe Rogan or impersonate anyone. Attribute a view to Joe Rogan or to the guest only when the excerpt makes the speaker clear; otherwise say \"on the podcast\". Never invent quotes or facts. If the excerpts don't address the question, say so briefly. Keep it under 150 words, using short bullet points when there are several distinct points.";
 
 const searchCache = new TtlLru(300, 10 * 60 * 1000);
 const answerCache = new TtlLru(300, 10 * 60 * 1000);
@@ -213,6 +215,50 @@ function toHttpsError(error, fallbackMessage) {
     return new HttpsError("unavailable", fallbackMessage);
 }
 
+const SNIPPET_STOP_WORDS = new Set(['the', 'and', 'about', 'what', 'did', 'does', 'joe', 'rogan', 'say', 'says',
+    'said', 'talk', 'talks', 'talked', 'his', 'that', 'with', 'for', 'how', 'why', 'who', 'when', 'think', 'thinks']);
+
+// Crude stems so "bears" matches "bear" and "attacking" matches "attack".
+function snippetStems(query) {
+    const stems = query.toLowerCase().split(/[^a-z0-9']+/)
+        .filter((word) => word.length > 2 && !SNIPPET_STOP_WORDS.has(word))
+        .map((word) => word.replace(/(ing|ed|es|s)$/, ''))
+        .filter((stem) => stem.length >= 3);
+    return [...new Set(stems)];
+}
+
+// A ~30-word excerpt of a segment's transcript: the window with the most query-word hits, else
+// the opening. Only excerpts leave the server; the full transcript is never sent to the browser.
+function excerpt(content, stems) {
+    const words = String(content || '').split(/\s+/).filter(Boolean);
+    if (words.length <= SNIPPET_WORDS) return words.join(' ');
+    const hits = words.map((word) => {
+        const bare = word.toLowerCase().replace(/[^a-z0-9']/g, '');
+        return stems.some((stem) => bare.startsWith(stem)) ? 1 : 0;
+    });
+    let best = 0;
+    let bestScore = 0;
+    let score = hits.slice(0, SNIPPET_WORDS).reduce((sum, hit) => sum + hit, 0);
+    if (score > bestScore) bestScore = score;
+    for (let start = 1; start + SNIPPET_WORDS <= words.length; start++) {
+        score += hits[start + SNIPPET_WORDS - 1] - hits[start - 1];
+        if (score > bestScore) {
+            bestScore = score;
+            best = start;
+        }
+    }
+    let start = 0;
+    if (bestScore > 0) {
+        // The first best window ends on a hit; re-center it on the hits it contains.
+        const inWindow = [];
+        for (let i = best; i < best + SNIPPET_WORDS; i++) if (hits[i]) inWindow.push(i);
+        const center = (inWindow[0] + inWindow[inWindow.length - 1]) / 2;
+        start = Math.max(0, Math.min(Math.round(center - SNIPPET_WORDS / 2), words.length - SNIPPET_WORDS));
+    }
+    const end = start + SNIPPET_WORDS;
+    return `${start > 0 ? '… ' : ''}${words.slice(start, end).join(' ')}${end < words.length ? ' …' : ''}`;
+}
+
 async function runSearch(normalizedQuery, timeZone) {
     const response = await googleRequest({
         url: `${DE_SERVING_CONFIG_URL}:search`,
@@ -230,6 +276,7 @@ async function runSearch(normalizedQuery, timeZone) {
     });
 
     const data = response.data || {};
+    const stems = snippetStems(normalizedQuery);
     const results = [];
     for (const item of data.results || []) {
         // Documents are shaped structData.{content, structData{videoId,startTime,endTime,videoTitle,channelName}}.
@@ -240,10 +287,13 @@ async function runSearch(normalizedQuery, timeZone) {
             continue;
         }
         results.push({
+            // Document id; answerQuery's sourceIds refer to it.
+            id: typeof item.id === 'string' ? item.id : null,
             videoId: meta.videoId,
             videoTitle: typeof meta.videoTitle === 'string' ? meta.videoTitle : '',
             startTime,
             endTime,
+            snippet: excerpt(item.document.structData.content, stems),
         });
     }
 
@@ -268,7 +318,7 @@ export const searchSegments = onCall({ ...SEARCH_FUNCTION_OPTIONS, timeoutSecond
     }
 });
 
-async function callAnswerApi(queryText, preamble, session, queryId) {
+async function callAnswerApi(queryText, session, queryId) {
     const payload = {
         query: queryId ? { text: queryText, queryId } : { text: queryText },
         session: session || `${DE_ENGINE}/sessions/-`,
@@ -278,7 +328,7 @@ async function callAnswerApi(queryText, preamble, session, queryId) {
             ignoreLowRelevantContent: false,
             multimodalSpec: {},
             includeCitations: true,
-            promptSpec: { preamble },
+            promptSpec: { preamble: ANSWER_PREAMBLE },
             modelSpec: { modelVersion: "stable" },
         },
     };
@@ -288,14 +338,20 @@ async function callAnswerApi(queryText, preamble, session, queryId) {
         timeout: 80000,
         data: payload,
     });
-    return { answerText: response.data?.answer?.answerText || null };
+    const answer = response.data?.answer || {};
+    // References name the cited documents; their ids match searchSegments' result ids.
+    const sourceIds = [];
+    for (const reference of answer.references || []) {
+        const id = String(reference?.structuredDocumentInfo?.document || '').split('/').pop();
+        if (id && !sourceIds.includes(id)) sourceIds.push(id);
+    }
+    return { answerText: answer.answerText || null, sourceIds: sourceIds.slice(0, MAX_ANSWER_SOURCES) };
 }
 
-async function runAnswer(queryText, instruction, session, queryId) {
-    const preamble = instruction ? `${DEFAULT_JOE_STYLE} ${instruction}` : DEFAULT_JOE_STYLE + DEFAULT_JOE_PERSONA;
+async function runAnswer(queryText, session, queryId) {
     if (session && queryId) {
         try {
-            return await callAnswerApi(queryText, preamble, session, queryId);
+            return await callAnswerApi(queryText, session, queryId);
         } catch (error) {
             const { status, message } = describeGoogleError(error);
             if (status !== 400 && status !== 404) throw error;
@@ -303,27 +359,24 @@ async function runAnswer(queryText, instruction, session, queryId) {
             logger.warn("answerQuery: session answer failed, retrying standalone", { status, message });
         }
     }
-    return callAnswerApi(queryText, preamble, null, null);
+    return callAnswerApi(queryText, null, null);
 }
 
+// Custom instructions were dropped on 2026-10-31; an `instruction` from an old client is ignored.
 export const answerQuery = onCall({ ...SEARCH_FUNCTION_OPTIONS, timeoutSeconds: 90 }, async (request) => {
     enforceRateLimit(answerLimiter, request, "answerQuery");
     const queryText = cleanQueryText(request.data?.query);
-    const rawInstruction = request.data?.instruction;
-    const instruction = typeof rawInstruction === 'string'
-        ? rawInstruction.trim().replace(/\s+/g, ' ').slice(0, MAX_INSTRUCTION_LENGTH)
-        : '';
     const session = typeof request.data?.session === 'string' && DE_SESSION_RE.test(request.data.session)
         ? request.data.session : null;
     const queryId = typeof request.data?.queryId === 'string' && DE_QUERY_ID_RE.test(request.data.queryId)
         ? request.data.queryId : null;
 
-    const cacheKey = `${queryText.toLowerCase()}\u0000${instruction}`;
+    const cacheKey = queryText.toLowerCase();
     try {
         return await cachedCall(
             answerCache,
             cacheKey,
-            () => runAnswer(queryText, instruction, session, queryId),
+            () => runAnswer(queryText, session, queryId),
             (value) => !!value?.answerText
         );
     } catch (error) {
@@ -881,6 +934,10 @@ export const getUserUsageStats = onCall({
 
 const sha = (value) => createHash('sha256').update(value).digest('hex').slice(0, 32);
 const ALREADY_EXISTS = 6;
+// privacy.html promises deletion after 24 months: searchActivity, dailySearchStats/*/visitors and
+// analyticsEvents carry expireAt, and a Firestore TTL policy on that field per collection group
+// deletes them (gcloud firestore fields ttls update expireAt --collection-group=<name> --enable-ttl).
+const LOG_RETENTION_MS = 730 * 24 * 60 * 60 * 1000;
 
 export const recordSearchActivity = onCall({
     enforceAppCheck: false,
@@ -898,6 +955,8 @@ export const recordSearchActivity = onCall({
 
         const userId = request.auth?.uid || null;
         const isAuthenticated = !!request.auth;
+        // sessionId is the browser's persistent visitor id since 2026-10-31 (per page load before).
+        const internal = request.data?.internal === true || isAdmin(request.auth);
         const session = typeof sessionId === 'string' && sessionId ? sessionId.slice(0, 128) : null;
         const now = new Date();
         const dateString = now.toISOString().split('T')[0]; // YYYY-MM-DD format
@@ -910,10 +969,12 @@ export const recordSearchActivity = onCall({
             userId,
             sessionId: session,
             isAuthenticated,
+            internal,
             timestamp: now,
             date: dateString,
             userAgent: typeof userAgent === 'string' ? userAgent.slice(0, 500) : null,
             createdAt: now,
+            expireAt: new Date(now.getTime() + LOG_RETENTION_MS),
         });
         batch.set(dailyStatsRef, {
             date: dateString,
@@ -934,6 +995,7 @@ export const recordSearchActivity = onCall({
                 await dailyStatsRef.collection('visitors').doc(sha(visitorKey)).create({
                     kind: isAuthenticated ? 'authenticated' : 'anonymous',
                     firstSeenAt: now,
+                    expireAt: new Date(now.getTime() + LOG_RETENTION_MS),
                 });
                 await dailyStatsRef.set({
                     [isAuthenticated ? 'uniqueAuthenticatedUsers' : 'uniqueAnonymousUsers']: FieldValue.increment(1),
@@ -963,4 +1025,97 @@ export const recordSearchActivity = onCall({
             error: error.message
         };
     }
+});
+
+// ===== Product analytics =====
+// analyticsEvents/{auto}: one doc per event sent by public/analytics.js, which batches them.
+// No cookies and no third-party scripts: the browser keeps a random visitor id in localStorage.
+// Own traffic is tagged internal (the admin account, or a browser that opened any page with
+// ?internal=1). Read the funnel with frontend-firebase/tools/analytics_report.py.
+
+const ANALYTICS_EVENTS = new Set([
+    'page_view',
+    'search',             // props: query, source (typed|example|url|history), results, episodes, ms | error
+    'answer_shown',       // props: ok, sources
+    'moment_play',        // props: videoId, start, via (thumbnail|seek|answer)
+    'youtube_open',       // props: videoId, start
+    'citation_copy',      // props: videoId, start
+    'search_link_copy',   // props: query
+    'compile_click',      // props: segments, signedIn
+    'signin_prompt',      // props: context
+    'signin_complete',    // props: method
+    'job_created',        // props: segments, seconds
+    'job_complete',       // props: jobId
+    'video_download',     // props: jobId, page
+]);
+const MAX_EVENTS_PER_CALL = 20;
+const CLIENT_ID_RE = /^[A-Za-z0-9-]{8,64}$/;
+const PROP_KEY_RE = /^[a-z][a-zA-Z0-9_]{0,31}$/;
+const analyticsLimiter = new RateLimiter(120, 60 * 1000);
+
+function cleanProps(value) {
+    const props = {};
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return props;
+    for (const [key, v] of Object.entries(value).slice(0, 12)) {
+        if (!PROP_KEY_RE.test(key)) continue;
+        if (typeof v === 'string') props[key] = v.slice(0, 300);
+        else if ((typeof v === 'number' && Number.isFinite(v)) || typeof v === 'boolean' || v === null) props[key] = v;
+    }
+    return props;
+}
+
+function cleanText(value, maxLength) {
+    return typeof value === 'string' && value ? value.slice(0, maxLength) : null;
+}
+
+// Analytics must never break a page, so bad input is dropped rather than rejected.
+export const trackEvents = onCall({
+    memory: "256MiB",
+    timeoutSeconds: 10,
+    maxInstances: 5,
+    minInstances: 0,
+}, async (request) => {
+    if (!analyticsLimiter.take(clientIp(request))) return { recorded: 0 };
+    const data = request.data || {};
+    const visitorId = typeof data.visitorId === 'string' && CLIENT_ID_RE.test(data.visitorId) ? data.visitorId : null;
+    if (!visitorId || !Array.isArray(data.events)) return { recorded: 0 };
+
+    const sessionId = typeof data.sessionId === 'string' && CLIENT_ID_RE.test(data.sessionId) ? data.sessionId : null;
+    const internal = data.internal === true || isAdmin(request.auth);
+    const device = data.device === 'mobile' ? 'mobile' : 'desktop';
+    const now = new Date();
+    const date = utcDay(now);
+
+    const batch = db.batch();
+    let recorded = 0;
+    for (const event of data.events.slice(0, MAX_EVENTS_PER_CALL)) {
+        if (!event || !ANALYTICS_EVENTS.has(event.name)) continue;
+        // Client clocks can be wrong; keep their timestamp only if it is within a day of ours.
+        const clientAt = typeof event.ts === 'number' && Math.abs(event.ts - now.getTime()) < 86400000
+            ? new Date(event.ts) : null;
+        batch.create(db.collection('analyticsEvents').doc(), {
+            name: event.name,
+            props: cleanProps(event.props),
+            visitorId,
+            sessionId,
+            userId: request.auth?.uid || null,
+            internal,
+            device,
+            path: cleanText(event.path, 200),
+            date,
+            clientAt,
+            createdAt: now,
+            expireAt: new Date(now.getTime() + LOG_RETENTION_MS),
+        });
+        recorded++;
+    }
+    if (recorded === 0) return { recorded };
+
+    try {
+        await batch.commit();
+    } catch (error) {
+        logger.error("trackEvents: write failed", { message: error.message, recorded });
+        return { recorded: 0 };
+    }
+    return { recorded };
 });

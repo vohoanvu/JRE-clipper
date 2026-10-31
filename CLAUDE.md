@@ -58,6 +58,9 @@ A console app that renders one `videoJobs/{JOB_ID}` document and exits.
   4. Validate the duration.
   5. Upload to `edited-clips/{jobId}/final_video.mp4` and sign a 7-day V4 URL via IAM `signBlob` (`IamBlobSigner`).
 - An atomic Firestore claim makes duplicate executions no-ops; a retry of the same execution may resume.
+  - `searchSegments` returns a ~30-word transcript excerpt per hit, never the full chunk. `answerQuery` is a neutral, cited summary (the "AI Joe Rogan" persona and custom instructions were removed on 2026-10-31) and returns `sourceIds` that match the search result ids.
+  - Product analytics: `public/analytics.js` (persistent visitor id in localStorage, no cookies) → `trackEvents` → `analyticsEvents`. Own traffic is tagged `internal` (admin account, or any page opened once with `?internal=1`). Read the funnel with `python frontend-firebase/tools/analytics_report.py --days 30`. Log docs carry `expireAt` (24-month TTL, promised in `privacy.html`).
+  - Legal pages: `terms.html`, `privacy.html`, `copyright.html` (operator VU Solutions LLC, Vietnam). Keep them true when changing what is collected or stored.
 - Exit 0 means done, permanent failure, or nothing to do; exit 1 means retryable (the job has `--max-retries=1`).
 - Progress writes are throttled to one per 2 s, and the progress writer is stopped before the final status write.
 - Local testing without the cloud: `JOB_FILE=job.json SOURCE_ROOT=F:/jre-all-episodes OUTPUT_DIR=out dotnet run -c Release`. Against real Firestore/GCS, run the container with `GOOGLE_OAUTH_ACCESS_TOKEN=$(gcloud auth print-access-token)` and `SIGNER_EMAIL=jre-clip-renderer@…`.

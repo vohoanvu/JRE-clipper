@@ -13,6 +13,7 @@
   <script defer src="/__/firebase/11.9.1/firebase-auth-compat.js"></script>
   <script defer src="/__/firebase/11.9.1/firebase-functions-compat.js"></script>
   <script defer src="/__/firebase/init.js"></script>
+  <script defer src="analytics.js?v=20261031"></script>
 
   <style media="screen">
     main {
@@ -402,6 +403,7 @@
       let delay = MIN_DELAY_MS;
       let consecutiveErrors = 0;
       let lastSignature = '';
+      let completeTracked = false;
 
       // Back link returns to the last search (main.js re-runs ?q=).
       try {
@@ -448,6 +450,9 @@
         if (!document.hidden && polling && !pollTimer && !pollInFlight) poll();
       });
 
+      $('download-button').addEventListener('click', () => {
+        window.jreAnalytics?.track('video_download', { jobId, page: 'status' });
+      });
       $('retry-button').addEventListener('click', (e) => retryWithSameSegments(e.currentTarget, $('retry-error')));
       $('regenerate-button').addEventListener('click', (e) => retryWithSameSegments(e.currentTarget, $('regenerate-error')));
 
@@ -613,6 +618,11 @@
         const container = $('download-container');
         container.hidden = status !== 'Complete';
         if (status !== 'Complete') return;
+        // Once per page view; the report counts distinct jobIds.
+        if (!completeTracked) {
+          completeTracked = true;
+          window.jreAnalytics?.track('job_complete', { jobId, watched: lastActiveStatus !== null });
+        }
 
         const details = [];
         if (data.outputDurationSeconds != null) details.push(`Length: ${formatDuration(data.outputDurationSeconds)}`);
