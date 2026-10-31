@@ -1,7 +1,101 @@
 # Project Status: "What would Joe Rogan say?" - Web App
 
-**Date:** 2026-10-27
-**Overall Status:** `REDESIGN LIVE — quota raised to 1M; gap + 231 new + 186 backfill episodes imported and marked; backfill download RUNNING again since 16:46 (148/195 done, ~6 h left); daily ingestion task scheduled`
+**Date:** 2026-10-31
+**Overall Status:** `GROWTH PLAN STARTED — steps 1, 3, 4 of the 30/60/90 plan live (analytics, legal pages, neutral cited AI summary, excerpts/citations/shareable URLs); next: embed Compilation Player (step 5), then 100 SEO pages (step 6)`
+
+---
+
+## Handoff (2026-10-31): growth and monetization plan ▶️ start here
+A monetization and GTM audit was run on 2026-10-31 (saas-monetization-consultant agent; owner decisions below). This entry is the plan of record. Progress on it goes in new dated entries above.
+
+### Where things stand
+- **There are no outside users yet.** Firebase Auth has 3 accounts, all the owner's. Every `videoJobs` doc is the owner's or a test. About 44 searches were logged in 15 months, mostly the owner's. The old Stripe "Pro $9.99" only ever ran in test mode.
+- **Conclusion:** distribution is the bottleneck, not pricing. A paywall now would measure nothing.
+- **Asset:** moment-level semantic search over 2,556 indexed episodes (about 925k segments), updated daily. Competitors (podscripts, Rosetta, JRELIST) show whole transcripts or episode lists, not timestamped moments.
+- **Legal frame (risk assessment, not legal advice):** *Fox News v. TVEyes* (2d Cir. 2018) applies. Searchable index plus short excerpts plus official embeds is defensible. Serving downloadable clips was found not to be fair use.
+- **Highest-risk part of the product:**
+  - Today's free downloadable compilations, which are cut from a 936 GB library pulled from YouTube with yt-dlp.
+  - The "JRE" and "Joe Rogan" marks in the brand and domain, which are Joe Rogan's registered trademarks.
+
+### Owner decisions (2026-10-31)
+1. **To be able to charge, the owner will stop serving downloadable JRE files and stop pulling full episodes with yt-dlp.** Never sell downloads or render credits.
+2. **Payments go through the owner's Vietnam company, VU Solutions LLC** (single-member, Da Nang, tax code 0402259203). Stripe doesn't onboard Vietnam merchants, so use a merchant of record.
+   - Polar is first choice and Paddle the fallback; Lemon Squeezy also pays out to Vietnam.
+   - B2B deals are invoiced directly by the company, with no MoR.
+   - Ask the accountant: business-line scope, VAT treatment of MoR payouts as service export, and e-invoicing.
+3. **The rebrand is PodReceipts (podreceipts.com, unregistered on 2026-10-31).** It happens in 2027, before whatwouldjoerogansay.com expires on 2027-06-28.
+   - Buy the domain, run a USPTO/WIPO trademark check, and 301-redirect the old domain for a few months.
+   - JRE content goes under a descriptive path such as `/joe-rogan-experience/...`.
+4. **The owner built this as a JRE fan and has no creator or journalist network.** The "economic buyer = media creator" in CLAUDE.md is an untested hypothesis.
+
+### 30/60/90-day plan
+Step numbers are the build order. E-numbers are the experiments.
+
+| # | Item | Success metric | Kill criterion | Status |
+|---|---|---|---|---|
+| 1 / E1 | Analytics, about 10 funnel events, internal-traffic flag | full funnel visible | — | ✅ live 10-31 |
+| 3 / E3 | Terms, Privacy and DMCA pages; "unofficial" notice; neutral cited AI summary | shipped | — | ✅ live 10-31 |
+| 4 / E2 | Excerpts, Copy citation, `?q=` URLs, OG tags, example chips | ≥40% of searchers activate | <20%: fix relevance before any growth work | ✅ live 10-31; measure |
+| 5 / E9 | **Embed Compilation Player**: official YouTube embeds played in sequence with start/end, shareable link. Then retire downloads (see below) | ≥10% of compilations shared, ≥0.5 visits per share | <2% shared: stop investing in compilations | **next** |
+| 6 / E4 | **SEO batch 1: 100 static pages** (guests with ≥5 appearances plus top topics), sitemap, Search Console | ≥60% indexed by day 45 | <30% indexed: enrich the pages, don't expand | next |
+| E5 | 30 "receipts" replies (owner, 15 min/day) | ≥300 visits, ≥25% activated | <75 visits: drop the channel | owner |
+| E6 (days 31–60) | Weekly "This week on JRE, timestamped" email digest | ≥150 subscribers | <50 | — |
+| 7 / E7 (days 31–60) | Pricing page, Pro fake door (waitlist 2 weeks, then live MoR checkout) | ≥5% of activated signed-in users click upgrade; ≥10 paying by day 75 | <1% from ≥300 activated: no consumer Pro | needs neutral brand and legal pages for MoR approval |
+| E8 (days 31–60) | About 20 discovery emails to commentators, journalists and fact-checkers who cover Rogan | ≥10 replies, ≥2 committed to $39 | <3 replies: the buyer hypothesis is wrong | — |
+| E10 (days 61–90) | SEO batch 2 (about 1,000 pages), only if E4 passed | ≥3k organic visits/mo | <500/mo | — |
+| E11 (days 61–90) | Show HN (technical story) plus a r/dataisbeautiful data post | ≥5 referring domains, ≥100 subscribers | — | — |
+| E12 (days 61–90) | 10–15 podcaster conversations about rights-cleared back-catalog search | ≥3 letters of intent at ≥$99/mo | 0 letters: don't build multi-catalog | — |
+
+**Day-90 gate.** Keep investing in the JRE product only if all three hold: ≥3k organic visits a month, ≥25% activation, and ≥10 paying users. Otherwise either move to the podcaster product (if E12 passed), or freeze the site as a free portfolio piece with a spend cap.
+
+Measure with `python frontend-firebase/tools/analytics_report.py --days 30`.
+
+### Getting traffic (solo founder, $0 budget)
+- **Positioning:** "Find the exact moment Joe Rogan talked about anything", meaning what he *actually* said, with timestamps. It is never a persona. Use the names only descriptively, always with "unofficial".
+- **Channel 1: programmatic SEO** (compounds over time).
+  - Pages:
+    - `/guest/*`: 91 guests with ≥5 appearances, then the 397 repeat guests, then all.
+    - `/topic/*`: about 100 to start, from logged queries plus JRE staples.
+    - `/episode/*`: later.
+  - Template: "What Joe Rogan said about {X}: N moments in M episodes", with ≤30-word excerpts, `youtube.com/watch?v=ID&t=S` links, first and latest mention, related topics, and a call to action.
+  - Build: a script runs one search per page at build time and writes static HTML. Ship in batches of 100 and expand only while indexing is healthy, because Google penalizes thin scaled content.
+  - Do this before the 2027 rebrand only if a 301 migration plan exists; otherwise build it on the new domain.
+- **Channel 2: "receipts" replies.** In r/JoeRogan (about 1.7M members), X threads and JRE Discords, answer "what episode / did Rogan say / timestamp" questions with the exact moment link, disclosing that you built the tool. Keep about 9 helpful posts for every promotional one. One-off posts: r/InternetIsBeautiful, r/dataisbeautiful, r/SideProject.
+- **Channel 3: discovery outreach** to Rogan commentators, journalists and fact-checkers. Lead with moments found for their story, offer free Pro, and ask whether alerts are worth $39/mo.
+- **Content loop:** the daily ingestion feeds a weekly digest and monthly "JRE by the numbers" posts (mention counts are facts, safe to publish). These feed Reddit and X, which bring backlinks to the SEO pages; alerts are the upsell.
+- **Launch:** Show HN around day 60 with the technical story (semantic chunking, A/V-sync fix, $1/mo archive storage). Product Hunt only for a backlink.
+- **Don't:** run raw JRE clip accounts on TikTok or Shorts (Content ID and the same TVEyes logic), claim to be "official", or use "JRE" or "Joe Rogan" as the paid brand or in ads.
+
+### Monetization
+**Rule: charge for workflow, never for content or playback.** YouTube API Policy III.F.3 forbids charging for or gating embedded playback.
+
+| Model | Price | When | Notes |
+|---|---|---|---|
+| Free | — | now | Search, excerpts, timestamps, embeds, Compilation Player, 3 collections, 3 AI summaries/day |
+| **Pro** | $8/mo, $60/yr, or a $12 one-time 30-day pass (anchor like podscripts) | after E2 ≥25% activation and ≥1k visitors/mo | Filters (guest, date, exact phrase), unlimited collections and cited summaries, citation export (CSV/Markdown), 5 alerts |
+| **Newsroom** | $39/mo, 1 seat | only after ≥3 E8 buyers say yes | 50 alerts within 24 h of release, bulk export. Needs automated import (today it's manual) |
+| **Podcaster B2B** (the scale path) | $99–299/mo per show, plus a setup fee | only after E12 produces ≥3 letters of intent | Semantic search plus clip player for the show's own back catalog, sold by VU Solutions as a productized service. Legally clean; $10k MRR ≈ 50 shows × $199 |
+| Affiliate (books on guest pages) | about 4.5% | once guest pages get >10k visits/mo | small |
+| **Never** | — | — | Paid JRE downloads or render credits, lifetime deals, reselling the API or data |
+
+- **Realistic expectation:** fan-only Pro probably reaches a few hundred to low thousands of dollars a month. $10k MRR from fans alone needs about 1,250 subscribers and roughly 100k visits a month.
+- **Unit economics (list prices):**
+  - A search session costs about $0.008–0.016, and the AI answer is about two-thirds of it. Cap it for anonymous users (sign-in or 3/day) once traffic grows.
+  - Max render is about $0.009.
+  - The 936 GB archive is about $1.1/mo.
+  - Pro at $8 keeps a ≥75% gross margin after MoR fees.
+
+### Retiring downloads (part of step 5)
+1. Ship the embed Compilation Player as the default.
+2. Then remove `createVideoJob`, the `jre-clip-renderer` job, the `status.html` download flow, and the `download` and Whisper-fallback steps of the daily ingestion task. Keep `captions`; scraped captions remain the one accepted residual risk.
+3. Age-restricted episodes can't play in embeds, so they get a "watch on YouTube" link.
+4. Deleting `gs://jre-all-episodes` (936 GB) and existing clips is irreversible. It needs a separate owner decision after the player is live.
+
+### Owner to-dos
+- Check the live site on a phone, and the link-preview card (Discord or X).
+- Have a lawyer review `terms.html`, `privacy.html` and `copyright.html` (governing law is Vietnam). Optionally register a DMCA designated agent with the US Copyright Office (about $6).
+- Start E5 (receipts replies). Browse with `?internal=1` once per browser.
+- In early 2027, before 2027-06-28: buy podreceipts.com, run the trademark check, and plan the domain migration.
 
 ---
 
